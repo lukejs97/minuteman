@@ -578,7 +578,7 @@ export function renderTimeline(
     refit = window.setTimeout(() => {
       if (!scroller.isConnected) return;
       const zoom = fit();
-      const tall = Math.max(hourHeight, room() / 24);
+      const tall = Math.max(hourHeight, lowestHourHeight());
       if (!zoom && Math.abs(tall - hourHeight) < 0.5) return;
       const hoursAtTop = scroller.scrollTop / hourHeight;
       fitted.applied = true;
@@ -624,6 +624,13 @@ export function renderTimeline(
     const covered = shown ? Math.max(0, scroller.getBoundingClientRect().bottom - dock.getBoundingClientRect().top) : 0;
     return scroller.clientHeight - top.offsetHeight - covered;
   };
+  /**
+   * The shortest hour a pinch may use. A full day still fills the hours
+   * (`room() / 24`), and an hour is never under `MIN_HOUR_HEIGHT`. The resize
+   * handler pulls a shorter day back up to this; pinching has to stop here
+   * itself, or the day shrinks past it and then jumps.
+   */
+  const lowestHourHeight = () => Math.max(MIN_HOUR_HEIGHT, room() / 24);
   const fit = (): [height: number, from: number] | null => {
     const daysKey = `${toDateString(days[first])}+${visible}`;
     const [from, to] = busyHours(ctx.items, onScreen());
@@ -702,7 +709,7 @@ export function renderTimeline(
   enablePinch(scroller, timeline, () => {
     adjusted();
     redraw();
-  });
+  }, lowestHourHeight);
 }
 
 /**
@@ -737,36 +744,69 @@ function animateZoom(scroller: HTMLElement, timeline: HTMLElement, height: numbe
  * counts. The time under the fingers stays where it is. Once the pinch ends,
  * the size is saved and `redraw` runs.
  */
-function enablePinch(scroller: HTMLElement, timeline: HTMLElement, redraw: () => void): void {
+function enablePinch(
+  scroller: HTMLElement,
+  timeline: HTMLElement,
+  redraw: () => void,
+  lowestHourHeight: () => number,
+): void {
   let settle: number | undefined;
+  /** A pinch in this gesture actually changed the hour height. */
+  let moved = false;
   /** Where the hours start inside the scrolling content, in px. */
   const gridTop = () => {
     const grid = scroller.querySelector<HTMLElement>(".tl-grid")!;
     return grid.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
   };
 
-  /** Sets the hour height, keeping the time at `clientY` (a screen position) in place. */
-  const zoomTo = (height: number, clientY: number) => {
-    height = Math.min(MAX_HOUR_HEIGHT, Math.max(MIN_HOUR_HEIGHT, height));
-    if (Math.abs(height - hourHeight) < 0.1) return;
+  /**
+   * Sets the hour height, keeping the time at `clientY` (a screen position)
+   * in place. False when that's already the height, so the caller can leave
+   * the scroll and the layout alone.
+   *
+   * Zooming in is only capped at `MAX_HOUR_HEIGHT`. Zooming out also stops
+   * at `lowestHourHeight` (a full day filling the window). The limit is
+   * applied before the scroll is chosen: a shorter requested height used to
+   * be drawn, then the resize handler pulled the day back up and the view jumped.
+   */
+  const zoomTo = (height: number, clientY: number): boolean => {
+    let next = Math.min(MAX_HOUR_HEIGHT, Math.max(MIN_HOUR_HEIGHT, height));
+    if (height < hourHeight) next = Math.max(next, lowestHourHeight());
+    if (Math.abs(next - hourHeight) < 0.1) return false;
     const offset = clientY - scroller.getBoundingClientRect().top;
     const top = gridTop();
     const hoursAtPoint = (scroller.scrollTop + offset - top) / hourHeight;
-    hourHeight = height;
-    timeline.style.setProperty("--hour-height", `${height}px`);
-    scroller.scrollTop = top + hoursAtPoint * height - offset;
+    hourHeight = next;
+    timeline.style.setProperty("--hour-height", `${next}px`);
+    // The clamped height, so the time under the pointer doesn't follow a
+    // size the view then abandons.
+    scroller.scrollTop = top + hoursAtPoint * next - offset;
+    moved = true;
+    return true;
   };
 
   const finish = () => {
     window.clearTimeout(settle);
     settle = window.setTimeout(() => {
+      settle = undefined;
+      moved = false;
       setHourHeight(hourHeight);
       if (scroller.isConnected) redraw();
     }, 250);
   };
+  /**
+   * Save and redraw once a gesture that changed the hour height has stopped.
+   * A further zoom-out already at the limit must not schedule one: nothing
+   * moved, and a redraw was when a too-short day got pulled back up.
+   */
+  const note = (changed: boolean) => {
+    if (changed) moved = true;
+    if (moved) finish();
+  };
 
-  // Trackpad pinch (and ctrl + mouse wheel). Not passive: it stops the
-  // browser zooming the whole page instead.
+  // Trackpad pinch (and ctrl + mouse wheel). Not passive: preventDefault
+  // stops the browser zooming the page, including when the hour height is
+  // already at its limit and this gesture changes nothing.
   scroller.addEventListener(
     "wheel",
     (e) => {
@@ -776,8 +816,7 @@ function enablePinch(scroller: HTMLElement, timeline: HTMLElement, redraw: () =>
       // (or a few "lines"), so cap each step at about a 28% change.
       const delta = e.deltaMode === WheelEvent.DOM_DELTA_LINE ? e.deltaY * 16 : e.deltaY;
       const step = Math.max(-25, Math.min(25, delta));
-      zoomTo(hourHeight * Math.exp(-step * 0.01), e.clientY);
-      finish();
+      note(zoomTo(hourHeight * Math.exp(-step * 0.01), e.clientY));
     },
     { passive: false },
   );
@@ -805,7 +844,7 @@ function enablePinch(scroller: HTMLElement, timeline: HTMLElement, redraw: () =>
   const touchEnd = (e: TouchEvent) => {
     if (pinch && e.touches.length < 2) {
       pinch = null;
-      finish();
+      if (moved) finish();
     }
   };
   scroller.addEventListener("touchend", touchEnd);
@@ -828,7 +867,7 @@ function enablePinch(scroller: HTMLElement, timeline: HTMLElement, redraw: () =>
   });
   scroller.addEventListener("gestureend", (e) => {
     e.preventDefault();
-    if (!pinch) finish();
+    if (!pinch && moved) finish();
   });
 }
 
