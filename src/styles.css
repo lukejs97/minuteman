@@ -148,8 +148,12 @@ html {
   letter-spacing: 0.01em;
 }
 
-/* The month title is also the "go to today" button; it looks like a heading. */
+/* The month title is also the "go to today" button; it looks like a heading.
+   A long name (or a range) ellipsizes instead of wrapping or shoving the arrows. */
 .title-button {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
   padding: 0;
   border: none;
   background: none;
@@ -157,6 +161,9 @@ html {
   letter-spacing: inherit;
   color: inherit;
   text-align: left;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .title-button[title]:hover {
@@ -167,8 +174,11 @@ html {
 
 .account {
   margin: 0;
+  overflow: hidden;
   font-size: 12px;
   line-height: 1.4;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   /* Its line's room even before the account (or count) has loaded, so the
      header doesn't grow and move its buttons when it fills in. */
   min-height: 1.4em;
@@ -195,6 +205,11 @@ html {
 
 /* The title gives way to the buttons, rather than pushing them off screen. */
 .topbar > div:first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.title-row h1 {
   min-width: 0;
 }
 
@@ -206,12 +221,6 @@ html {
 
   .topbar h1 {
     font-size: 18px;
-  }
-
-  .account {
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
   }
 
   .actions {
@@ -248,8 +257,12 @@ html {
   }
 }
 
-/* Wide windows: title, arrows and Today, the views, and the buttons in one
-   row, as in Fantastical, so the header takes less height. */
+/* Wide windows: one row, as in Fantastical, so the header takes less height.
+   Previous, Today, Next and the views are a single group centered on the
+   header. The month on the left and the buttons on the right are equal wings,
+   so a longer month name can't slide that group. When the wings can't stay
+   equal (the action buttons need the room), the title ellipsizes and the
+   group shifts only as far as it must to avoid an overlap. */
 @media (min-width: 900px) {
   .chrome {
     position: relative;
@@ -267,28 +280,40 @@ html {
 
   .chrome .topbar > div:first-child {
     order: 1;
-    flex: none;
-    max-width: 30%;
+    flex: 1 1 0;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .chrome .title-row,
+  .chrome .title-row h1 {
+    max-width: 100%;
   }
 
   .chrome .toolbar {
     /* The stripes (its ::after) run along the bottom of the whole header. */
     position: static;
     order: 2;
-    flex: 1;
+    flex: none;
     flex-wrap: nowrap;
+    justify-content: flex-start;
+    width: max-content;
+    max-width: 100%;
     padding: 0;
     background: none;
+    gap: 12px;
   }
 
-  /* The views in the middle of the space between the arrows and the buttons. */
   .chrome .nav-buttons,
   .chrome #view-switcher {
-    margin-right: auto;
+    margin-right: 0;
   }
 
   .chrome .actions {
     order: 3;
+    flex: 1 1 0;
+    min-width: max-content;
+    justify-content: flex-end;
   }
 }
 
@@ -303,6 +328,8 @@ html {
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 @media (max-width: 640px) {
@@ -314,6 +341,17 @@ html {
   .topbar h1 {
     font-size: 28px;
     line-height: 1.15;
+  }
+
+  /* Arrows pin to the right end of the big title, so "May" and "September"
+     don't slide them under the next tap. */
+  .title-row .nav-buttons {
+    margin-left: auto;
+    flex: none;
+  }
+
+  .title-row h1 {
+    overflow: hidden;
   }
 
   /* (Not the menu bar window's header, which is as narrow but keeps its buttons.) */
@@ -804,7 +842,13 @@ main.loading > * {
 .tl-event .task-check {
   position: absolute;
   left: 5px;
-  top: 3px;
+  /* Center the 14px circle on the first line (2px padding-top, line-height 1.25). */
+  top: calc(2px + (1.25em - 14px) / 2);
+}
+
+.tl-event.compact .task-check {
+  /* Compact blocks drop the top padding, so that line starts at the top. */
+  top: calc((1.25em - 14px) / 2);
 }
 
 /* ---------- Dialog ---------- */
@@ -2076,6 +2120,8 @@ main.loading > * {
   .item .task-check {
     width: 22px;
     height: 22px;
+    /* The larger circle still meets the title line; the row stays as tall. */
+    margin-top: calc((1.4em - 22px) / 2);
   }
 
   .item .task-check[aria-checked="true"]::after {
