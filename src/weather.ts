@@ -85,6 +85,18 @@ const isMacApp = () => isTauri() && /Macintosh|Mac OS X/.test(navigator.userAgen
  */
 export async function locate(): Promise<Place> {
   const round = (n: number) => Math.round(n * 100) / 100;
+  const here = await devicePosition();
+  return {
+    name: "Current location",
+    detail: "",
+    latitude: round(here.latitude),
+    longitude: round(here.longitude),
+    current: true,
+  };
+}
+
+/** Where the device is: the Mac's location in the Mac app, otherwise the browser's. */
+export async function devicePosition(): Promise<{ latitude: number; longitude: number }> {
   let here: { latitude: number; longitude: number };
   if (isMacApp()) {
     const found = await currentLocation();
@@ -107,19 +119,13 @@ export async function locate(): Promise<Place> {
       ),
     );
   }
-  return {
-    name: "Current location",
-    detail: "",
-    latitude: round(here.latitude),
-    longitude: round(here.longitude),
-    current: true,
-  };
+  return { latitude: here.latitude, longitude: here.longitude };
 }
 
-/** Places matching `name` ("Greer", "Paris, France"), for choosing one. */
+/** Places matching `name` ("Lexington", "Paris, France"), for choosing one. */
 export async function searchPlaces(name: string): Promise<Place[]> {
   const url = new URL(GEOCODING);
-  // Only the town's name helps Open-Meteo's search; "Greer, SC" finds nothing.
+  // Only the town's name helps Open-Meteo's search; "Lexington, MA" finds nothing.
   url.searchParams.set("name", name.split(",")[0].trim());
   url.searchParams.set("count", "8");
   url.searchParams.set("language", navigator.language.split("-")[0]);

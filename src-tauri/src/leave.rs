@@ -36,7 +36,7 @@ pub const LEGACY_HORIZON: TimeDelta = TimeDelta::hours(3);
 pub const MIN_LEGACY_DRIVE: u32 = 3;
 /// A drive longer than this (4 hours) almost always means Google matched an
 /// address somewhere else: a street name with no town is the usual cause
-/// ("10 Mill Park Ct" with several in the country). No leave-by time or alert
+/// ("10 Battle Rd" with several in the country). No leave-by time or alert
 /// is given for it; the minutes are kept so the details can say so. Kept in
 /// step with `MAX_PLAUSIBLE_DRIVE_MINUTES` in src/routes-budget.ts.
 pub const MAX_PLAUSIBLE_DRIVE: u32 = 240;
@@ -140,6 +140,29 @@ pub struct LeaveNotice {
     pub key: String,
     pub title: String,
     pub body: String,
+}
+
+/// Where you are, as a starting point: "@42.447,-71.227", rounded to about
+/// 100 m so a little GPS wobble doesn't ask Google again. Kept in step with
+/// `spotOrigin` in src/routes-budget.ts.
+// Only the Mac finds a location in Rust (Core Location); elsewhere the page sends it.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn spot_origin(latitude: f64, longitude: f64) -> String {
+    format!("@{latitude:.3},{longitude:.3}")
+}
+
+/// The latitude and longitude in a `spot_origin`; `None` for an address.
+pub fn parse_spot(origin: &str) -> Option<(f64, f64)> {
+    let (lat, lng) = origin.trim().strip_prefix('@')?.split_once(',')?;
+    let (lat, lng): (f64, f64) = (lat.trim().parse().ok()?, lng.trim().parse().ok()?);
+    ((-90.0..=90.0).contains(&lat) && (-180.0..=180.0).contains(&lng)).then_some((lat, lng))
+}
+
+/// Where a drive starts: the event's own address, else where you are (when
+/// Settings says so and it's known), else the address in Settings. Blank is none.
+pub fn pick_origin(event_override: Option<&str>, here: Option<&str>, default_address: &str) -> Option<String> {
+    let here = here.filter(|spot| parse_spot(spot).is_some());
+    resolve_origin(event_override, here.unwrap_or(default_address))
 }
 
 /// The event's own starting address, or the one in Settings. Blank is none.
@@ -271,8 +294,13 @@ pub fn classify(destination: &str, arrive: DateTime<Utc>, now: DateTime<Utc>, or
 
 /// The Routes request body. `departure` is an absolute time.
 pub fn route_request(origin: &str, destination: &str, departure: DateTime<Utc>) -> Value {
+    // Where you are goes as coordinates: nothing for Google to mismatch.
+    let origin = match parse_spot(origin) {
+        Some((latitude, longitude)) => json!({ "location": { "latLng": { "latitude": latitude, "longitude": longitude } } }),
+        None => json!({ "address": origin }),
+    };
     json!({
-        "origin": { "address": origin },
+        "origin": origin,
         "destination": { "address": destination },
         "travelMode": "DRIVE",
         "routingPreference": "TRAFFIC_AWARE",
@@ -820,9 +848,28 @@ mod tests {
     }
 
     #[test]
+    fn where_you_are_goes_to_google_as_coordinates() {
+        let spot = spot_origin(42.44731, -71.22719);
+        assert_eq!(spot, "@42.447,-71.227");
+        assert_eq!(parse_spot(&spot), Some((42.447, -71.227)));
+        assert_eq!(parse_spot("10 Battle Rd, Lexington, MA"), None);
+        assert_eq!(parse_spot("@95,0"), None);
+        let body = route_request(&spot, "Church", Utc::now());
+        assert_eq!(body["origin"]["location"]["latLng"]["latitude"], json!(42.447));
+        assert!(body["origin"].get("address").is_none());
+        let body = route_request("10 Battle Rd, Lexington, MA", "Church", Utc::now());
+        assert_eq!(body["origin"]["address"], json!("10 Battle Rd, Lexington, MA"));
+        // The event's own address wins; then where you are; then Settings.
+        assert_eq!(pick_origin(Some("Office"), Some(&spot), "Home").as_deref(), Some("Office"));
+        assert_eq!(pick_origin(None, Some(&spot), "Home").as_deref(), Some(spot.as_str()));
+        assert_eq!(pick_origin(None, None, "Home").as_deref(), Some("Home"));
+        assert_eq!(pick_origin(None, Some("nonsense"), "Home").as_deref(), Some("Home"));
+    }
+
+    #[test]
     fn a_drive_too_long_to_be_right_gets_no_leave_time() {
         let arrive = Utc::now() + TimeDelta::hours(5);
-        // 550 minutes: "10 Mill Park Ct" matched nine hours away.
+        // 550 minutes: "10 Battle Rd" matched nine hours away.
         let wrong = answer(Some(550), arrive, TravelStatus::Ok);
         assert_eq!(wrong.status, TravelStatus::Implausible);
         assert_eq!(wrong.leave_at, None);

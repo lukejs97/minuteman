@@ -523,7 +523,12 @@ async fn current_location(app: AppHandle) -> Option<serde_json::Value> {
 /// One answer per event. Missing a key, an address, or a place comes back as
 /// a status rather than an error, so the calendar still draws.
 #[tauri::command]
-async fn leave_times(app: AppHandle, state: State<'_, AppState>, events: Vec<LeaveQuery>) -> Result<Vec<LeaveEstimate>> {
+async fn leave_times(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    events: Vec<LeaveQuery>,
+    here: Option<String>,
+) -> Result<Vec<LeaveEstimate>> {
     use chrono::{DateTime, Utc};
     use futures::StreamExt;
 
@@ -532,12 +537,15 @@ async fn leave_times(app: AppHandle, state: State<'_, AppState>, events: Vec<Lea
     let has_key = leave::api_key().is_some();
     let allow_device = settings.uses_device_location();
     let default_from = settings.leave_from.clone();
+    // Where the page found you, when Settings says to start from there.
+    let here = here.filter(|_| settings.leave_from_here);
     let queries = events.into_iter().take(40).map(|event| {
         let http = http.clone();
         let app = app.clone();
         let default_from = default_from.clone();
+        let here = here.clone();
         async move {
-            let origin = leave::resolve_origin(event.leave_from.as_deref(), &default_from);
+            let origin = leave::pick_origin(event.leave_from.as_deref(), here.as_deref(), &default_from);
             let answer = match DateTime::parse_from_rfc3339(&event.start) {
                 Ok(start) => {
                     let place = event.location.clone();

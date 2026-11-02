@@ -1,9 +1,11 @@
 // Leave-by times on events. The drive is worked out off the page: in the app
 // (leave.rs) or, on the website, by the Worker. A missing key, address, or
 // place stays quiet on the calendar and is explained in details.
-import { leaveTimes, type AgendaItem, type LeaveEstimate, type LeaveStatus } from "./api";
+import { getPreferences, leaveTimes, type AgendaItem, type LeaveEstimate, type LeaveStatus } from "./api";
 import { el } from "./dom";
+import { spotOrigin } from "./routes-budget";
 import { itemStart } from "./time";
+import { devicePosition } from "./weather";
 
 const timeFormat = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
 
@@ -44,8 +46,29 @@ export function leaveLabel(item: AgendaItem, className: string): HTMLElement | n
   return node;
 }
 
+/** Whether Settings says to start from where you are (read once; refresh reads it again). */
+let fromHere: Promise<boolean> | null = null;
+/** Where you were last found, and when: asked again after a few minutes. */
+let lastSpot: { at: number; spot: string | null } | null = null;
+const SPOT_MS = 5 * 60_000;
+
+/** Where you are, as a starting point, if Settings wants that and it's known. */
+async function here(): Promise<string | null> {
+  fromHere ??= getPreferences().then((prefs) => !!prefs.leaveFromHere, () => false);
+  if (!(await fromHere)) return null;
+  if (lastSpot && Date.now() - lastSpot.at < SPOT_MS) return lastSpot.spot;
+  const spot = await devicePosition().then(
+    (at) => spotOrigin(at.latitude, at.longitude),
+    () => null, // not allowed or not found: the address in Settings is used
+  );
+  lastSpot = { at: Date.now(), spot };
+  return spot;
+}
+
 /** Asks again for whatever is on screen, e.g. after the address or key changes. */
 export function refreshLeaveTimes(): void {
+  fromHere = null;
+  lastSpot = null;
   void flush();
 }
 
@@ -90,6 +113,7 @@ async function flushOnce(): Promise<void> {
         location: slot.item.location ?? "",
         leaveFrom: slot.item.leaveFrom ?? null,
       })),
+      await here(),
     );
   } catch {
     return;
@@ -166,9 +190,10 @@ function hoursAndMinutes(minutes: number): string {
 export async function leaveDetail(item: AgendaItem): Promise<string | null> {
   if (!wantsLeave(item)) return null;
   try {
-    const [estimate] = await leaveTimes([
-      { id: item.id, start: item.start, location: item.location ?? "", leaveFrom: item.leaveFrom ?? null },
-    ]);
+    const [estimate] = await leaveTimes(
+      [{ id: item.id, start: item.start, location: item.location ?? "", leaveFrom: item.leaveFrom ?? null }],
+      await here(),
+    );
     // Too long to be right: Google matched an address in the wrong town.
     if (estimate?.status === "implausible" && estimate.minutes != null) {
       const from = item.leaveFrom?.trim() ? `"${item.leaveFrom.trim()}"` : "the leave-from address";

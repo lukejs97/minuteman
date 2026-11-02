@@ -309,6 +309,7 @@ export function install(): void {
     menuBarNext: true,
     timeToLeave: false,
     leaveFrom: "100 Main Street, Springfield",
+    leaveFromHere: false,
     routesDailyLimit: 80,
     routesMonthlyLimit: 2500,
     appleCalendar: false,
@@ -605,10 +606,12 @@ export function install(): void {
         return null;
       }
       case "leave_times": {
-        const { events } = args as {
+        const { events, here } = args as {
           events: { id: string; start: string; location: string; leaveFrom: string | null }[];
+          here?: string | null;
         };
-        const fallback = preferences.leaveFrom.trim();
+        // Where you are ("@lat,lng"), when that's on and this device found it.
+        const fallback = (preferences.leaveFromHere && here) || preferences.leaveFrom.trim();
         return (events ?? []).slice(0, 40).map((event) => {
           const location = event.location ?? "";
           const startMs = Date.parse(event.start);
@@ -623,7 +626,8 @@ export function install(): void {
           if (!routesKey) return { ...blank, status: "noKey" };
           // Like Google with a street and no town: a same-named street far away.
           if (!/,|\b\d{5}\b/.test(origin)) return { ...blank, minutes: 550, status: "implausible" };
-          const minutes = 25;
+          // Shorter from where you are, so the two are easy to tell apart.
+          const minutes = origin.startsWith("@") ? 12 : 25;
           return { id: event.id, start: event.start, minutes, leaveAt: new Date(startMs - minutes * 60_000).toISOString(), status: "ok" };
         });
       }

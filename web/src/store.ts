@@ -90,6 +90,8 @@ export const writeTodoistToken = (env: Env, token: string | null) => writeEncryp
 /** The default starting address and the Routes caps. Not the API key. */
 export interface LeaveSettings {
   leaveFrom: string;
+  /** Start from where the browser is, when it says (the address is the fallback). */
+  leaveFromHere?: boolean;
   routesDailyLimit: number;
   routesMonthlyLimit: number;
 }
@@ -99,6 +101,7 @@ export async function readLeaveSettings(env: Env): Promise<LeaveSettings> {
   const parsed = json ? (JSON.parse(json) as Partial<LeaveSettings>) : {};
   return {
     leaveFrom: typeof parsed.leaveFrom === "string" ? parsed.leaveFrom : "",
+    leaveFromHere: parsed.leaveFromHere === true,
     routesDailyLimit: typeof parsed.routesDailyLimit === "number" ? parsed.routesDailyLimit : 80,
     routesMonthlyLimit: typeof parsed.routesMonthlyLimit === "number" ? parsed.routesMonthlyLimit : 2500,
   };

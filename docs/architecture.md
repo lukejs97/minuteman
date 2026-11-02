@@ -124,8 +124,20 @@ Mac only (`#[cfg(target_os = "macos")]`), through the `objc2-*` crates:
   town, the usual cause being a street with no town or ZIP: status
   `implausible`, no leave-by time or alert, and the details say how long
   Google's drive was and to fix the address. Settings warns when the address
-  has no comma or ZIP (`looksComplete`), and its field isn't marked as a
-  street address, so AutoFill can't put in the street line alone. Answers are cached, and refreshed sooner as the
+  has no comma or ZIP (`looksComplete`). It asks for the address in four
+  fields (`address-line1`, `address-level2`, `address-level1`,
+  `postal-code`), so AutoFill fills the whole saved address, not just the
+  street; `joinAddress` and `splitAddress` (`routes-budget.ts`) turn them
+  into one "street, town, ST zip" string and back. **Start from where I am**
+  (`leaveFromHere`) starts from the device's location instead: the page
+  sends it as `here` ("@lat,lng" to 3 decimals, about 100 m, so the cache
+  still hits) to `leave_times`, and Google gets it as a `latLng` waypoint
+  (`spot_origin`, `pick_origin`, `waypoint`). The Mac app finds it with
+  Core Location, also for background alerts (`alerts.rs` `here_now`,
+  re-found every 5 minutes); the website and Windows use the browser's or
+  WebView's location for what's on screen, and Windows' background alerts
+  use the address. The event's own Leave from still wins, and with no
+  location the address is used. Answers are cached, and refreshed sooner as the
   event gets closer
   (5 minutes inside 45 minutes, up to 4 hours when it's more than 12 hours
   away). Nothing is asked until the event is inside 48 hours, or when there's

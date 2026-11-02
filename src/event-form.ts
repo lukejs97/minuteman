@@ -344,11 +344,13 @@ class Form {
     const [prefs, key] = await Promise.all([getPreferences().catch(() => null), routesKeyStatus().catch(() => null)]);
     if (!this.leaveFrom.isConnected) return;
     const address = prefs?.leaveFrom?.trim() ?? "";
-    this.leaveFrom.placeholder = address || "Set a default in Settings";
+    this.leaveFrom.placeholder = prefs?.leaveFromHere ? "Where you are" : address || "Set a default in Settings";
     const traffic = key?.configured ? "" : " Live traffic isn't set up, so leave-by times stay hidden until it is.";
-    this.leaveHint.textContent = address
-      ? `Uses “${address}” from Settings when this is empty.${traffic}`
-      : `Set a default address in Settings, or type one here.${traffic}`;
+    this.leaveHint.textContent = prefs?.leaveFromHere
+      ? `Starts from where you are when this is empty${address ? ` (or “${address}” if your location isn't available)` : ""}.${traffic}`
+      : address
+        ? `Uses “${address}” from Settings when this is empty.${traffic}`
+        : `Set a default address in Settings, or type one here.${traffic}`;
   }
 
   private buildTaskFields(): void {

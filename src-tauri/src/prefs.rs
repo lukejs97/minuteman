@@ -20,6 +20,9 @@ pub struct Prefs {
     pub time_to_leave: bool,
     /// Default starting address for leave-by times. An event can override it.
     pub leave_from: String,
+    /// Start drives from where the device is, when that's known (the address
+    /// is then the fallback). An event's own address still wins.
+    pub leave_from_here: bool,
     /// Routes attempts allowed per Pacific day. Clamped; never unlimited.
     pub routes_daily_limit: u32,
     /// Routes attempts allowed per Pacific month. Clamped; never unlimited.
@@ -44,6 +47,7 @@ impl Default for Prefs {
             menu_bar_next: true,
             time_to_leave: false,
             leave_from: String::new(),
+            leave_from_here: false,
             routes_daily_limit: crate::leave::DEFAULT_DAILY,
             routes_monthly_limit: crate::leave::DEFAULT_MONTHLY,
             apple_calendar: false,

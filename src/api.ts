@@ -414,6 +414,8 @@ export interface Preferences {
   timeToLeave: boolean;
   /** Default starting address for leave-by times. Empty means none. */
   leaveFrom: string;
+  /** Start drives from where the device is, when known (the address is the fallback). */
+  leaveFromHere?: boolean;
   /** Routes attempts allowed per day. Never unlimited. */
   routesDailyLimit: number;
   /** Routes attempts allowed per month. Never unlimited. */
@@ -463,7 +465,9 @@ export interface RoutesKeyStatus {
 }
 
 /** Drives for these events. A missing key or address is a status, not an error. */
-export const leaveTimes = (events: LeaveQuery[]) => invoke<LeaveEstimate[]>("leave_times", { events });
+/** `here`: where you are (a spotOrigin), used when Settings says to start from there. */
+export const leaveTimes = (events: LeaveQuery[], here: string | null = null) =>
+  invoke<LeaveEstimate[]>("leave_times", { events, here });
 export const routesKeyStatus = () => invoke<RoutesKeyStatus>("routes_key_status");
 
 /** Routes attempts used today and this month. Mirrors `UsageSnapshot` in leave.rs. */

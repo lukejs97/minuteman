@@ -100,8 +100,10 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
 - **Alerts** at each event's reminder times from Google Calendar, also with
   the window closed. An event can have several, including an exact time and
   "before leaving".
-- **Leave by** (Settings → Leave from): a default starting address, which an
-  event can override. Events at a real place show when to leave, from live
+- **Leave by** (Settings → Leave from): a default starting address (in
+  separate street, town, state and ZIP fields, so AutoFill fills it all), or
+  **Start from where I am** to use the device's location, with the address
+  as a fallback. An event can set its own starting place. Events at a real place show when to leave, from live
   traffic (Google's Routes API). Add **before leaving** as an alert — for
   example 10 minutes before that time, or 0 to be told at the leave-by time
   itself. The API key goes in Settings or in `MINUTEMAN_ROUTES_API_KEY` on

@@ -243,6 +243,7 @@ export const commands: Record<string, Command> = {
       menuBarNext: true,
       timeToLeave: false,
       leaveFrom: leave.leaveFrom,
+      leaveFromHere: !!leave.leaveFromHere,
       routesDailyLimit: limits.daily,
       routesMonthlyLimit: limits.monthly,
       appleCalendar: false,
@@ -255,13 +256,19 @@ export const commands: Record<string, Command> = {
     const prefs = value<Partial<Preferences>>(args, "preferences");
     const limits = clampLimits(Number(prefs.routesDailyLimit), Number(prefs.routesMonthlyLimit));
     const leaveFrom = typeof prefs.leaveFrom === "string" ? prefs.leaveFrom.trim().slice(0, 300) : "";
-    await writeLeaveSettings(ctx.env, { leaveFrom, routesDailyLimit: limits.daily, routesMonthlyLimit: limits.monthly });
+    await writeLeaveSettings(ctx.env, {
+      leaveFrom,
+      leaveFromHere: prefs.leaveFromHere === true,
+      routesDailyLimit: limits.daily,
+      routesMonthlyLimit: limits.monthly,
+    });
     return null;
   },
   async leave_times(ctx, args) {
     const events = args.events;
     if (!Array.isArray(events)) throw invalidInput("events must be a list");
-    return routes.leaveTimes(ctx.env, events as LeaveQuery[]);
+    const here = typeof args.here === "string" ? args.here : null;
+    return routes.leaveTimes(ctx.env, events as LeaveQuery[], here);
   },
   async routes_key_status(ctx) {
     const configured = !!ctx.env.MINUTEMAN_ROUTES_API_KEY?.trim();

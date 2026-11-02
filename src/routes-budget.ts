@@ -14,7 +14,7 @@ export const MAX_MONTHLY = 4_000;
 
 /**
  * A drive longer than this (4 hours) almost always means Google matched an
- * address somewhere else, usually a street with no town ("10 Mill Park Ct").
+ * address somewhere else, usually a street with no town ("10 Battle Rd").
  * No leave-by time is given for it. Kept in step with MAX_PLAUSIBLE_DRIVE in
  * leave.rs.
  */
@@ -112,6 +112,71 @@ export function isPhysical(place: string): boolean {
   );
 }
 
+/**
+ * Where you are, as a starting point: "@42.447,-71.227", rounded to about
+ * 100 m so a little GPS wobble doesn't ask Google again. Kept in step with
+ * spot_origin in leave.rs.
+ */
+export function spotOrigin(latitude: number, longitude: number): string {
+  return `@${latitude.toFixed(3)},${longitude.toFixed(3)}`;
+}
+
+/** The coordinates in a spotOrigin; null for an address. */
+export function parseSpot(origin: string): { latitude: number; longitude: number } | null {
+  const m = /^@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)$/.exec(origin.trim());
+  if (!m) return null;
+  const [latitude, longitude] = [Number(m[1]), Number(m[2])];
+  return Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180 ? { latitude, longitude } : null;
+}
+
+/** The Routes waypoint: coordinates for where you are, otherwise the address. */
+export function waypoint(origin: string): Record<string, unknown> {
+  const spot = parseSpot(origin);
+  return spot ? { location: { latLng: spot } } : { address: origin };
+}
+
+/**
+ * Where a drive starts: the event's own address, else where you are (when
+ * known and wanted), else the address in Settings.
+ */
+export function pickOrigin(eventOverride: string | null | undefined, here: string | null, defaultAddress: string): string | null {
+  // Rounded again here, so the cache key is the same whatever the page sent.
+  const spot = here ? parseSpot(here) : null;
+  return resolveOrigin(eventOverride, spot ? spotOrigin(spot.latitude, spot.longitude) : defaultAddress);
+}
+
+/** An address in its four parts, as AutoFill fills them. */
+export interface AddressParts {
+  street: string;
+  town: string;
+  state: string;
+  zip: string;
+}
+
+/** "10 Battle Rd", "Lexington", "MA", "02421" → "10 Battle Rd, Lexington, MA 02421". */
+export function joinAddress(parts: AddressParts): string {
+  const last = [parts.state.trim(), parts.zip.trim()].filter(Boolean).join(" ");
+  return [parts.street.trim(), parts.town.trim(), last].filter(Boolean).join(", ");
+}
+
+/** The other way, for an address saved as one line. Anything unclear stays in the street. */
+export function splitAddress(address: string): AddressParts {
+  const parts = address
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  // A country at the end isn't one of the four.
+  if (parts.length > 3 && /^(united states( of america)?|usa?)$/i.test(parts[parts.length - 1])) parts.pop();
+  const empty = { street: "", town: "", state: "", zip: "" };
+  if (parts.length === 0) return empty;
+  const tail = /^(.*?)\s*(\d{5}(?:-\d{4})?)?$/.exec(parts[parts.length - 1])!;
+  if (parts.length >= 3) {
+    return { street: parts.slice(0, -2).join(", "), town: parts[parts.length - 2], state: tail[1], zip: tail[2] ?? "" };
+  }
+  if (parts.length === 2) return { ...empty, street: parts[0], town: parts[1] };
+  return { ...empty, street: parts[0] };
+}
+
 export function resolveOrigin(eventOverride: string | null | undefined, defaultAddress: string): string | null {
   const own = eventOverride?.trim();
   if (own) return own;
@@ -157,7 +222,7 @@ export function judge(queried: Date, travelMinutes: number, arrive: Date, now: D
 }
 
 /**
- * Whether an address names its town or ZIP: "10 Mill Park Ct" alone can match
+ * Whether an address names its town or ZIP: "10 Battle Rd" alone can match
  * a street with that name anywhere. A comma, or a 5-digit ZIP, counts.
  */
 export function looksComplete(address: string): boolean {

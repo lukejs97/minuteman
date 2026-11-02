@@ -32,8 +32,8 @@ import { refreshLeaveTimes } from "./leave";
 import { defaultMapProvider } from "./maps";
 import type { MapProvider } from "./preferences";
 import { DAY_COUNTS, multiDayCount, savedMapProvider, setMapProvider, setMultiDayCount } from "./preferences";
-import { locate, type Place, searchPlaces, setWeatherSettings, type Unit, weatherSettings } from "./weather";
-import { looksComplete } from "./routes-budget";
+import { devicePosition, locate, type Place, searchPlaces, setWeatherSettings, type Unit, weatherSettings } from "./weather";
+import { joinAddress, looksComplete, splitAddress } from "./routes-budget";
 
 const TOKEN_PAGE = "https://app.todoist.com/app/settings/integrations/developer";
 
@@ -257,15 +257,17 @@ async function addTravelRow(rows: HTMLElement, openScreen: (open: (back: () => v
     return;
   }
   const keyState = await routesKeyStatus().catch(() => null);
-  const address = prefs.leaveFrom.trim();
   const traffic = keyState?.configured ? "" : " · traffic off";
-  const note = el("span", "settings-note", address ? `${address}${traffic}` : "Not set");
-  const button = el("button", "pill-button", address ? "Change…" : "Set up…");
+  const describe = (address: string, fromHere: boolean) =>
+    fromHere ? `Where you are${address ? ` (or ${address})` : ""}${traffic}` : address ? `${address}${traffic}` : "Not set";
+  const address = prefs.leaveFrom.trim();
+  const note = el("span", "settings-note", describe(address, prefs.leaveFromHere === true));
+  const button = el("button", "pill-button", address || prefs.leaveFromHere ? "Change…" : "Set up…");
   button.addEventListener("click", () => {
     openScreen((back) =>
-      openTravelSettings(back, (saved) => {
-        note.textContent = saved ? `${saved}${keyState?.configured ? "" : " · traffic off"}` : "Not set";
-        button.textContent = saved ? "Change…" : "Set up…";
+      openTravelSettings(back, (saved, fromHere) => {
+        note.textContent = describe(saved, fromHere);
+        button.textContent = saved || fromHere ? "Change…" : "Set up…";
       }),
     );
   });
@@ -273,7 +275,7 @@ async function addTravelRow(rows: HTMLElement, openScreen: (open: (back: () => v
 }
 
 /** The default starting address, and the key used to ask Google for traffic. */
-function openTravelSettings(back: (() => void) | undefined, onAddress: (address: string) => void): void {
+function openTravelSettings(back: (() => void) | undefined, onAddress: (address: string, fromHere: boolean) => void): void {
   const dialog = el("dialog", "dialog settings");
   dialog.setAttribute("aria-labelledby", "travel-title");
   document.body.append(dialog);
@@ -290,27 +292,62 @@ function openTravelSettings(back: (() => void) | undefined, onAddress: (address:
     "p",
     undefined,
     onWeb
-      ? "Events with a place show when to leave, from this address. An event can start somewhere else. Live traffic runs on the server. The Routes key is a Cloudflare secret and never comes to this phone. Until that secret is set, you can save the address, but leave-by times stay hidden."
-      : "Events with a place show when to leave, from this address, using live traffic. An event can start somewhere else. The key is a Google Routes API key (Cloud Console → enable Routes API → Credentials → Create API key). It can also be the MINUTEMAN_ROUTES_API_KEY environment variable. It isn't saved in the app itself.",
+      ? "Events with a place show when to leave, from this address or from where you are. An event can start somewhere else. Live traffic runs on the server. The Routes key is a Cloudflare secret and never comes to this phone. Until that secret is set, you can save the address, but leave-by times stay hidden."
+      : "Events with a place show when to leave, from this address or from where you are, using live traffic. An event can start somewhere else. The key is a Google Routes API key (Cloud Console → enable Routes API → Credentials → Create API key). It can also be the MINUTEMAN_ROUTES_API_KEY environment variable. It isn't saved in the app itself.",
   );
-  const address = el("input", "text-input");
-  address.type = "text";
-  address.placeholder = "123 Main St, Springfield";
-  address.setAttribute("aria-label", "Leave from address");
-  // Not "street-address": AutoFill would put in only the street line, and a
+  // Four fields, each with its own AutoFill token, so iOS Safari (and other
+  // browsers) fill the whole saved address, not just the street line. A
   // street with no town can match one with the same name far away.
-  address.autocomplete = "off";
+  const field = (label: string, token: string, placeholder: string) => {
+    const input = el("input", "text-input");
+    input.type = "text";
+    input.name = token;
+    input.autocomplete = token as AutoFill;
+    input.placeholder = placeholder;
+    input.setAttribute("aria-label", label);
+    return input;
+  };
+  const street = field("Street", "address-line1", "10 Battle Rd");
+  const town = field("Town", "address-level2", "Lexington");
+  const state = field("State", "address-level1", "MA");
+  state.classList.add("address-state");
+  const zip = field("ZIP", "postal-code", "02421");
+  zip.classList.add("address-zip");
+  zip.inputMode = "numeric";
+  const parts = [street, town, state, zip];
+  const address = { value: () => joinAddress({ street: street.value, town: town.value, state: state.value, zip: zip.value }) };
   let typed = false;
-  address.addEventListener("input", () => {
-    typed = true;
-    showCompleteness();
-  });
+  for (const input of parts) {
+    input.addEventListener("input", () => {
+      typed = true;
+      showCompleteness();
+    });
+  }
   const addressNote = el("p", "settings-note");
   const showCompleteness = () => {
-    addressNote.textContent = looksComplete(address.value)
-      ? ""
-      : "Add the town and ZIP (\"10 Main St, Springfield, IL 62701\"). A street alone can match one with the same name far away.";
+    const value = address.value();
+    addressNote.textContent =
+      !value || looksComplete(value) ? "" : "Add the town and ZIP. A street alone can match one with the same name far away.";
   };
+  const stateZip = el("div", "address-row");
+  stateZip.append(state, zip);
+  const here = el("input", "settings-switch");
+  here.type = "checkbox";
+  here.id = "leave-from-here";
+  const hereLabel = el("label", "address-here");
+  hereLabel.htmlFor = here.id;
+  hereLabel.append(here, el("span", undefined, "Start from where I am"));
+  const hereNote = el("p", "settings-note", "Uses this device's location when it can, and the address above when it can't.");
+  here.addEventListener("change", async () => {
+    hereNote.textContent = "Uses this device's location when it can, and the address above when it can't.";
+    if (!here.checked) return;
+    // Ask for location now, while you're here, rather than later out of the blue.
+    try {
+      await devicePosition();
+    } catch (err) {
+      hereNote.textContent = `${err instanceof Error ? err.message : errorMessage(err)} Until then, the address above is used.`;
+    }
+  });
   const key = el("input", "text-input");
   key.type = "password";
   key.placeholder = "API key";
@@ -331,11 +368,17 @@ function openTravelSettings(back: (() => void) | undefined, onAddress: (address:
   const usage = el("p", "settings-note", "…");
   const status = el("p", "settings-note", "…");
   const error = el("p", "error");
-  const form = el("form");
+  const form = el("form", "travel-form");
   form.append(
-    el("label", "field-label", "Address"),
-    address,
+    el("label", "field-label", "Street"),
+    street,
+    el("label", "field-label", "Town"),
+    town,
+    el("label", "field-label", "State and ZIP"),
+    stateZip,
     addressNote,
+    hereLabel,
+    hereNote,
     ...(onWeb ? [] : [el("label", "field-label", "Routes API key"), key]),
     status,
     el("label", "field-label", "Lookups per day"),
@@ -353,16 +396,17 @@ function openTravelSettings(back: (() => void) | undefined, onAddress: (address:
     save.disabled = true;
     try {
       const prefs = await getPreferences();
-      const leaveFrom = address.value.trim().slice(0, 300);
+      const leaveFrom = address.value().slice(0, 300);
+      const leaveFromHere = here.checked;
       const dayMax = Number(daily.max) || 160;
       const monthMax = Number(monthly.max) || 4000;
       const routesDailyLimit = clampRoutesLimit(daily.value, dayMax, prefs.routesDailyLimit ?? 80);
       const routesMonthlyLimit = clampRoutesLimit(monthly.value, monthMax, prefs.routesMonthlyLimit ?? 2500);
-      await setPreferences({ ...prefs, leaveFrom, routesDailyLimit, routesMonthlyLimit });
+      await setPreferences({ ...prefs, leaveFrom, leaveFromHere, routesDailyLimit, routesMonthlyLimit });
       // Blank keeps a key that's already saved. Remove clears it.
       // The website has no key field: the secret stays on the server.
       if (!onWeb && key.value.trim()) await setRoutesKey(key.value.trim());
-      onAddress(leaveFrom);
+      onAddress(leaveFrom, leaveFromHere);
       refreshLeaveTimes();
       dialog.close();
     } catch (err) {
@@ -391,7 +435,7 @@ function openTravelSettings(back: (() => void) | undefined, onAddress: (address:
   form.append(buttonRow(remove, close, save));
   dialog.append(...backTo(dialog, back), title, help, form);
   dialog.showModal();
-  address.focus();
+  street.focus();
 
   void (async () => {
     const [prefs, keyState, used] = await Promise.all([
@@ -399,10 +443,17 @@ function openTravelSettings(back: (() => void) | undefined, onAddress: (address:
       routesKeyStatus().catch(() => null),
       routesUsage().catch(() => null),
     ]);
-    if (!address.isConnected) return;
+    if (!street.isConnected) return;
     if (prefs) {
-      // Not over something already typed or pasted while this loaded.
-      if (!typed) address.value = prefs.leaveFrom ?? "";
+      // Not over something already typed, pasted or AutoFilled while this loaded.
+      if (!typed) {
+        const saved = splitAddress(prefs.leaveFrom ?? "");
+        street.value = saved.street;
+        town.value = saved.town;
+        state.value = saved.state;
+        zip.value = saved.zip;
+        here.checked = prefs.leaveFromHere === true;
+      }
       showCompleteness();
       daily.max = String(used?.maxDaily ?? 160);
       monthly.max = String(used?.maxMonthly ?? 4000);

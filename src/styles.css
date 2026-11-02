@@ -1136,6 +1136,30 @@ main.loading > * {
   margin-bottom: 12px;
 }
 
+/* Settings → Leave from: State and ZIP side by side. */
+.address-row {
+  display: flex;
+  gap: 8px;
+}
+
+.address-row .address-state {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.address-row .address-zip {
+  flex: 1.4 1 0;
+  min-width: 0;
+}
+
+.address-here {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  cursor: pointer;
+}
+
 /* ---------- Event details ---------- */
 
 .details {
@@ -2305,6 +2329,16 @@ body.detached .fly-close {
   white-space: nowrap;
   text-overflow: ellipsis;
   color: var(--muted);
+}
+
+/* Under a field, a note is a sentence or two: wrap it rather than cut it off. */
+.travel-form .settings-note {
+  margin: 4px 0 12px;
+  white-space: normal;
+}
+
+.travel-form .settings-note:empty {
+  display: none;
 }
 
 .settings-select {

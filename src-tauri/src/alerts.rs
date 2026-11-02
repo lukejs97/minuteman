@@ -102,7 +102,8 @@ async fn time_to_leave(app: &AppHandle, items: &[AgendaItem], now: DateTime<Loca
         if buffers.is_empty() {
             continue;
         }
-        let origin = crate::leave::resolve_origin(item.leave_from.as_deref(), &prefs.leave_from);
+        let here = if prefs.leave_from_here { here_now(app).await } else { None };
+        let origin = crate::leave::pick_origin(item.leave_from.as_deref(), here.as_deref(), &prefs.leave_from);
         let arrive = start.with_timezone(&Utc);
         let answer = crate::leave::resolve(
             &state.http,
@@ -143,6 +144,31 @@ const LOOK_AHEAD_DAYS: i64 = 120;
 /// Today's items and the ones far enough ahead that a reminder can come due
 /// now: fetched if possible (and saved for offline use), otherwise as saved
 /// last time. `None` if neither works, e.g. signed out.
+/// Where the Mac is, for drives that start from there (Settings → Leave from),
+/// asked at most every 5 minutes. Elsewhere `None`: Windows has no location
+/// here, so alerts there use the address in Settings.
+async fn here_now(app: &AppHandle) -> Option<String> {
+    use std::sync::Mutex;
+    use std::time::Instant;
+    static LAST: Mutex<Option<(Instant, Option<String>)>> = Mutex::new(None);
+    if let Some((at, spot)) = LAST.lock().expect("not poisoned").clone()
+        && at.elapsed() < Duration::from_secs(5 * 60)
+    {
+        return spot;
+    }
+    #[cfg(target_os = "macos")]
+    let spot = crate::travel::current_location(app)
+        .await
+        .map(|(latitude, longitude)| crate::leave::spot_origin(latitude, longitude));
+    #[cfg(not(target_os = "macos"))]
+    let spot = {
+        let _ = app;
+        None
+    };
+    *LAST.lock().expect("not poisoned") = Some((Instant::now(), spot.clone()));
+    spot
+}
+
 async fn load(app: &AppHandle) -> Option<Vec<AgendaItem>> {
     let (state, cache) = (app.state::<AppState>(), app.state::<AgendaCache>());
     let today = Local::now().date_naive();

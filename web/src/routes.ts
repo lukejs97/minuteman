@@ -13,7 +13,8 @@ import {
   MAX_PLAUSIBLE_DRIVE_MINUTES,
   pacificDate,
   parseDuration,
-  resolveOrigin,
+  pickOrigin,
+  waypoint,
   shouldQuery,
   stillFresh,
   type Usage,
@@ -50,7 +51,8 @@ async function query(key: string, origin: string, destination: string, departure
         "X-Goog-FieldMask": "routes.duration",
       },
       body: JSON.stringify({
-        origin: { address: origin },
+        // Where you are goes as coordinates: nothing for Google to mismatch.
+        origin: waypoint(origin),
         destination: { address: destination },
         travelMode: "DRIVE",
         routingPreference: "TRAFFIC_AWARE",
@@ -107,8 +109,10 @@ function estimate(id: string, start: string, minutes: number | null, status: Lea
 }
 
 /** Leave-by times for the events on screen. The key never leaves this function. */
-export async function leaveTimes(env: Env, events: LeaveQuery[]): Promise<LeaveEstimate[]> {
+export async function leaveTimes(env: Env, events: LeaveQuery[], here: string | null = null): Promise<LeaveEstimate[]> {
   const settings = await readLeaveSettings(env);
+  // Where the browser found you, when Settings says to start from there.
+  const from = settings.leaveFromHere ? here : null;
   const limits = clampLimits(settings.routesDailyLimit, settings.routesMonthlyLimit);
   const key = env.MINUTEMAN_ROUTES_API_KEY?.trim() ?? "";
   let usage = (await readRoutesUsage(env)) ?? emptyUsage(new Date());
@@ -121,7 +125,7 @@ export async function leaveTimes(env: Env, events: LeaveQuery[]): Promise<LeaveE
     const id = event.id;
     const start = event.start;
     const destination = event.location ?? "";
-    const origin = resolveOrigin(event.leaveFrom, settings.leaveFrom);
+    const origin = pickOrigin(event.leaveFrom, from, settings.leaveFrom);
     const arrive = new Date(start);
     if (!isPhysical(destination)) {
       out.push(estimate(id, start, null, "notPhysical"));
