@@ -12,6 +12,14 @@ export const DEFAULT_MONTHLY = 2_500;
 export const MAX_DAILY = 160;
 export const MAX_MONTHLY = 4_000;
 
+/**
+ * A drive longer than this (4 hours) almost always means Google matched an
+ * address somewhere else, usually a street with no town ("10 Mill Park Ct").
+ * No leave-by time is given for it. Kept in step with MAX_PLAUSIBLE_DRIVE in
+ * leave.rs.
+ */
+export const MAX_PLAUSIBLE_DRIVE_MINUTES = 240;
+
 const LOOKUP_HORIZON_MS = 48 * 60 * 60 * 1000;
 const FAILURE_TTL_MS = 2 * 60 * 1000;
 const REFINE_GAP_MINUTES = 10;
@@ -146,6 +154,15 @@ export function judge(queried: Date, travelMinutes: number, arrive: Date, now: D
   const soonest = now.getTime() + 30_000;
   if (!refined && gap > REFINE_GAP_MINUTES && depart >= soonest) return new Date(depart);
   return "done";
+}
+
+/**
+ * Whether an address names its town or ZIP: "10 Mill Park Ct" alone can match
+ * a street with that name anywhere. A comma, or a 5-digit ZIP, counts.
+ */
+export function looksComplete(address: string): boolean {
+  const text = address.trim();
+  return !text || text.includes(",") || /\b\d{5}(?:-\d{4})?\b/.test(text);
 }
 
 /** `"165s"` or `"165.4s"` → whole minutes, rounded up. */

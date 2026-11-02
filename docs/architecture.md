@@ -119,7 +119,13 @@ Mac only (`#[cfg(target_os = "macos")]`), through the `objc2-*` crates:
   there only when `MINUTEMAN_ROUTES_API_KEY` is a Cloudflare secret (it never
   reaches the browser). At the cap,
   nothing new is asked; a drive already saved is still used, and a leave
-  alert without one waits. Answers are cached, and refreshed sooner as the
+  alert without one waits. A drive longer than 4 hours (`MAX_PLAUSIBLE_DRIVE`,
+  `MAX_PLAUSIBLE_DRIVE_MINUTES`) is taken as an address matched in the wrong
+  town, the usual cause being a street with no town or ZIP: status
+  `implausible`, no leave-by time or alert, and the details say how long
+  Google's drive was and to fix the address. Settings warns when the address
+  has no comma or ZIP (`looksComplete`), and its field isn't marked as a
+  street address, so AutoFill can't put in the street line alone. Answers are cached, and refreshed sooner as the
   event gets closer
   (5 minutes inside 45 minutes, up to 4 hours when it's more than 12 hours
   away). Nothing is asked until the event is inside 48 hours, or when there's

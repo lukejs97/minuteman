@@ -156,6 +156,12 @@ export function leaveHint(status: LeaveStatus | undefined): string | null {
   }
 }
 
+/** 550 → "9 h 10 min", 45 → "45 min". */
+function hoursAndMinutes(minutes: number): string {
+  const [h, m] = [Math.floor(minutes / 60), minutes % 60];
+  return h ? `${h} h${m ? ` ${m} min` : ""}` : `${m} min`;
+}
+
 /** The details line for one event: the time, or a short reason, or nothing. */
 export async function leaveDetail(item: AgendaItem): Promise<string | null> {
   if (!wantsLeave(item)) return null;
@@ -163,6 +169,11 @@ export async function leaveDetail(item: AgendaItem): Promise<string | null> {
     const [estimate] = await leaveTimes([
       { id: item.id, start: item.start, location: item.location ?? "", leaveFrom: item.leaveFrom ?? null },
     ]);
+    // Too long to be right: Google matched an address in the wrong town.
+    if (estimate?.status === "implausible" && estimate.minutes != null) {
+      const from = item.leaveFrom?.trim() ? `"${item.leaveFrom.trim()}"` : "the leave-from address";
+      return `Google found a ${hoursAndMinutes(estimate.minutes)} drive from ${from}, so no leave time. Check the address: add the town and ZIP.`;
+    }
     const detail = formatLeaveDetail(estimate);
     if (detail) {
       const from = item.leaveFrom?.trim();

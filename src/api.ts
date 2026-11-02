@@ -433,7 +433,17 @@ export interface LeaveQuery {
 }
 
 /** Why a leave-by time isn't shown. `ok` is the one that has a time. */
-export type LeaveStatus = "ok" | "noKey" | "noOrigin" | "notPhysical" | "tooFar" | "past" | "unavailable" | "limited";
+export type LeaveStatus =
+  | "ok"
+  | "noKey"
+  | "noOrigin"
+  | "notPhysical"
+  | "tooFar"
+  | "past"
+  | "unavailable"
+  | "limited"
+  /** Google's drive is too long to be right (an address in the wrong town): minutes, but no leave time. */
+  | "implausible";
 
 /** A drive to one event. Mirrors `LeaveEstimate` in lib.rs. */
 export interface LeaveEstimate {

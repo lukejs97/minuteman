@@ -33,6 +33,7 @@ import { defaultMapProvider } from "./maps";
 import type { MapProvider } from "./preferences";
 import { DAY_COUNTS, multiDayCount, savedMapProvider, setMapProvider, setMultiDayCount } from "./preferences";
 import { locate, type Place, searchPlaces, setWeatherSettings, type Unit, weatherSettings } from "./weather";
+import { looksComplete } from "./routes-budget";
 
 const TOKEN_PAGE = "https://app.todoist.com/app/settings/integrations/developer";
 
@@ -296,7 +297,20 @@ function openTravelSettings(back: (() => void) | undefined, onAddress: (address:
   address.type = "text";
   address.placeholder = "123 Main St, Springfield";
   address.setAttribute("aria-label", "Leave from address");
-  address.autocomplete = "street-address";
+  // Not "street-address": AutoFill would put in only the street line, and a
+  // street with no town can match one with the same name far away.
+  address.autocomplete = "off";
+  let typed = false;
+  address.addEventListener("input", () => {
+    typed = true;
+    showCompleteness();
+  });
+  const addressNote = el("p", "settings-note");
+  const showCompleteness = () => {
+    addressNote.textContent = looksComplete(address.value)
+      ? ""
+      : "Add the town and ZIP (\"10 Main St, Springfield, IL 62701\"). A street alone can match one with the same name far away.";
+  };
   const key = el("input", "text-input");
   key.type = "password";
   key.placeholder = "API key";
@@ -321,6 +335,7 @@ function openTravelSettings(back: (() => void) | undefined, onAddress: (address:
   form.append(
     el("label", "field-label", "Address"),
     address,
+    addressNote,
     ...(onWeb ? [] : [el("label", "field-label", "Routes API key"), key]),
     status,
     el("label", "field-label", "Lookups per day"),
@@ -386,7 +401,9 @@ function openTravelSettings(back: (() => void) | undefined, onAddress: (address:
     ]);
     if (!address.isConnected) return;
     if (prefs) {
-      address.value = prefs.leaveFrom ?? "";
+      // Not over something already typed or pasted while this loaded.
+      if (!typed) address.value = prefs.leaveFrom ?? "";
+      showCompleteness();
       daily.max = String(used?.maxDaily ?? 160);
       monthly.max = String(used?.maxMonthly ?? 4000);
       daily.value = String(prefs.routesDailyLimit ?? used?.dayLimit ?? 80);

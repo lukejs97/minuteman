@@ -34,6 +34,12 @@ pub const LEGACY_HORIZON: TimeDelta = TimeDelta::hours(3);
 /// A drive shorter than this isn't worth that automatic alert (you're as
 /// good as there). An alert the event itself asks for still fires.
 pub const MIN_LEGACY_DRIVE: u32 = 3;
+/// A drive longer than this (4 hours) almost always means Google matched an
+/// address somewhere else: a street name with no town is the usual cause
+/// ("10 Mill Park Ct" with several in the country). No leave-by time or alert
+/// is given for it; the minutes are kept so the details can say so. Kept in
+/// step with `MAX_PLAUSIBLE_DRIVE_MINUTES` in src/routes-budget.ts.
+pub const MAX_PLAUSIBLE_DRIVE: u32 = 240;
 /// Live traffic isn't worth a lookup until the event is this close.
 pub const LOOKUP_HORIZON: TimeDelta = TimeDelta::hours(48);
 /// Ask again when the guessed departure and the drive disagree by more.
@@ -84,6 +90,9 @@ pub enum TravelStatus {
     /// The daily or monthly Routes cap is used up. A drive already saved is
     /// still shown; nothing new is asked of Google.
     Limited,
+    /// Google's drive is longer than `MAX_PLAUSIBLE_DRIVE`: probably an
+    /// address matched in the wrong town. No leave-by time is given.
+    Implausible,
 }
 
 /// Where the Routes API key was found. `environment` wins over Settings.
@@ -336,6 +345,10 @@ fn leave_alert_body(minutes: u32, leave_at: DateTime<chrono::Local>, start: Date
 }
 
 fn answer(minutes: Option<u32>, arrive: DateTime<Utc>, status: TravelStatus) -> TravelAnswer {
+    // A drive too long to be right: no time to leave, and the reason.
+    if status == TravelStatus::Ok && minutes.is_some_and(|m| m > MAX_PLAUSIBLE_DRIVE) {
+        return TravelAnswer { minutes, leave_at: None, status: TravelStatus::Implausible };
+    }
     let leave_at = minutes.and_then(|m| leave_at(arrive, m, 0)).map(|t| t.to_rfc3339());
     TravelAnswer { minutes, leave_at, status }
 }
@@ -804,6 +817,20 @@ mod tests {
         assert_eq!(resolve_origin(Some("  "), "Home").as_deref(), Some("Home"));
         assert_eq!(resolve_origin(None, "  ").as_deref(), None);
         assert_eq!(resolve_origin(None, "Home").as_deref(), Some("Home"));
+    }
+
+    #[test]
+    fn a_drive_too_long_to_be_right_gets_no_leave_time() {
+        let arrive = Utc::now() + TimeDelta::hours(5);
+        // 550 minutes: "10 Mill Park Ct" matched nine hours away.
+        let wrong = answer(Some(550), arrive, TravelStatus::Ok);
+        assert_eq!(wrong.status, TravelStatus::Implausible);
+        assert_eq!(wrong.leave_at, None);
+        assert_eq!(wrong.minutes, Some(550));
+        let right = answer(Some(20), arrive, TravelStatus::Ok);
+        assert_eq!(right.status, TravelStatus::Ok);
+        assert!(right.leave_at.is_some());
+        assert_eq!(answer(Some(MAX_PLAUSIBLE_DRIVE), arrive, TravelStatus::Ok).status, TravelStatus::Ok);
     }
 
     #[test]

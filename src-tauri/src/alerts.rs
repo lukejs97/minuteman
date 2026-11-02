@@ -116,7 +116,11 @@ async fn time_to_leave(app: &AppHandle, items: &[AgendaItem], now: DateTime<Loca
         )
         .await;
         // The automatic alert skips a drive so short you're already there.
-        // One the event asked for still fires.
+        // One the event asked for still fires. A drive too long to be right
+        // (an address matched in the wrong town) never alerts.
+        if answer.status == crate::leave::TravelStatus::Implausible {
+            continue;
+        }
         let Some(minutes) =
             answer.minutes.filter(|minutes| !item.leave_alerts.is_empty() || *minutes >= crate::leave::MIN_LEGACY_DRIVE)
         else {

@@ -621,6 +621,8 @@ export function install(): void {
           const origin = (event.leaveFrom ?? "").trim() || fallback;
           if (!origin) return { ...blank, status: "noOrigin" };
           if (!routesKey) return { ...blank, status: "noKey" };
+          // Like Google with a street and no town: a same-named street far away.
+          if (!/,|\b\d{5}\b/.test(origin)) return { ...blank, minutes: 550, status: "implausible" };
           const minutes = 25;
           return { id: event.id, start: event.start, minutes, leaveAt: new Date(startMs - minutes * 60_000).toISOString(), status: "ok" };
         });
