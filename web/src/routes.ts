@@ -10,6 +10,7 @@ import {
   firstDeparture,
   isPhysical,
   judge,
+  MAX_PLAUSIBLE_DRIVE_MINUTES,
   pacificDate,
   parseDuration,
   resolveOrigin,
@@ -96,6 +97,10 @@ async function drivingMinutes(
 }
 
 function estimate(id: string, start: string, minutes: number | null, status: LeaveStatus): LeaveEstimate {
+  // Too long to be right (an address matched in the wrong town): say so, no time.
+  if (status === "ok" && minutes !== null && minutes > MAX_PLAUSIBLE_DRIVE_MINUTES) {
+    return { id, start, minutes, leaveAt: null, status: "implausible" };
+  }
   if (minutes === null || status !== "ok") return { id, start, minutes: null, leaveAt: null, status };
   const arrive = new Date(start);
   return { id, start, minutes, leaveAt: new Date(arrive.getTime() - minutes * 60_000).toISOString(), status: "ok" };
