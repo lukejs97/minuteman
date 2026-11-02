@@ -502,6 +502,11 @@ function busyHours(items: AgendaItem[], days: Date[]): [number, number] {
  */
 let fitted = { days: "", hours: "", room: 0, adjusted: false, height: 0, from: 0, applied: true };
 
+/** What scrolls through the hours in the view in `root`: its own box on a touch screen. */
+function hoursScroller(root: HTMLElement): HTMLElement | null {
+  return root.querySelector<HTMLElement>(".timeline.split .tl-body") ?? root.querySelector<HTMLElement>(".tl-scroll");
+}
+
 /** The sliding strip of each week view on screen, for `slideTimeline`. */
 const sliders = new WeakMap<HTMLElement, { days: Date[]; column: () => number }>();
 
@@ -526,6 +531,15 @@ export function renderTimeline(
   const scroller = el("div", "tl-scroll");
   const sliding = days.length > visible;
   if (sliding) scroller.classList.add("sliding");
+  // On a touch screen, the hours scroll up and down in a box of their own
+  // inside the one that slides the days: the phone gives each swipe to one
+  // or the other, so it never goes diagonally. (Not with a mouse or
+  // trackpad: the hours' scroll bar would be off at the far right.)
+  const split = sliding && window.matchMedia("(pointer: coarse)").matches;
+  if (split) timeline.classList.add("split");
+  const body = el("div", "tl-body");
+  /** What scrolls up and down through the hours. */
+  const vertical = split ? body : scroller;
   const top = el("div", "tl-top");
   const allDay = allDayRow(ctx, days);
   top.append(headerRow(ctx, days), allDay);
@@ -537,10 +551,11 @@ export function renderTimeline(
     hours.append(label);
   }
   grid.append(hours, ...days.map((day) => dayColumn(ctx, day)));
-  scroller.append(top, grid);
+  body.append(grid);
+  scroller.append(top, body);
   timeline.append(scroller);
 
-  const previousScroll = ctx.preserveScroll ? root.querySelector(".tl-scroll")?.scrollTop : undefined;
+  const previousScroll = ctx.preserveScroll ? hoursScroller(root)?.scrollTop : undefined;
   // How far the all-day row was scrolled, to keep it there (after a delete, say).
   const previousAllDay = ctx.preserveScroll
     ? -parseFloat(root.querySelector<HTMLElement>(".tl-allday")?.style.getPropertyValue("--all-day-offset") || "0")
@@ -557,6 +572,8 @@ export function renderTimeline(
     timeline.style.setProperty("--column", `${column}px`);
     timeline.classList.toggle("narrow", column < 80);
     scroller.scrollLeft = first * column;
+    // How far the days can slide: the hours move along by as much (CSS).
+    if (split) timeline.style.setProperty("--days-scroll", `${scroller.scrollWidth - scroller.clientWidth}px`);
   };
   size();
   // The hours down the side: like an empty spot, at the leftmost day on
@@ -580,13 +597,21 @@ export function renderTimeline(
       const zoom = fit();
       const tall = Math.max(hourHeight, lowestHourHeight());
       if (!zoom && Math.abs(tall - hourHeight) < 0.5) return;
-      const hoursAtTop = scroller.scrollTop / hourHeight;
+      const hoursAtTop = vertical.scrollTop / hourHeight;
       fitted.applied = true;
       hourHeight = zoom ? zoom[0] : tall;
       redraw(zoom ? zoom[1] : hoursAtTop);
     }, 150);
   });
   resized.observe(scroller);
+
+  // Without scroll-driven animations (older browsers), move the hours along
+  // as the days slide by hand.
+  if (split && !CSS.supports("animation-timeline: --days")) {
+    scroller.addEventListener("scroll", () => (hours.style.transform = `translateX(${scroller.scrollLeft}px)`), {
+      passive: true,
+    });
+  }
 
   if (sliding) {
     sliders.set(root, { days, column: () => column });
@@ -655,19 +680,19 @@ export function renderTimeline(
     return redraw(zoom[1]);
   }
   if (startHour !== undefined) {
-    scroller.scrollTop = startHour * hourHeight;
+    vertical.scrollTop = startHour * hourHeight;
   } else if (zoom) {
-    scroller.scrollTop = zoom[1] * hourHeight;
+    vertical.scrollTop = zoom[1] * hourHeight;
   } else if (ctx.reveal) {
-    scroller.scrollTop = Math.max(0, ctx.reveal.getHours() - 1) * hourHeight;
+    vertical.scrollTop = Math.max(0, ctx.reveal.getHours() - 1) * hourHeight;
     fitted = { ...fitted, days: `${toDateString(days[first])}+${visible}`, hours: "", adjusted: true, applied: true };
   } else if (previousScroll !== undefined) {
-    scroller.scrollTop = previousScroll;
+    vertical.scrollTop = previousScroll;
   } else {
     // Start at 7 AM, or a couple of hours before now when today is shown.
     const shown = days.slice(first, first + visible);
     const showsToday = shown.some((day) => isSameDay(day, ctx.now));
-    scroller.scrollTop = (showsToday ? Math.max(0, ctx.now.getHours() - 2) : 7) * hourHeight;
+    vertical.scrollTop = (showsToday ? Math.max(0, ctx.now.getHours() - 2) : 7) * hourHeight;
   }
 
   // A trackpad swipe that began on the all-day row keeps scrolling only it,
@@ -697,7 +722,7 @@ export function renderTimeline(
     scroller.addEventListener("slid", () => {
       const zoom = fit();
       if (zoom)
-        animateZoom(scroller, timeline, zoom[0], zoom[1], () => {
+        animateZoom(scroller, vertical, timeline, zoom[0], zoom[1], () => {
           fitted.applied = true;
           redraw();
         });
@@ -706,7 +731,7 @@ export function renderTimeline(
 
   // After a pinch, draw again at the new size (short events change layout),
   // keeping the days and hours on screen where they are.
-  enablePinch(scroller, timeline, () => {
+  enablePinch(scroller, vertical, timeline, () => {
     adjusted();
     redraw();
   }, lowestHourHeight);
@@ -716,8 +741,15 @@ export function renderTimeline(
  * Changes the hour height to `height` and scrolls to `fromHour`, over a
  * moment, then runs `done`. A touch or wheel stops it where it is.
  */
-function animateZoom(scroller: HTMLElement, timeline: HTMLElement, height: number, fromHour: number, done: () => void) {
-  const [startHeight, startTop, endTop] = [hourHeight, scroller.scrollTop, fromHour * height];
+function animateZoom(
+  scroller: HTMLElement,
+  vertical: HTMLElement,
+  timeline: HTMLElement,
+  height: number,
+  fromHour: number,
+  done: () => void,
+) {
+  const [startHeight, startTop, endTop] = [hourHeight, vertical.scrollTop, fromHour * height];
   const began = performance.now();
   let stopped = false;
   const stop = () => (stopped = true);
@@ -730,7 +762,7 @@ function animateZoom(scroller: HTMLElement, timeline: HTMLElement, height: numbe
     const eased = 1 - (1 - t) ** 3;
     hourHeight = startHeight + (height - startHeight) * eased;
     timeline.style.setProperty("--hour-height", `${hourHeight}px`);
-    scroller.scrollTop = startTop + (endTop - startTop) * eased;
+    vertical.scrollTop = startTop + (endTop - startTop) * eased;
     if (t < 1) requestAnimationFrame(step);
     else done();
   };
@@ -746,6 +778,7 @@ function animateZoom(scroller: HTMLElement, timeline: HTMLElement, height: numbe
  */
 function enablePinch(
   scroller: HTMLElement,
+  vertical: HTMLElement,
   timeline: HTMLElement,
   redraw: () => void,
   lowestHourHeight: () => number,
@@ -756,7 +789,7 @@ function enablePinch(
   /** Where the hours start inside the scrolling content, in px. */
   const gridTop = () => {
     const grid = scroller.querySelector<HTMLElement>(".tl-grid")!;
-    return grid.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
+    return grid.getBoundingClientRect().top - vertical.getBoundingClientRect().top + vertical.scrollTop;
   };
 
   /**
@@ -773,14 +806,14 @@ function enablePinch(
     let next = Math.min(MAX_HOUR_HEIGHT, Math.max(MIN_HOUR_HEIGHT, height));
     if (height < hourHeight) next = Math.max(next, lowestHourHeight());
     if (Math.abs(next - hourHeight) < 0.1) return false;
-    const offset = clientY - scroller.getBoundingClientRect().top;
+    const offset = clientY - vertical.getBoundingClientRect().top;
     const top = gridTop();
-    const hoursAtPoint = (scroller.scrollTop + offset - top) / hourHeight;
+    const hoursAtPoint = (vertical.scrollTop + offset - top) / hourHeight;
     hourHeight = next;
     timeline.style.setProperty("--hour-height", `${next}px`);
     // The clamped height, so the time under the pointer doesn't follow a
     // size the view then abandons.
-    scroller.scrollTop = top + hoursAtPoint * next - offset;
+    vertical.scrollTop = top + hoursAtPoint * next - offset;
     moved = true;
     return true;
   };

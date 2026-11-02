@@ -1,10 +1,14 @@
 // What every page (the calendar, the menu bar window, Contacts) does first.
 import { isTauri } from "@tauri-apps/api/core";
+import { startDemo } from "./demo";
 
 export async function boot(): Promise<void> {
-  // In a plain browser there's no Rust side: during `npm run dev`, use sample
-  // data; on the website (web/), send commands to its server.
-  if (!isTauri()) {
+  // Demo mode (Settings): sample data in place of the real thing, anywhere.
+  // Otherwise, in a plain browser there's no Rust side: during `npm run dev`,
+  // use sample data; on the website (web/), send commands to its server.
+  if (await startDemo()) {
+    // Sample data is in place.
+  } else if (!isTauri()) {
     if (import.meta.env.DEV) (await import("./dev-mock")).install();
     else (await import("./web-bridge")).install();
   }

@@ -23,8 +23,8 @@
 │            parse.ts the box, card.ts, form.ts       │
 │ boot.ts    what every page does first               │
 │ sync.ts    tells the other window about changes     │
-│ dev-mock.ts sample data for `npm run dev` in a      │
-│            browser (dev only)                       │
+│ dev-mock.ts sample data for `npm run dev` and Demo  │
+│            mode; demo.ts turns Demo mode on and off │
 └───────────────────────┬─────────────────────────────┘
                         │ invoke("get_agenda") etc. (Tauri IPC)
 ┌───────────────────────┴──── Rust (src-tauri/src/) ──┐
@@ -167,7 +167,32 @@ seventh of the width, in one box that scrolls both ways (headers and hours
 are `position: sticky`), with `scroll-snap-type: x mandatory` so it settles
 on a day. `ViewContext.slid` reports the first day shown; once it settles in
 another week, `main.ts` draws six weeks around it. Arrows and Today slide
-there with `slideTimeline` when it's among the days drawn.
+there with `slideTimeline` when it's among the days drawn. While a slide is
+on its way, `heading` (main.ts) is where it's going, and ‹ › count on from
+there, so quick taps each move a week.
+
+On a touch screen (`pointer: coarse`) the sliding views are **split**
+(`.timeline.split`): `.tl-scroll` only slides the days, and the hours scroll
+up and down in `.tl-body` inside it. Browsers can't lock one box that
+scrolls both ways to one direction per swipe, but with two boxes the phone
+gives each swipe to one of them, so it never goes diagonally. The hours
+aren't sticky to the outer box any more, so they move along with it: a
+scroll-driven animation (`animation-timeline: --days`, by `--days-scroll`,
+how far the days can slide), or a `scroll` listener where that's
+unsupported. `.tl-body` has `overscroll-behavior-x: auto` (everything else
+is `none`): otherwise a sideways swipe on the hours isn't passed on to the
+outer box. With a mouse or trackpad it stays one box, as the hours' scroll
+bar would otherwise be at the far right of the six weeks.
+
+**Demo mode** (`demo.ts`, Settings → Demo mode, or `?demo`): `boot()` starts
+it before anything else, with `dev-mock.ts`'s sample data. On the website
+and in `npm run dev` it stands in for the server or Rust side (`mockIPC`);
+in the desktop app, where Tauri's `invoke` can't be replaced, `api.ts`
+asks it first (`answerCommandsHere`), and windows, events, location and
+open-at-login still go to the app. `localStorage` is swapped for a view of
+it whose keys start with `demo:`, so the demo's settings stay apart. The
+switch is kept per tab on the website (`sessionStorage`) and for every
+window in the app (`localStorage`, with an event that reloads them).
 
 ## Contacts (done)
 

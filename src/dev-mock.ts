@@ -1,7 +1,10 @@
 // Sample data for previewing the UI in a normal browser (`npm run dev`, then
-// open http://localhost:1420), where the Rust side isn't available. Only
-// loaded in development, never in the built app.
+// open http://localhost:1420), where the Rust side isn't available, and for
+// Demo mode (Settings → Demo mode, see demo.ts): made-up events, tasks and
+// people, safe for screenshots. Loaded only then.
+import type { InvokeArgs } from "@tauri-apps/api/core";
 import { mockIPC } from "@tauri-apps/api/mocks";
+import { answerCommandsHere } from "./api";
 import type {
   Agenda,
   AgendaItem,
@@ -263,7 +266,26 @@ function sampleInteractions(): Interaction[] {
   ];
 }
 
-export function install(): void {
+/**
+ * Commands the desktop app's Demo mode still sends to the real app: windows,
+ * the Mac's location, open at login. Everything else is sample data.
+ */
+const DESKTOP_COMMANDS = new Set([
+  "show_contacts",
+  "show_main",
+  "set_flyout_detached",
+  "location_access",
+  "current_location",
+  "open_at_login",
+  "set_open_at_login",
+]);
+
+/**
+ * Answers the app's commands with sample data. In the desktop app (Demo
+ * mode), `inApp` keeps windows, events and the other plugins working:
+ * only the app's own data commands are answered here.
+ */
+export function install(inApp = false): void {
   let contacts = sampleContacts();
   const interactions = sampleInteractions();
   let accounts = ["preview@example.com"];
@@ -352,7 +374,7 @@ export function install(): void {
     return realFetch(input, init);
   };
 
-  mockIPC((cmd, args) => {
+  const respond = (cmd: string, args?: InvokeArgs): unknown => {
     switch (cmd) {
       case "auth_status":
         return accounts.length > 0;
@@ -676,9 +698,21 @@ export function install(): void {
         contacts = contacts.map((c) => (c.resourceName === target.resourceName ? { ...c, starred, etag: `%${Date.now()}` } : c));
         return contacts.find((c) => c.resourceName === target.resourceName);
       }
+      case "plugin:opener|open_url":
+        window.open((args as { url: string }).url, "_blank", "noopener,noreferrer");
+        return null;
       default:
         console.info("mock IPC:", cmd, args);
         return null;
     }
-  });
+  };
+
+  if (!inApp) {
+    mockIPC(respond);
+    return;
+  }
+  // Tauri's own invoke can't be replaced, so api.ts asks here first.
+  answerCommandsHere((cmd, args) =>
+    cmd.startsWith("plugin:") || DESKTOP_COMMANDS.has(cmd) ? null : { answer: respond(cmd, args) },
+  );
 }

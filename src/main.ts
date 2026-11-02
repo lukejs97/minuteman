@@ -78,6 +78,12 @@ let latestRequest = 0;
 let reveal: Date | undefined;
 let syncTimer: number | undefined;
 let lastSync = 0;
+/**
+ * Where week view is sliding to, until it gets there. Taps on ‹ › while it
+ * slides count on from there, not from wherever the slide has got to, so
+ * five quick taps go five weeks.
+ */
+let heading: Date | null = null;
 
 function savedView(): ViewName {
   try {
@@ -147,6 +153,7 @@ function render(agenda: Agenda): void {
  * draw the weeks around it if it's near the end of those drawn.
  */
 function slid(first: Date, settled: boolean): void {
+  if (settled) heading = null;
   state.anchor = first;
   updateToolbar();
   if (settled && shown && currentRange().key !== shown.range) void load();
@@ -327,6 +334,7 @@ async function updateWeather(): Promise<void> {
 }
 
 function goTo(view: ViewName, date: Date): void {
+  heading = null;
   state.view = view;
   state.anchor = firstDay(view, date);
   saveView(view);
@@ -334,13 +342,17 @@ function goTo(view: ViewName, date: Date): void {
 }
 
 function step(direction: 1 | -1): void {
-  showDate(VIEWS[state.view].step(state.anchor, direction));
+  showDate(VIEWS[state.view].step(heading ?? state.anchor, direction));
 }
 
 /** Goes to `date` in the current view; in week view by sliding there, if it's near. */
 function showDate(date: Date): void {
   const visible = slidingDays(state.view);
-  if (visible !== null && slideTimeline(app, firstDay(state.view, date), visible)) return;
+  const first = firstDay(state.view, date);
+  if (visible !== null && slideTimeline(app, first, visible)) {
+    heading = first;
+    return;
+  }
   goTo(state.view, date);
 }
 

@@ -1,5 +1,29 @@
 // Typed wrappers around the Rust commands in src-tauri/src/lib.rs.
-import { invoke } from "@tauri-apps/api/core";
+import { type InvokeArgs, invoke as tauriInvoke } from "@tauri-apps/api/core";
+
+/**
+ * Answers the app's own commands in the desktop app's Demo mode (see
+ * demo.ts and dev-mock.ts), or null to send them to the app as usual.
+ * The website and `npm run dev` answer them further down, in place of the
+ * app itself, so there it stays null.
+ */
+let answerHere: ((command: string, args?: InvokeArgs) => { answer: unknown } | null) | null = null;
+
+export function answerCommandsHere(answer: typeof answerHere): void {
+  answerHere = answer;
+}
+
+function invoke<T>(command: string, args?: InvokeArgs): Promise<T> {
+  if (answerHere) {
+    try {
+      const here = answerHere(command, args);
+      if (here) return Promise.resolve(here.answer as T);
+    } catch (e) {
+      return Promise.reject(e);
+    }
+  }
+  return tauriInvoke<T>(command, args);
+}
 
 export type Source = "google" | "todoist" | "apple";
 export type ItemKind = "event" | "task";

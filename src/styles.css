@@ -1413,6 +1413,62 @@ main.loading > * {
   touch-action: pan-x pan-y;
 }
 
+/* A touch screen (views/timeline.ts adds .split): the outer box only slides
+   the days, and the hours scroll up and down in .tl-body inside it. The
+   phone gives each swipe to one box, so it goes one way, never diagonally.
+   The hours, no longer sticky to the box that slides, move along with it
+   (--days-scroll is as far as it slides). */
+.timeline.split .tl-scroll {
+  display: flex;
+  flex-direction: column;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-timeline: --days x;
+}
+
+.timeline.split .tl-top {
+  flex: none;
+}
+
+.timeline.split .tl-body {
+  flex: 1;
+  min-height: 0;
+  width: max-content;
+  min-width: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  touch-action: pan-x pan-y;
+  /* A sideways swipe here is passed on to the box that slides the days
+     (none, as everywhere else, would keep it here, where it can't go). */
+  overscroll-behavior-x: auto;
+}
+
+/* The room at the end for the phone's floating buttons (see .tl-scroll::after)
+   goes under the hours, so they still run to the bottom edge. */
+.timeline.split .tl-scroll::after {
+  display: none;
+}
+
+.timeline.split .tl-body::after {
+  content: "";
+  display: block;
+  height: var(--dock-space, 0px);
+}
+
+.timeline.split .tl-hours {
+  animation: tl-follow-days linear both;
+  animation-timeline: --days;
+}
+
+@keyframes tl-follow-days {
+  from {
+    transform: none;
+  }
+  to {
+    transform: translateX(var(--days-scroll, 0px));
+  }
+}
+
 /* Comes to rest on a day, as in Apple's Calendar. */
 .tl-scroll.sliding {
   scroll-snap-type: x mandatory;

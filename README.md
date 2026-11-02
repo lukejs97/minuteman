@@ -122,6 +122,12 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
   (Settings → Choose calendars…), so they aren't shown twice.
 - **Offline:** opens straight away with what it last loaded, and shows (and
   searches) it without internet.
+- **Demo mode** (Settings → Demo mode): made-up events, tasks and people in
+  place of yours, for screenshots, screen recordings and copied text that
+  show nothing real. Nothing is sent to Google, Todoist or the server while
+  it's on, and settings changed in it are kept apart from your real ones. On
+  the website it's just that tab (or add `?demo` to the address, e.g. in a
+  second tab); in the desktop app it's every window until you turn it off.
 - **Settings** (the gear, or `,`): Google accounts, Todoist, how many days
   the multi-day view shows (2 to 7; each device remembers its own), the
   leave-from address and Routes API key, which map opens a place, and on the
@@ -198,7 +204,7 @@ Build Tools ("Desktop development with C++") and WebView2 (built into Windows
 
 To work on the UI without the Rust side, run `npm run dev` and open
 <http://localhost:1420> in a browser. It shows sample events (from
-`src/dev-mock.ts`, which isn't in real builds); add `?flyout` to the address
+`src/dev-mock.ts`, the same data as Demo mode); add `?flyout` to the address
 for the menu bar window, or open <http://localhost:1420/contacts.html> for
 Contacts. How the code is organized:
 [docs/architecture.md](docs/architecture.md).

@@ -27,6 +27,7 @@ import {
   todoistDisconnect,
   todoistStatus,
 } from "./api";
+import { isDemo, setDemo } from "./demo";
 import { el } from "./dom";
 import { refreshLeaveTimes } from "./leave";
 import { defaultMapProvider } from "./maps";
@@ -123,10 +124,11 @@ export async function openSettings(actions: SettingsActions): Promise<void> {
     settingsRow("Multi-day view", el("span", "settings-note", "Days shown at once"), days),
     settingsRow("Weather", weatherNote, weatherButton),
     settingsRow("Maps", el("span", "settings-note", "Where a place opens"), maps),
+    demoRow(),
   );
   // The website (web/): removing an account removes it for every device, so
   // there's also a sign-out that only affects this browser.
-  if (!isTauri() && !import.meta.env.DEV) {
+  if (!isTauri() && !import.meta.env.DEV && !isDemo()) {
     const signOut = el("button", "pill-button", "Sign out");
     signOut.addEventListener("click", async () => (await import("./web-bridge")).signOutHere());
     rows.append(settingsRow("This browser", el("span", "settings-note", "Other devices stay signed in"), signOut));
@@ -723,6 +725,23 @@ function backTo(dialog: HTMLDialogElement, back?: () => void): HTMLElement[] {
     dialog.close();
   });
   return [button];
+}
+
+/** Demo mode: sample data in place of yours, for screenshots (see demo.ts). */
+function demoRow(): HTMLElement {
+  const demo = isDemo();
+  const note = el(
+    "span",
+    "settings-note",
+    demo
+      ? "On: everything here is made up"
+      : isTauri()
+        ? "Made-up events and people, for screenshots"
+        : "Made-up events and people, in this tab",
+  );
+  const button = el("button", "pill-button", demo ? "Turn off" : "Turn on");
+  button.addEventListener("click", () => void setDemo(!demo));
+  return settingsRow("Demo mode", note, button);
 }
 
 function settingsRow(name: string, note: HTMLElement, control: HTMLElement): HTMLElement {
