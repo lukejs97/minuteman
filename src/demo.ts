@@ -1,5 +1,6 @@
 // Demo mode: the whole app with made-up events, tasks and people (the same
-// sample data as `npm run dev`, from dev-mock.ts), for screenshots, screen
+// sample data as `npm run dev`, from dev-mock.ts: Paul Revere's calendar,
+// from the militia muster to the midnight ride), for screenshots, screen
 // recordings and copied text that show nothing real. Settings → Demo mode
 // turns it on and off; on the website, adding ?demo to the address does too.
 //

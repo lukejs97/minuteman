@@ -1143,7 +1143,7 @@ fn to_agenda_item(account: &str, can_edit: bool, calendar: &CalendarListEntry, e
         start,
         end,
         all_day,
-        location: event.location.filter(|s| !s.trim().is_empty()),
+        location: event.location.as_deref().and_then(crate::agenda::place_on_one_line),
         color: event
             .color_id
             .as_deref()
@@ -1199,6 +1199,18 @@ fn find_meeting_link(text: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_address_with_line_breaks_shows_on_one_line() {
+        use crate::agenda::place_on_one_line;
+        assert_eq!(
+            place_on_one_line("10 Battle Rd\nLexington MA 02421\nUnited States").as_deref(),
+            Some("10 Battle Rd, Lexington MA 02421, United States")
+        );
+        assert_eq!(place_on_one_line("Green Dragon Tavern,\r\n 84 Union St\n").as_deref(), Some("Green Dragon Tavern, 84 Union St"));
+        assert_eq!(place_on_one_line("Old North Church").as_deref(), Some("Old North Church"));
+        assert_eq!(place_on_one_line(" \n "), None);
+    }
 
     #[test]
     fn this_and_following_ends_the_series_just_before() {

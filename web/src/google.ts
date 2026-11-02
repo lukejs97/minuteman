@@ -10,6 +10,7 @@ import type {
   EventTimes,
 } from "../../src/api";
 import { eventColor } from "../../src/event-colors";
+import { placeOnOneLine } from "../../src/time";
 import type { Env } from "./env";
 import { AppError, apiError, authFailed, configError, fetchOrFail, invalidInput, notSignedIn } from "./errors";
 import { type Account, readAccounts, readHiddenCalendars, removeAccount, writeAccounts } from "./store";
@@ -495,7 +496,7 @@ function toAgendaItem(account: Account, calendar: CalendarListEntry, event: Goog
     allDay,
     floating,
     timeZone,
-    location: nonEmpty(event.location),
+    location: placeOnOneLine(event.location),
     color: eventColor(event.colorId) ?? calendar.backgroundColor ?? null,
     colorId: eventColor(event.colorId) ? event.colorId! : null,
     listName: calendarName(calendar),

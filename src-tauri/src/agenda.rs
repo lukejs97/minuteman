@@ -40,6 +40,19 @@ pub struct Attendee {
     pub is_self: bool,
 }
 
+/// A place on one line: "10 Battle Rd\nLexington MA 02421\nUnited States" (as
+/// Apple Maps and iPhones give addresses to Google Calendar) becomes
+/// "10 Battle Rd, Lexington MA 02421, United States". `None` if it's blank.
+pub fn place_on_one_line(text: &str) -> Option<String> {
+    let line = text
+        .lines()
+        .map(|part| part.trim().trim_end_matches(','))
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(", ");
+    (!line.is_empty()).then_some(line)
+}
+
 // Deserialize: items are also saved to disk for offline use (see cache.rs).
 // Fields added later have `default`, so older saved items still load.
 #[derive(Serialize, Deserialize, Clone)]

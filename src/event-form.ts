@@ -32,6 +32,7 @@ import { describeRecurrence, endAfter } from "./recurrence";
 import {
   addDays,
   floatingZone,
+  placeOnOneLine,
   itemEnd,
   itemStart,
   localTimeZone,
@@ -578,7 +579,8 @@ class Form {
     this.eventTitle.value = item.title;
     this.setWhen(itemStart(item), itemEnd(item), item.allDay);
     this.floating.checked = Boolean(item.floating);
-    this.location.value = item.location ?? "";
+    // One line (an address saved earlier with line breaks would run together here).
+    this.location.value = placeOnOneLine(item.location) ?? "";
     this.leaveFrom.value = item.leaveFrom ?? "";
     this.eventNotes.value = plainText(item.description);
     this.guests.value = item.attendees

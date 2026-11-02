@@ -21,13 +21,13 @@ import { eventColor } from "./event-colors";
 import { addDays, isSameDay, overlaps, parseDate, startOfDay, toDateString } from "./time";
 
 const PERSONAL = { name: "Personal", color: "#7986cb" };
-const WORK = { name: "Work", color: "#33b679" };
+const WORK = { name: "Continental Army", color: "#33b679" };
 const FAMILY = { name: "Family", color: "#f6bf26" };
 const HOLIDAYS = { name: "Holidays", color: "#e67c73" };
 // Todoist projects
 const INBOX = { name: "Inbox", color: "#808080" };
-const HOME = { name: "Home", color: "#7ecc49" };
-const WORK_TASKS = { name: "Work", color: "#4073ff" };
+const HOME = { name: "Farm", color: "#7ecc49" };
+const WORK_TASKS = { name: "Committee", color: "#4073ff" };
 const PERSONAL_TASKS = { name: "Personal", color: "#af38eb" };
 
 type Calendar = typeof PERSONAL;
@@ -41,7 +41,7 @@ function sampleItems(from: Date, to: Date): AgendaItem[] {
     completed: false,
     overdue: false,
     priority: null,
-    account: "preview@example.com",
+    account: "paul.revere@example.com",
     listId: "personal",
     sourceId: null,
     seriesId: null,
@@ -118,50 +118,52 @@ function sampleItems(from: Date, to: Date): AgendaItem[] {
     const weekday = day.getDay();
     const date = day.getDate();
     if (weekday >= 1 && weekday <= 5) {
-      timed(day, "Standup", WORK, 9.5, 15, undefined, {
+      timed(day, "Militia muster", WORK, 9.5, 15, "Lexington Green", {
         recurring: true,
-        seriesId: "standup",
+        seriesId: "muster",
         conferenceUrl: "https://meet.google.com/abc-defg-hij",
         attendees: [
-          { name: "Alex Kim", email: "alex@example.com", response: "accepted", organizer: true, isSelf: false },
-          { name: null, email: "preview@example.com", response: "accepted", organizer: false, isSelf: true },
-          { name: "Sam Lee", email: "sam@example.com", response: "tentative", organizer: false, isSelf: false },
+          { name: "John Parker", email: "captain.parker@example.com", response: "accepted", organizer: true, isSelf: false },
+          { name: null, email: "paul.revere@example.com", response: "accepted", organizer: false, isSelf: true },
+          { name: "Samuel Adams", email: "sam.adams@example.com", response: "tentative", organizer: false, isSelf: false },
         ],
         description:
-          "<p>Daily check-in. Agenda: <a href=\"https://docs.example.com/standup\">standup notes</a></p><p>Three things:<br>yesterday, today, blockers.</p>",
+          "<p>Muster on the green. Orders: <a href=\"https://docs.example.com/muster\">drill notes</a></p><p>Three things:<br>powder, shot, provisions.</p>",
       });
     }
-    if (weekday === 1 || weekday === 4) task(day, "Review inbox", 4, INBOX);
-    if (weekday === 3) task(day, "Call the plumber", 2, HOME, 13);
-    if (weekday === 5) task(day, "Submit expenses", 1, WORK_TASKS);
+    if (weekday === 1 || weekday === 4) task(day, "Read the dispatches", 4, INBOX);
+    if (weekday === 3) task(day, "Shoe the horse", 2, HOME, 13);
+    if (weekday === 5) task(day, "Send the ledger to the Committee", 1, WORK_TASKS);
     if (isSameDay(day, today)) {
-      task(day, "Renew passport", 1, PERSONAL_TASKS, undefined, true);
-      task(day, "Buy groceries", 3, HOME);
-      timed(day, "Coffee nearby", PERSONAL, 16, 45, "Cafe Roma, 12 High St");
+      task(day, "Finish the silver tea set", 1, PERSONAL_TASKS, undefined, true);
+      task(day, "Buy lantern oil", 3, HOME);
+      timed(day, "Coffee at the Green Dragon", PERSONAL, 16, 45, "Green Dragon Tavern, Union St, Boston, MA");
     }
-    if (weekday === 1) timed(day, "Planning", WORK, 10, 60, undefined, { recurring: true, seriesId: "planning" });
+    if (weekday === 1) {
+      timed(day, "Committee of Correspondence", WORK, 10, 60, "Faneuil Hall", { recurring: true, seriesId: "committee" });
+    }
     if (weekday === 2) {
-      timed(day, "Design review", WORK, 11, 60, "Room 4", {
+      timed(day, "Proof the Boston Massacre engraving", WORK, 11, 60, "Revere's shop, North Square", {
         reminders: [30, 7 * 24 * 60],
         emailReminders: [60],
         alertAt: [new Date(day.getFullYear(), day.getMonth(), day.getDate(), 8, 0).toISOString()],
       });
-      timed(day, "Lunch with Sam", PERSONAL, 11.5, 60, "Cafe Roma");
-      timed(day, "Quick sync", WORK, 11.75, 30);
+      timed(day, "Lunch with Sam Adams", PERSONAL, 11.5, 60, "Green Dragon Tavern");
+      timed(day, "Quick word with Dr. Warren", WORK, 11.75, 30);
     }
-    if (weekday === 3) timed(day, "Dentist", PERSONAL, 14, 60, "123 Main St");
+    if (weekday === 3) timed(day, "Fit a false tooth", PERSONAL, 14, 60, "19 North Square, Boston, MA");
     if (weekday === 4) {
-      timed(day, "Offsite", WORK, 9, 8 * 60, "Town Hall");
-      timed(day, "1:1 with Alex", WORK, 15, 30);
+      timed(day, "Provincial Congress", WORK, 9, 8 * 60, "Concord Meetinghouse");
+      timed(day, "1:1 with Captain Parker", WORK, 15, 30);
     }
-    if (weekday === 5) timed(day, "Drinks", PERSONAL, 18, 120);
-    if (weekday === 6) timed(day, "Late show", PERSONAL, 22, 180); // runs past midnight
+    if (weekday === 5) timed(day, "Sons of Liberty", PERSONAL, 18, 120, "Green Dragon Tavern");
+    if (weekday === 6) timed(day, "Midnight ride", PERSONAL, 22, 180, "Charlestown"); // runs past midnight
     if (weekday === 0) timed(day, "Family dinner", FAMILY, 18.5, 90);
-    if (date === 1) allDay(day, "Pay rent", PERSONAL);
-    if (date === 12) allDay(day, "Conference", WORK, 3);
-    if (date === 20) allDay(day, "Grandma's birthday", FAMILY);
-    if (date === 28) allDay(day, "Long weekend", PERSONAL, 4);
-    if (date === 29) allDay(day, "Halloween costume shopping", FAMILY);
+    if (date === 1) allDay(day, "Pay the rent", PERSONAL);
+    if (date === 12) allDay(day, "Second Continental Congress", WORK, 3);
+    if (date === 20) allDay(day, "Rachel's birthday", FAMILY);
+    if (date === 28) allDay(day, "Furlough", PERSONAL, 4);
+    if (date === 29) allDay(day, "Market day", FAMILY);
     if (date === 25 && day.getMonth() === 11) allDay(day, "Christmas Day", HOLIDAYS);
   }
   return items;
@@ -177,8 +179,8 @@ function sampleContacts(): Contact[] {
   const person = (given: string, family: string, more: Partial<Contact> = {}): Contact => {
     const id = `people/c${given.toLowerCase()}${family.toLowerCase()}`.replace(/[^a-z0-9/]/g, "");
     return {
-      id: `preview@example.com/${id}`,
-      account: "preview@example.com",
+      id: `paul.revere@example.com/${id}`,
+      account: "paul.revere@example.com",
       resourceName: id,
       etag: "%mock",
       name: [given, family].filter(Boolean).join(" "),
@@ -199,41 +201,41 @@ function sampleContacts(): Contact[] {
     };
   };
   return [
-    person("Alex", "Kim", {
-      organization: "Acme",
-      jobTitle: "Engineering Manager",
-      emails: [{ value: "alex@example.com", label: "work" }],
-      phones: [{ value: "+1 415 555 0134", label: "work" }],
+    person("John", "Parker", {
+      organization: "Lexington Militia",
+      jobTitle: "Captain",
+      emails: [{ value: "captain.parker@example.com", label: "work" }],
+      phones: [{ value: "+1 781 555 0134", label: "work" }],
       starred: true,
     }),
-    person("Sam", "Lee", {
+    person("Samuel", "Adams", {
       emails: [
-        { value: "sam@example.com", label: "work" },
-        { value: "sam.lee@gmail.com", label: "home" },
+        { value: "sam.adams@example.com", label: "work" },
+        { value: "sons.of.liberty@example.com", label: "home" },
       ],
       phones: [
-        { value: "+1 415 555 0100", label: "mobile" },
-        { value: "+1 415 555 0199", label: "home" },
+        { value: "+1 617 555 0100", label: "mobile" },
+        { value: "+1 617 555 0199", label: "home" },
       ],
-      addresses: [{ value: "42 Elm Street, Springfield, IL 62704", label: "home" }],
-      birthday: inDays(3, 1991),
-      notes: "Likes jazz and good coffee.",
+      addresses: [{ value: "Purchase Street, Boston, MA 02110", label: "home" }],
+      birthday: inDays(3, 1722),
+      notes: "Brews a fine argument.",
       starred: true,
-      nickname: "Sammy",
+      nickname: "Sam",
     }),
-    person("Ana", "Díaz", {
-      organization: "Globex",
-      emails: [{ value: "ana@globex.example", label: "work" }],
+    person("Abigail", "Adams", {
+      organization: "Peacefield",
+      emails: [{ value: "abigail@example.com", label: "home" }],
       birthday: inDays(0, null),
     }),
-    person("Ben", "Okafor", { phones: [{ value: "(212) 555-0147", label: "mobile" }], urls: [{ value: "benokafor.dev", label: "homePage" }] }),
-    person("Chloé", "Martin", { emails: [{ value: "chloe@example.fr", label: null }], birthday: inDays(40, 1985) }),
-    person("Dr. Priya", "Natarajan", { organization: "Springfield Clinic", jobTitle: "Dentist", phones: [{ value: "555 0162", label: "work" }] }),
-    person("Grace", "Hopper", { organization: "US Navy", jobTitle: "Rear Admiral", birthday: { year: 1906, month: 12, day: 9 } }),
-    person("Jan", "van der Berg", { emails: [{ value: "jan@berg.example", label: "home" }] }),
-    person("Mom", "", { phones: [{ value: "+1 555 0110", label: "mobile" }], starred: true, birthday: inDays(10, 1960) }),
-    person("Zoe", "Park", { emails: [{ value: "zoe@example.com", label: null }] }),
-    person("", "", { name: "", givenName: null, organization: "Cafe Roma", phones: [{ value: "+1 415 555 0177", label: "main" }], addresses: [{ value: "1 Market St, San Francisco, CA", label: "work" }] }),
+    person("Benjamin", "Franklin", { phones: [{ value: "(215) 555-0147", label: "mobile" }], urls: [{ value: "poorrichard.example", label: "homePage" }] }),
+    person("Marquis de", "Lafayette", { emails: [{ value: "lafayette@example.fr", label: null }], birthday: inDays(40, 1757) }),
+    person("Dr. Joseph", "Warren", { organization: "Boston", jobTitle: "Physician", phones: [{ value: "555 0162", label: "work" }] }),
+    person("Mercy Otis", "Warren", { organization: "Plymouth", jobTitle: "Playwright", birthday: { year: 1728, month: 9, day: 14 } }),
+    person("Haym", "Salomon", { emails: [{ value: "haym@example.com", label: "home" }] }),
+    person("Rachel", "Revere", { phones: [{ value: "+1 617 555 0110", label: "mobile" }], starred: true, birthday: inDays(10, 1745) }),
+    person("Phillis", "Wheatley", { emails: [{ value: "phillis@example.com", label: null }] }),
+    person("", "", { name: "", givenName: null, organization: "Green Dragon Tavern", phones: [{ value: "+1 617 555 0177", label: "main" }], addresses: [{ value: "Union Street, Boston, MA 02108", label: "work" }] }),
   ];
 }
 
@@ -258,13 +260,13 @@ function contactFrom(base: Contact, draft: ContactDraft): Contact {
 /** A little history with the sample people, for Recent and their cards. */
 function sampleInteractions(): Interaction[] {
   const ago = (hours: number) => new Date(Date.now() - hours * 3_600_000).toISOString();
-  const id = (name: string) => `preview@example.com/people/c${name}`;
+  const id = (name: string) => `paul.revere@example.com/people/c${name}`;
   return [
-    { contactId: id("samlee"), kind: "met", at: ago(24 * 9), detail: "coffee at Cafe Roma" },
-    { contactId: id("benokafor"), kind: "email", at: ago(24 * 4), detail: "the lease" },
-    { contactId: id("mom"), kind: "call", at: ago(26), detail: null },
-    { contactId: id("samlee"), kind: "call", at: ago(3), detail: null },
-    { contactId: id("samlee"), kind: "note", at: ago(2), detail: "Starting a new job in January" },
+    { contactId: id("samueladams"), kind: "met", at: ago(24 * 9), detail: "ale at the Green Dragon" },
+    { contactId: id("benjaminfranklin"), kind: "email", at: ago(24 * 4), detail: "the printing press" },
+    { contactId: id("rachelrevere"), kind: "call", at: ago(26), detail: null },
+    { contactId: id("samueladams"), kind: "call", at: ago(3), detail: null },
+    { contactId: id("samueladams"), kind: "note", at: ago(2), detail: "Raising a militia by spring" },
   ];
 }
 
@@ -290,7 +292,7 @@ const DESKTOP_COMMANDS = new Set([
 export function install(inApp = false): void {
   let contacts = sampleContacts();
   const interactions = sampleInteractions();
-  let accounts = ["preview@example.com"];
+  let accounts = ["paul.revere@example.com"];
   let todoistConnected = true;
   const completedTasks = new Set<string>();
   const created: AgendaItem[] = [];
@@ -332,7 +334,7 @@ export function install(inApp = false): void {
   let preferences = {
     menuBarNext: true,
     timeToLeave: false,
-    leaveFrom: "100 Main Street, Springfield",
+    leaveFrom: "19 North Square, Boston, MA 02113",
     leaveFromHere: false,
     routesDailyLimit: 80,
     routesMonthlyLimit: 2500,
@@ -381,7 +383,7 @@ export function install(inApp = false): void {
       case "auth_status":
         return accounts.length > 0;
       case "sign_in": {
-        const email = accounts.length === 0 ? "preview@example.com" : `work${accounts.length}@example.com`;
+        const email = accounts.length === 0 ? "paul.revere@example.com" : `work${accounts.length}@example.com`;
         accounts.push(email);
         return email;
       }
@@ -426,7 +428,8 @@ export function install(inApp = false): void {
       case "todoist_projects":
         return [
           { id: "inbox", name: "Inbox", color: INBOX.color, inbox: true },
-          { id: "home", name: "Home", color: HOME.color, inbox: false },
+          { id: "home", name: HOME.name, color: HOME.color, inbox: false },
+          { id: "committee", name: WORK_TASKS.name, color: WORK_TASKS.color, inbox: false },
         ];
       case "create_task": {
         const { task } = args as { task: TaskDraft };
@@ -517,7 +520,7 @@ export function install(inApp = false): void {
           completed: false,
           overdue: false,
           priority: null,
-          account: "preview@example.com",
+          account: "paul.revere@example.com",
           listId: calendarId,
           sourceId: id,
           seriesId: null,
@@ -617,7 +620,7 @@ export function install(inApp = false): void {
       case "apple_calendars":
         return [
           { id: "home", title: "Home", account: "iCloud", color: "#34c759", reminders: false, shown: true },
-          { id: "g", title: "preview@example.com", account: "preview@example.com", color: "#4285f4", reminders: false, shown: false },
+          { id: "g", title: "paul.revere@example.com", account: "paul.revere@example.com", color: "#4285f4", reminders: false, shown: false },
           { id: "todo", title: "Reminders", account: "iCloud", color: "#ff9500", reminders: true, shown: true },
         ].map((c) => ({ ...c, shown: preferences.appleCalendarsShown[c.id] ?? c.shown }));
       case "location_access":
@@ -669,7 +672,7 @@ export function install(inApp = false): void {
       case "get_contacts":
       case "get_saved_contacts":
         return {
-          accounts: accounts.map((email) => ({ email, canUse: email === "preview@example.com", error: null })),
+          accounts: accounts.map((email) => ({ email, canUse: email === "paul.revere@example.com", error: null })),
           // Sorted by name, as the Rust side does; people without one last.
           contacts: contacts
             .filter((c) => accounts.includes(c.account))

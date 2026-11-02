@@ -279,7 +279,7 @@ fn event_item(event: &EKEvent) -> AgendaItem {
     let identifier = unsafe { item.calendarItemIdentifier() }.to_string();
     let calendar = unsafe { item.calendar() };
     let notes = unsafe { item.notes() }.map(|n| n.to_string());
-    let location = unsafe { item.location() }.map(|l| l.to_string()).filter(|l| !l.trim().is_empty());
+    let location = unsafe { item.location() }.and_then(|l| crate::agenda::place_on_one_line(&l.to_string()));
     AgendaItem {
         id: format!("{EVENT_PREFIX}{identifier}:{}", start.timestamp()),
         source: Source::Apple,

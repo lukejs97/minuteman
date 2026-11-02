@@ -163,5 +163,20 @@ export function sameClockIn(local: Date, zone: string): Date {
 }
 
 /** The zone a floating timed event's clock time belongs to; null for any other item. */
+/**
+ * A place on one line: "10 Battle Rd\nLexington MA 02421\nUnited States"
+ * (as Apple Maps and iPhones give addresses to Google Calendar) becomes "10
+ * Battle Rd, Lexington MA 02421, United States". Null if blank. As
+ * `place_on_one_line` in agenda.rs.
+ */
+export function placeOnOneLine(text: string | null | undefined): string | null {
+  const line = (text ?? "")
+    .split(/\r?\n/)
+    .map((part) => part.trim().replace(/,+$/, ""))
+    .filter(Boolean)
+    .join(", ");
+  return line || null;
+}
+
 export const floatingZone = (item: { floating?: boolean; timeZone?: string | null; allDay: boolean } | null) =>
   item?.floating && item.timeZone && !item.allDay ? item.timeZone : null;
