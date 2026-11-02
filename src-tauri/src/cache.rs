@@ -163,6 +163,7 @@ mod tests {
             time_zone: None,
             leave_from: None,
             leave_alerts: Vec::new(),
+            color_id: None,
         }
     }
 

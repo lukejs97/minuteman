@@ -184,6 +184,31 @@ is `none`): otherwise a sideways swipe on the hours isn't passed on to the
 outer box. With a mouse or trackpad it stays one box, as the hours' scroll
 bar would otherwise be at the far right of the six weeks.
 
+**Place suggestions** (`place-suggest.ts`): `enablePlaceSuggestions(field)`
+puts a list under a field (in its dialog, `position: fixed`) from Photon
+(`photon.komoot.io`, free OpenStreetMap search, no key; in both CSPs'
+`connect-src`), from 3 letters after a 250 ms pause, nearest the weather's
+place. US states are shortened ("MA") so a picked address reads like one
+typed. `findPlace(text)` is for places in the sentence: `parseEvent` finds
+capitalised ones ("at Old North Church"); the form looks up lowercase ones
+it can't tell from words (`placeAtEnd`: "coffee at starbucks", not "look at
+the house") and keeps them only if a place nearby has that name; either way
+the Location field gets the full address once found.
+
+**Repeating events** (`series.ts`): saving (the form), dragging and deleting
+one event of a Google series ask "This event / This and following events /
+All events". "This and following" is `end_series_before`: the series gets
+an UNTIL just before this event (`occurrenceStart`, the time Google keeps),
+and the rules come back for a new series created from this event (COUNT
+dropped, as what's left of it isn't known). For the series' first event,
+nothing comes before it, so it's all events instead.
+
+**Event colors** (`event-colors.ts`, `EVENT_COLORS` in calendar.rs): an
+event's `colorId` ("1" to "11", Google's names and the colors its apps show)
+becomes `AgendaItem.color` (else the calendar's) and `colorId`.
+`EventDraft.colorId`: missing leaves it, "" clears it (sent as null in the
+PATCH), an id sets it.
+
 **Demo mode** (`demo.ts`, Settings → Demo mode, or `?demo`): `boot()` starts
 it before anything else, with `dev-mock.ts`'s sample data. On the website
 and in `npm run dev` it stands in for the server or Rust side (`mockIPC`);

@@ -313,6 +313,7 @@ fn event_item(event: &EKEvent) -> AgendaItem {
         time_zone: unsafe { event.timeZone() }.map(|zone| zone.name().to_string()),
         leave_from: None,
         leave_alerts: Vec::new(),
+        color_id: None,
     }
 }
 
@@ -425,6 +426,7 @@ fn reminder_item(reminder: &EKReminder, from: NaiveDate, to: NaiveDate, today: N
         time_zone: None,
         leave_from: None,
         leave_alerts: Vec::new(),
+        color_id: None,
     })
 }
 

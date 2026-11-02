@@ -17,6 +17,7 @@ import type {
   TaskDraft,
   TaskDue,
 } from "./api";
+import { eventColor } from "./event-colors";
 import { addDays, isSameDay, overlaps, parseDate, startOfDay, toDateString } from "./time";
 
 const PERSONAL = { name: "Personal", color: "#7986cb" };
@@ -119,6 +120,7 @@ function sampleItems(from: Date, to: Date): AgendaItem[] {
     if (weekday >= 1 && weekday <= 5) {
       timed(day, "Standup", WORK, 9.5, 15, undefined, {
         recurring: true,
+        seriesId: "standup",
         conferenceUrl: "https://meet.google.com/abc-defg-hij",
         attendees: [
           { name: "Alex Kim", email: "alex@example.com", response: "accepted", organizer: true, isSelf: false },
@@ -471,6 +473,10 @@ export function install(inApp = false): void {
         }));
       case "event_recurrence":
         return ["RRULE:FREQ=WEEKLY;BYDAY=MO", "EXDATE;TZID=America/New_York:20261102T100000"];
+      case "end_series_before":
+        // As if the series went on before this one: it's cut there, and goes on in a new one.
+        console.info("mock IPC: end_series_before", args);
+        return ["RRULE:FREQ=WEEKLY;BYDAY=MO"];
       case "open_at_login":
         return openAtLoginNow;
       case "set_open_at_login":
@@ -504,7 +510,8 @@ export function install(inApp = false): void {
           end: event.end,
           allDay: event.allDay,
           location: event.location,
-          color: calendar.color,
+          color: eventColor(event.colorId) ?? calendar.color,
+          colorId: eventColor(event.colorId) ? event.colorId : null,
           listName: calendar.name,
           url: "https://calendar.google.com/",
           completed: false,
@@ -543,6 +550,12 @@ export function install(inApp = false): void {
           leaveFrom: leaveFrom?.trim() || null,
           ...(alerts ?? {}),
         });
+        if (typeof event.colorId === "string") {
+          // Its own color, or ("") back to its calendar's.
+          const { color: _color, colorId: _id, ...rest } = edits.get(target.eventId) ?? {};
+          const color = eventColor(event.colorId);
+          edits.set(target.eventId, color ? { ...rest, color, colorId: event.colorId } : rest);
+        }
         return null;
       }
       case "set_event_times": {

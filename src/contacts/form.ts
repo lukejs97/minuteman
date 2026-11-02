@@ -13,6 +13,7 @@ import {
 import { el } from "../dom";
 import { labelText } from "./model";
 import type { ParsedContact } from "./parse";
+import { enablePlaceSuggestions } from "../place-suggest";
 
 type ListKind = "phones" | "emails" | "addresses" | "urls";
 
@@ -218,7 +219,10 @@ class LabeledList {
       this.kind === "addresses" ? el("textarea", "text-input labeled-value") : el("input", "text-input labeled-value");
     if (input instanceof HTMLInputElement) {
       input.type = this.kind === "emails" ? "email" : this.kind === "phones" ? "tel" : this.kind === "urls" ? "url" : "text";
-    } else input.rows = 2;
+    } else {
+      input.rows = 2;
+      enablePlaceSuggestions(input);
+    }
     input.placeholder = PLACEHOLDERS[this.kind];
     input.value = value.value;
     input.setAttribute("aria-label", LIST_NAMES[this.kind][0]);

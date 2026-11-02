@@ -1,7 +1,7 @@
 //! Google Calendar API v3: the user's calendar list, the events on each
 //! calendar within a time range, and adding events.
 
-use chrono::{DateTime, Local, NaiveDate, NaiveDateTime, NaiveTime, TimeZone};
+use chrono::{DateTime, Local, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
 use futures::future::join_all;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -74,6 +74,8 @@ struct Event {
     /// Set on each occurrence of a repeating event.
     recurring_event_id: Option<String>,
     extended_properties: Option<ExtendedProperties>,
+    /// The event's own color, when it isn't its calendar's ("1" to "11").
+    color_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -103,6 +105,28 @@ pub const LEAVE_FROM: &str = "minutemanLeaveFrom";
 /// the website and the desktop app see the same list, and the desktop — where
 /// notifications actually run — can fire an alert that was added in either.
 pub const LOCAL_ALERTS: &str = "minutemanAlerts";
+
+/// Google Calendar's event colors, by `colorId`, as its apps show them (the
+/// API's own color list has older, paler ones). Kept in step with
+/// src/event-colors.ts.
+const EVENT_COLORS: [(&str, &str); 11] = [
+    ("1", "#7986cb"),  // Lavender
+    ("2", "#33b679"),  // Sage
+    ("3", "#8e24aa"),  // Grape
+    ("4", "#e67c73"),  // Flamingo
+    ("5", "#f6bf26"),  // Banana
+    ("6", "#f4511e"),  // Tangerine
+    ("7", "#039be5"),  // Peacock
+    ("8", "#616161"),  // Graphite
+    ("9", "#3f51b5"),  // Blueberry
+    ("10", "#0b8043"), // Basil
+    ("11", "#d50000"), // Tomato
+];
+
+/// The color an event's `colorId` stands for; `None` for none or an unknown one.
+pub fn event_color(color_id: &str) -> Option<&'static str> {
+    EVENT_COLORS.iter().find(|(id, _)| *id == color_id).map(|(_, color)| *color)
+}
 
 /// Google Calendar allows at most this many reminder overrides on an event.
 const GOOGLE_MAX_OVERRIDES: usize = 5;
@@ -257,6 +281,93 @@ pub async fn recurrence(http: &reqwest::Client, token: &str, calendar_id: &str, 
     url.query_pairs_mut().append_pair("fields", "recurrence");
     let series: Series = get_json(http, token, url).await?;
     Ok(series.recurrence)
+}
+
+/// "This and following events": ends the series `series_id` just before its
+/// occurrence at `before` (an RFC 3339 time, or a date for an all-day series),
+/// and returns its rules for a new series from there on (RRULE lines, with
+/// any COUNT dropped: what's left of it isn't known). `None` when `before` is
+/// its first occurrence: nothing comes before it, so change the whole series.
+pub async fn end_series_before(
+    http: &reqwest::Client,
+    token: &str,
+    calendar_id: &str,
+    series_id: &str,
+    before: &str,
+    all_day: bool,
+) -> Result<Option<Vec<String>>> {
+    #[derive(Deserialize)]
+    struct Series {
+        start: Option<EventTime>,
+        #[serde(default)]
+        recurrence: Vec<String>,
+    }
+    let mut url = Url::parse(API).expect("valid URL");
+    url.path_segments_mut().expect("base URL").extend(["calendars", calendar_id, "events", series_id]);
+    url.query_pairs_mut().append_pair("fields", "start,recurrence");
+    let series: Series = get_json(http, token, url.clone()).await?;
+    let Some(until) = until_before(before, all_day) else {
+        return Err(AppError::InvalidInput("not a time or date".into()));
+    };
+    let first = series.start.as_ref().and_then(|s| s.date_time.clone().or_else(|| s.date.clone())).unwrap_or_default();
+    if series.recurrence.is_empty() || !starts_before(&first, before) {
+        return Ok(None);
+    }
+    let ended = with_until(&series.recurrence, &until);
+    let _patched: Value = send(http.patch(url).bearer_auth(token).json(&json!({ "recurrence": ended }))).await?;
+    let following = series
+        .recurrence
+        .iter()
+        .filter(|rule| rule.to_ascii_uppercase().starts_with("RRULE:"))
+        .map(|rule| without_parts(rule, &["COUNT"]))
+        .collect();
+    Ok(Some(following))
+}
+
+/// The UNTIL that ends a series just before `before`: the day before (all
+/// day), or a second before, in UTC.
+fn until_before(before: &str, all_day: bool) -> Option<String> {
+    if all_day {
+        let day = NaiveDate::parse_from_str(before.get(..10)?, "%Y-%m-%d").ok()?;
+        return Some((day - chrono::TimeDelta::days(1)).format("%Y%m%d").to_string());
+    }
+    let at = DateTime::parse_from_rfc3339(before).ok()?.with_timezone(&Utc) - chrono::TimeDelta::seconds(1);
+    Some(at.format("%Y%m%dT%H%M%SZ").to_string())
+}
+
+/// Whether a series starting at `first` has occurrences before `before`
+/// (both RFC 3339 times, or both dates).
+fn starts_before(first: &str, before: &str) -> bool {
+    match (DateTime::parse_from_rfc3339(first), DateTime::parse_from_rfc3339(before)) {
+        (Ok(first), Ok(before)) => first < before,
+        _ => first.get(..10).unwrap_or(first) < before.get(..10).unwrap_or(before),
+    }
+}
+
+/// `rules` with every RRULE ending at `until` (its UNTIL or COUNT replaced).
+fn with_until(rules: &[String], until: &str) -> Vec<String> {
+    rules
+        .iter()
+        .map(|rule| {
+            if !rule.to_ascii_uppercase().starts_with("RRULE:") {
+                return rule.clone();
+            }
+            format!("{};UNTIL={until}", without_parts(rule, &["UNTIL", "COUNT"]))
+        })
+        .collect()
+}
+
+/// An RRULE line without the parts named (e.g. COUNT).
+fn without_parts(rule: &str, names: &[&str]) -> String {
+    let body = &rule["RRULE:".len()..];
+    let kept: Vec<&str> = body
+        .split(';')
+        .filter(|part| {
+            let name = part.split('=').next().unwrap_or("").to_ascii_uppercase();
+            !part.is_empty() && !names.contains(&name.as_str())
+        })
+        .collect();
+    format!("RRULE:{}", kept.join(";"))
 }
 
 /// The signed-in account's email address, which is its primary calendar's ID.
@@ -445,6 +556,10 @@ pub struct EventDraft {
     /// `Some("")` clears it (use the address in Settings).
     #[serde(default)]
     pub leave_from: Option<String>,
+    /// The event's own color ("1" to "11"). `None` leaves it as it is;
+    /// `Some("")` goes back to the calendar's color.
+    #[serde(default)]
+    pub color_id: Option<String>,
 }
 
 impl EventDraft {
@@ -481,6 +596,13 @@ impl EventDraft {
         }
         if let Some(rules) = &self.recurrence {
             body["recurrence"] = json!(rules);
+        }
+        match self.color_id.as_deref().map(str::trim) {
+            None => {}
+            // null removes the event's own color (Google's update is a PATCH).
+            Some("") => body["colorId"] = Value::Null,
+            Some(id) if event_color(id).is_some() => body["colorId"] = json!(id),
+            Some(_) => return Err(AppError::InvalidInput("that isn't one of Google Calendar's event colors".into())),
         }
         if let Some(guests) = &self.guests {
             body["attendees"] = guests
@@ -1022,7 +1144,13 @@ fn to_agenda_item(account: &str, can_edit: bool, calendar: &CalendarListEntry, e
         end,
         all_day,
         location: event.location.filter(|s| !s.trim().is_empty()),
-        color: calendar.background_color.clone(),
+        color: event
+            .color_id
+            .as_deref()
+            .and_then(event_color)
+            .map(str::to_string)
+            .or_else(|| calendar.background_color.clone()),
+        color_id: event.color_id.filter(|id| event_color(id).is_some()),
         list_name: calendar.name(),
         url: event.html_link,
         completed: false,
@@ -1071,6 +1199,22 @@ fn find_meeting_link(text: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn this_and_following_ends_the_series_just_before() {
+        assert_eq!(until_before("2026-11-10T09:00:00-05:00", false).as_deref(), Some("20261110T135959Z"));
+        assert_eq!(until_before("2026-11-10", true).as_deref(), Some("20261109"));
+        let rules = vec!["RRULE:FREQ=WEEKLY;BYDAY=TU;COUNT=10".to_string(), "EXDATE:20261103T140000Z".to_string()];
+        assert_eq!(
+            with_until(&rules, "20261110T135959Z"),
+            vec!["RRULE:FREQ=WEEKLY;BYDAY=TU;UNTIL=20261110T135959Z".to_string(), "EXDATE:20261103T140000Z".to_string()]
+        );
+        assert_eq!(without_parts("RRULE:FREQ=DAILY;UNTIL=20270101;INTERVAL=2", &["UNTIL"]), "RRULE:FREQ=DAILY;INTERVAL=2");
+        assert!(starts_before("2026-10-06T09:00:00-04:00", "2026-11-10T09:00:00-05:00"));
+        // Its first occurrence: nothing before it to keep.
+        assert!(!starts_before("2026-11-10T09:00:00-05:00", "2026-11-10T09:00:00-05:00"));
+        assert!(starts_before("2026-10-06", "2026-11-10"));
+    }
 
     fn draft(json: Value) -> EventDraft {
         serde_json::from_value(json).unwrap()

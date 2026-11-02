@@ -23,7 +23,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self' ipc: http://ipc.localhost; connect-src 'self' ipc: http://ipc.localhost https://api.open-meteo.com https://geocoding-api.open-meteo.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://*.googleusercontent.com",
+      "csp": "default-src 'self' ipc: http://ipc.localhost; connect-src 'self' ipc: http://ipc.localhost https://api.open-meteo.com https://geocoding-api.open-meteo.com https://photon.komoot.io; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://*.googleusercontent.com",
       "devCsp": null
     }
   },

@@ -19,7 +19,7 @@ import {
 } from "./api";
 import { openDetails, showItemMenu } from "./details";
 import { el, setItemMenu } from "./dom";
-import { openEdit, openNew } from "./event-form";
+import { openDuplicate, openEdit, openNew } from "./event-form";
 import { announceChange, onChangeElsewhere } from "./sync";
 import { refreshWeather } from "./weather";
 import {
@@ -238,6 +238,7 @@ function changed(): void {
 const itemActions = {
   toggleTask,
   edit: (it: AgendaItem) => openEdit(it, changed),
+  duplicate: (it: AgendaItem) => openDuplicate(it, changed),
   deleted: changed,
   open: (it: AgendaItem) => showDetails(it),
 };

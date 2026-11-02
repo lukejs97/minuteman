@@ -233,6 +233,24 @@ async fn event_recurrence(state: State<'_, AppState>, target: EventRef) -> Resul
     google::calendar::recurrence(&state.http, &token, &target.calendar_id, &target.event_id).await
 }
 
+/// "This and following events": ends a series just before its occurrence at
+/// `before`, and returns its rules for a new series from there. `None`: that's
+/// its first occurrence, so change the whole series instead.
+#[tauri::command]
+async fn end_series_before(
+    state: State<'_, AppState>,
+    target: EventRef,
+    before: String,
+    all_day: bool,
+) -> Result<Option<Vec<String>>> {
+    let token = state.google_auth.access_token(&target.email).await?;
+    let ended =
+        google::calendar::end_series_before(&state.http, &token, &target.calendar_id, &target.event_id, &before, all_day)
+            .await?;
+    events_changed();
+    Ok(ended)
+}
+
 /// Moves or resizes an event (dragging it).
 #[tauri::command]
 async fn set_event_times(
@@ -802,6 +820,7 @@ pub fn run() {
             create_event,
             update_event,
             event_recurrence,
+            end_series_before,
             set_event_times,
             delete_event,
             get_contacts,

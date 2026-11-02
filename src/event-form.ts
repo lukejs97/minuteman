@@ -4,6 +4,7 @@
 // filled in from the item.
 import {
   createEvent,
+  endSeriesBefore,
   createTask,
   errorMessage,
   eventCalendars,
@@ -22,7 +23,10 @@ import {
   type TaskDue,
 } from "./api";
 import { AlertEditor } from "./alert-editor";
+import { askSeriesChoice } from "./series";
 import { el } from "./dom";
+import { EVENT_COLORS } from "./event-colors";
+import { enablePlaceSuggestions, findPlace, type PlaceSuggestion } from "./place-suggest";
 import { parseEvent, parseTask, REPEAT_RULES, type Repeat } from "./quick-parse";
 import { describeRecurrence, endAfter } from "./recurrence";
 import {
@@ -87,6 +91,11 @@ export function openNew(
   new Form(onSaved, mode, null, at, sentence).open();
 }
 
+/** Opens the New window filled in like `item`: a copy to change and add. */
+export function openDuplicate(item: AgendaItem, onSaved: (saved: Saved) => void): void {
+  new Form(onSaved, item.kind === "task" ? "task" : "event", null, null, "", item).open();
+}
+
 /** Opens the Edit window for an event or task. */
 export function openEdit(item: AgendaItem, onSaved: (saved: Saved) => void): void {
   new Form(onSaved, item.kind === "task" ? "task" : "event", item).open();
@@ -100,6 +109,24 @@ function select(options: [string, string][]): HTMLSelectElement {
   const node = el("select", "text-input");
   node.append(...options.map(([value, text]) => option(value, text)));
   return node;
+}
+
+/** Not places, after "at" or "in": "at the moment", "in my car", "at home". */
+const NOT_PLACES = new Set(
+  "the a an my your his her our their its this that some least last first all once home work school office length time person mind".split(" "),
+);
+
+/**
+ * A lowercase place at the end of a title ("coffee at starbucks", "dinner
+ * in boston"), to look up; capitalised ones are found by `parseEvent`.
+ */
+export function placeAtEnd(title: string): { title: string; place: string } | null {
+  const m = /^(.*\S)\s+(?:at|in)\s+([a-z0-9][^,;:!?]{1,40})$/i.exec(title);
+  if (!m) return null;
+  const place = m[2].trim();
+  const first = place.split(/\s+/);
+  if (place.length < 3 || first.length > 5 || NOT_PLACES.has(first[0].toLowerCase()) || /^\d+$/.test(place)) return null;
+  return { title: m[1], place };
 }
 
 function input(type: string, placeholder = ""): HTMLInputElement {
@@ -138,6 +165,9 @@ class Form {
   private save = el("button", "primary-button", "Add");
   /** Fields set by hand, which the sentence no longer changes. */
   private touched = new Set<string>();
+  /** Places named in the sentence, looked up: where each is, or null if it isn't one. */
+  private placeLookups = new Map<string, PlaceSuggestion | null>();
+  private placeTimer: number | undefined;
   private eventFields = el("div", "form-grid");
   private taskFields = el("div", "form-grid");
   private modeButtons: [Mode, HTMLButtonElement][] = [];
@@ -157,11 +187,11 @@ class Form {
   private leaveFrom = input("text", "Set a default in Settings");
   private leaveHint = el("div", "form-notes", "Where you start from, if it isn't the address in Settings.");
   private repeat = select(REPEAT_OPTIONS);
-  /** For one event in a repeating series: change just it, or all of them. */
-  private scope = select([
-    ["one", "This event only"],
-    ["all", "All events in the series"],
-  ]);
+  /**
+   * For one event in a repeating series: change just it, it and the ones
+   * after it, or all of them. Asked when you save, as Google Calendar does.
+   */
+  private seriesChoice: "one" | "following" | "all" = "one";
   private alerts = new AlertEditor(
     () => this.touched.add("alert"),
     () => this.startValue(),
@@ -173,6 +203,11 @@ class Form {
   private notifyGuests = el("input");
   private notifyRow = el("label", "form-check");
   private calendarChoices: CalendarChoice[] = [];
+  /** Each calendar choice's color, for the "calendar's color" swatch. */
+  private calendarColors: (string | null)[] = [];
+  /** The event's own color ("1" to "11"), or "" for its calendar's. */
+  private colorId = "";
+  private colorPicker = el("div", "color-choices");
   private calendarsReady = false;
 
   // Task fields
@@ -201,6 +236,8 @@ class Form {
     private at: At | null = null,
     /** When adding: what the sentence box starts with. */
     private startSentence = "",
+    /** When duplicating: the event or task it's a copy of. */
+    private copyOf: AgendaItem | null = null,
   ) {}
 
   open(): void {
@@ -212,7 +249,7 @@ class Form {
 
     const header = el("div", "quick-header");
     header.append(this.title);
-    if (!this.item) {
+    if (!this.item && !this.copyOf) {
       const switcher = el("div", "segmented");
       switcher.role = "group";
       switcher.setAttribute("aria-label", "Add an event or a task");
@@ -241,7 +278,7 @@ class Form {
       e.preventDefault();
       void this.submit();
     });
-    if (!this.item) {
+    if (!this.item && !this.copyOf) {
       this.sentence.setAttribute("aria-label", "Describe it in a sentence");
       this.sentence.addEventListener("input", () => this.fromSentence());
       this.sentence.value = this.startSentence;
@@ -252,6 +289,7 @@ class Form {
     dialog.showModal();
 
     if (this.item) this.fillFromItem(this.item);
+    else if (this.copyOf) this.fillFromItem(this.copyOf, true);
     else this.fillDefaults();
     void this.loadCalendars();
     void this.loadLeaveDefault();
@@ -266,6 +304,44 @@ class Form {
     box.append(...controls);
     grid.append(name, box);
     return box;
+  }
+
+  /** Google Calendar's event colors as swatches, the first being the calendar's own. */
+  private buildColorPicker(): void {
+    const picker = this.colorPicker;
+    picker.setAttribute("role", "radiogroup");
+    picker.setAttribute("aria-label", "Event color");
+    const choices = [{ id: "", name: "Calendar's color", color: null as string | null }, ...EVENT_COLORS];
+    for (const choice of choices) {
+      const swatch = el("button", "color-choice");
+      swatch.type = "button";
+      swatch.setAttribute("role", "radio");
+      swatch.title = choice.name;
+      swatch.setAttribute("aria-label", choice.name);
+      swatch.dataset.id = choice.id;
+      if (choice.color) swatch.style.setProperty("--swatch", choice.color);
+      else swatch.classList.add("calendar-color");
+      swatch.addEventListener("click", () => {
+        this.touched.add("color");
+        this.setColor(choice.id);
+      });
+      picker.append(swatch);
+    }
+    this.setColor(this.colorId);
+  }
+
+  private setColor(id: string): void {
+    this.colorId = id;
+    for (const swatch of this.colorPicker.querySelectorAll<HTMLElement>(".color-choice")) {
+      swatch.setAttribute("aria-checked", String(swatch.dataset.id === id));
+    }
+  }
+
+  /** The "calendar's color" swatch, in the chosen calendar's color. */
+  private showCalendarColor(): void {
+    const color = this.calendarColors[Number(this.calendar.value)];
+    if (color) this.colorPicker.style.setProperty("--calendar-color", color);
+    else this.colorPicker.style.removeProperty("--calendar-color");
   }
 
   /** Marks `name` as set by hand whenever one of `controls` changes. */
@@ -290,18 +366,22 @@ class Form {
     this.notifyGuests.checked = true;
     this.notifyRow.append(this.notifyGuests, " Email guests about the changes");
 
-    if (this.inSeries()) this.row(grid, "Change", this.scope);
     this.row(grid, "Title", this.eventTitle);
     this.row(grid, "Starts", this.startDate, this.startTime, allDayLabel);
     this.row(grid, "Ends", this.endDate, this.endTime, this.floatingLabel);
     this.row(grid, "Where", this.location);
     this.row(grid, "Leave from", this.leaveFrom, this.leaveHint);
+    enablePlaceSuggestions(this.location);
+    enablePlaceSuggestions(this.leaveFrom);
     this.row(grid, "Repeat", this.repeat);
     const alertRow = this.row(grid, "Alert", this.alerts.root);
     alertRow.previousElementSibling?.classList.add("alert-label");
     this.row(grid, "Guests", this.guests);
     this.row(grid, "Notes", this.eventNotes);
     this.row(grid, "Calendar", this.calendar, this.calendarNotes);
+    this.row(grid, "Color", this.colorPicker);
+    this.buildColorPicker();
+    this.calendar.addEventListener("change", () => this.showCalendarColor());
     if (this.item) grid.append(el("span"), this.notifyRow);
 
     this.track("title", this.eventTitle);
@@ -327,15 +407,8 @@ class Form {
     this.startTime.addEventListener("change", keepLength);
     this.startDate.addEventListener("focus", () => (previousStart = this.startValue()));
     this.startTime.addEventListener("focus", () => (previousStart = this.startValue()));
-    // A new repeat can only be for the whole series; one event alone keeps it.
-    this.repeat.addEventListener("change", () => {
-      if (this.inSeries() && this.repeat.value !== "keep") this.scope.value = "all";
-    });
-    this.scope.addEventListener("change", () => {
-      if (this.scope.value === "one") this.repeat.value = "keep";
-    });
     this.calendar.addEventListener("change", () => {
-      if (!this.item) save(CALENDAR_STORAGE_KEY, this.calendarChoices[Number(this.calendar.value)]);
+      if (!this.item && !this.copyOf) save(CALENDAR_STORAGE_KEY, this.calendarChoices[Number(this.calendar.value)]);
     });
   }
 
@@ -386,14 +459,24 @@ class Form {
       this.showTaskRepeat();
     });
     this.project.addEventListener("change", () => {
-      if (!this.item) save(PROJECT_STORAGE_KEY, this.project.value);
+      if (!this.item && !this.copyOf) save(PROJECT_STORAGE_KEY, this.project.value);
     });
   }
 
   private setMode(mode: Mode): void {
     this.mode = mode;
     const event = mode === "event";
-    this.title.textContent = this.item ? (event ? "Edit event" : "Edit task") : event ? "New event" : "New task";
+    this.title.textContent = this.item
+      ? event
+        ? "Edit event"
+        : "Edit task"
+      : this.copyOf
+        ? event
+          ? "Duplicate event"
+          : "Duplicate task"
+        : event
+          ? "New event"
+          : "New task";
     this.sentence.placeholder = event ? "Lunch with Sam tomorrow 1pm at Cafe Roma" : "Submit expenses Friday p1";
     this.eventFields.hidden = !event;
     this.taskFields.hidden = event;
@@ -405,7 +488,7 @@ class Form {
     this.error.textContent = "";
     this.fromSentence();
     this.updateSaveButton();
-    (this.item ? (event ? this.eventTitle : this.taskName) : this.sentence).focus();
+    (this.item || this.copyOf ? (event ? this.eventTitle : this.taskName) : this.sentence).focus();
     // Started with a sentence: carry on typing at its end.
     if (!this.item) this.sentence.setSelectionRange(this.sentence.value.length, this.sentence.value.length);
   }
@@ -480,7 +563,8 @@ class Form {
     this.dueTime.value = this.at && !this.at.allDay ? timeString(this.at.start) : "";
   }
 
-  private fillFromItem(item: AgendaItem): void {
+  /** `copy`: for a duplicate, a new item that doesn't repeat. */
+  private fillFromItem(item: AgendaItem, copy = false): void {
     if (item.kind === "task") {
       this.taskName.value = item.title;
       const start = itemStart(item);
@@ -502,7 +586,10 @@ class Form {
       .map((a) => a.email)
       .join(", ");
     this.alerts.setFromItem(item);
-    if (this.inSeries()) {
+    this.setColor(item.colorId ?? "");
+    if (copy) {
+      // A one-off copy; Repeat can make it repeat.
+    } else if (this.inSeries()) {
       // "keep" leaves the series' rule be; it's shown in words once fetched.
       // "end" makes this the last one (the ones before it stay).
       this.repeat.querySelector('option[value=""]')?.remove();
@@ -520,6 +607,16 @@ class Form {
     this.notifyRow.hidden = !item.attendees.some((a) => !a.isSelf);
   }
 
+  /** Looks up a place named in the sentence once typing pauses, then fills in from the sentence again. */
+  private lookUpPlace(place: string): void {
+    window.clearTimeout(this.placeTimer);
+    this.placeTimer = window.setTimeout(async () => {
+      const found = await findPlace(place);
+      this.placeLookups.set(place, found);
+      if (this.sentence.isConnected && this.mode === "event") this.fromSentence();
+    }, 400);
+  }
+
   /** Fills in every field not yet set by hand from the sentence. */
   private fromSentence(): void {
     if (this.item) return;
@@ -528,9 +625,26 @@ class Form {
     if (this.mode === "event") {
       const parsed = text.trim() ? parseEvent(text, now) : null;
       if (!parsed) return;
-      if (!this.touched.has("title")) this.eventTitle.value = parsed.title;
+      let { title, location } = parsed;
+      /** What to look up once typing pauses, if anything (a word half typed is dropped). */
+      let lookUp: string | null = null;
+      // "coffee at starbucks": a place only if one nearby is called that.
+      const guess = location ? null : placeAtEnd(title);
+      if (guess) {
+        const known = this.placeLookups.get(guess.place);
+        if (known) [title, location] = [guess.title, known.name ?? guess.place];
+        else if (known === undefined) lookUp = guess.place;
+      }
+      if (!this.touched.has("title")) this.eventTitle.value = title;
       if (!this.touched.has("when") && parsed.dated) this.setWhen(parsed.start, parsed.end, parsed.allDay);
-      if (!this.touched.has("location")) this.location.value = parsed.location ?? "";
+      if (!this.touched.has("location")) {
+        // Where it actually is, once looked up: "Old North Church, 193 Salem St, Boston, MA 02113".
+        const found = location ? this.placeLookups.get(location) : null;
+        this.location.value = found?.street ? found.line : (location ?? "");
+        if (location && found === undefined) lookUp = location;
+      }
+      if (lookUp) this.lookUpPlace(lookUp);
+      else window.clearTimeout(this.placeTimer);
       if (!this.touched.has("repeat")) this.repeat.value = parsed.repeat ?? "";
       if (!this.touched.has("alert")) this.alerts.setFromSentence(parsed.alert);
       if (!this.touched.has("guests")) this.guests.value = parsed.guests.join(", ");
@@ -577,8 +691,11 @@ class Form {
         group.label = account.email;
         for (const cal of account.calendars) {
           const index = choices.push({ email: account.email, calendarId: cal.id }) - 1;
+          this.calendarColors[index] = cal.color ?? null;
           group.append(option(String(index), cal.name));
-          const want = this.item ? { email: this.item.account, calendarId: this.item.listId } : saved;
+          // Editing or duplicating: its own calendar; otherwise the one used last.
+          const source = this.item ?? this.copyOf;
+          const want = source?.account ? { email: source.account, calendarId: source.listId } : saved;
           if (want?.email === account.email && want.calendarId === cal.id) chosen = index;
           if (chosen < 0 && !this.item && cal.primary) chosen = index;
         }
@@ -589,6 +706,7 @@ class Form {
       if (choices.length === 0) calendar.append(option("", "No calendars to add to"));
       else {
         calendar.value = String(Math.max(chosen, 0));
+        this.showCalendarColor();
         calendar.disabled = false;
         this.calendarsReady = true;
       }
@@ -612,7 +730,8 @@ class Form {
       }
       const projects = await todoistProjects();
       project.replaceChildren(...projects.map((p) => option(p.id, p.name)));
-      const want = this.item ? this.item.listId : load<string>(PROJECT_STORAGE_KEY);
+      const source = this.item ?? this.copyOf;
+      const want = source ? source.listId : load<string>(PROJECT_STORAGE_KEY);
       if (want && projects.some((p) => p.id === want)) project.value = want;
       project.disabled = false;
       this.projectsReady = true;
@@ -634,6 +753,11 @@ class Form {
       this.error.textContent = String((problem as Error).message ?? problem);
       return;
     }
+    if (this.mode === "event" && this.inSeries()) {
+      const choice = await this.askSeriesChoice();
+      if (!choice) return; // cancelled: back to the form
+      this.seriesChoice = choice;
+    }
     this.save.disabled = true;
     this.save.textContent = this.item ? "Saving…" : "Adding…";
     try {
@@ -646,6 +770,17 @@ class Form {
       this.save.disabled = false;
       this.save.textContent = this.item ? "Save" : "Add";
     }
+  }
+
+  /**
+   * Which events of the series to change, as Google Calendar asks: this
+   * one, this and the following ones, or all. A new repeat can't be for this
+   * one alone; "doesn't repeat after this one" needs no asking.
+   */
+  private async askSeriesChoice(): Promise<"one" | "following" | "all" | null> {
+    const repeat = this.repeat.value;
+    if (repeat === "end") return "all";
+    return askSeriesChoice(`Save "${this.eventTitle.value.trim()}"?`, repeat === "keep");
   }
 
   private checkEvent(): Saved {
@@ -665,12 +800,17 @@ class Form {
     return { start: combine(this.dueDate.value, this.dueTime.value), allDay: !this.dueTime.value };
   }
 
-  private eventDraft(): EventDraft {
+  /**
+   * The event as filled in. `asNew`: all of it, for a new series made from
+   * this event ("this and following"), except notes left as they were,
+   * which keep their formatting.
+   */
+  private eventDraft(asNew = false): EventDraft {
     const item = this.item;
     const allDay = this.allDay.checked;
     const start = this.startValue()!;
     const end = this.endValue()!;
-    const editing = (name: string) => !item || this.touched.has(name);
+    const editing = (name: string) => !item || (asNew && name !== "notes") || this.touched.has(name);
 
     let recurrence: string[] | null = null;
     if (item?.recurring) {
@@ -723,6 +863,8 @@ class Form {
       recurrence,
       alerts,
       guests,
+      // Editing: only if chosen here ("" goes back to the calendar's color).
+      colorId: item ? (editing("color") ? this.colorId : null) : this.colorId || null,
     };
   }
 
@@ -731,8 +873,10 @@ class Form {
     if (this.repeat.value === "end" && !(await this.seriesRecurrence())) {
       throw new Error("Couldn't read how this event repeats, to end it. Try again.");
     }
-    const draft = this.eventDraft();
     const choice = this.calendarChoices[Number(this.calendar.value)];
+    // Its first event: "this and following" is all of them (drafted below).
+    if (this.item && this.seriesChoice === "following" && (await this.saveFollowing(choice))) return;
+    const draft = this.eventDraft();
     if (!this.item) {
       if (!choice) throw new Error("Choose a calendar.");
       await createEvent(choice.email, choice.calendarId, draft);
@@ -773,7 +917,28 @@ class Form {
   }
 
   private wholeSeries(): boolean {
-    return this.inSeries() && this.scope.value === "all";
+    return this.inSeries() && this.seriesChoice === "all";
+  }
+
+  /**
+   * "This and following events", as Google Calendar does it: the series
+   * ends just before this event, and a new one starts from it, as changed
+   * here. False when this is the series' first event: then change them all.
+   */
+  private async saveFollowing(choice: CalendarChoice | undefined): Promise<boolean> {
+    const item = this.item!;
+    const original = this.savedInstant(itemStart(item));
+    const before = item.allDay ? toDateString(itemStart(item)) : original.toISOString();
+    const rules = await endSeriesBefore(eventRef(item, true), before, item.allDay);
+    if (!rules) {
+      this.seriesChoice = "all";
+      return false;
+    }
+    const repeat = this.repeat.value;
+    const draft = { ...this.eventDraft(true), recurrence: repeat in REPEAT_RULES ? [REPEAT_RULES[repeat as Repeat]] : rules };
+    const to = choice ?? { email: item.account!, calendarId: item.listId! };
+    await createEvent(to.email, to.calendarId, draft);
+    return true;
   }
 
   private taskDraft(): TaskDraft {

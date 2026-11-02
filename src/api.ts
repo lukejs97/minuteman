@@ -96,6 +96,11 @@ export interface AgendaItem {
    */
   leaveAlerts?: number[];
   /**
+   * Google events: the event's own color ("1" to "11", see event-colors.ts),
+   * when it isn't its calendar's. `color` is already that color.
+   */
+  colorId?: string | null;
+  /**
    * Keeps its clock time in any time zone (an event marked so here, or
    * Apple's floating events): its times are that clock time here.
    */
@@ -192,6 +197,11 @@ export interface EventDraft extends EventTimes {
    * "" clears it (use the address in Settings).
    */
   leaveFrom?: string | null;
+  /**
+   * The event's own color ("1" to "11"). Null or missing leaves it as it is;
+   * "" goes back to the calendar's color.
+   */
+  colorId?: string | null;
 }
 
 /** Which Google event. For a repeating event, use `seriesId` to mean every occurrence. */
@@ -375,6 +385,13 @@ export const createEvent = (email: string, calendarId: string, event: EventDraft
  */
 /** A repeating event's rules (RRULE lines and so on), from its series (`eventRef(item, true)`). */
 export const eventRecurrence = (target: EventRef) => invoke<string[]>("event_recurrence", { target });
+/**
+ * "This and following events": ends the series (`target` its series) just
+ * before its occurrence at `before`, and resolves to its rules for a new
+ * series from there; null when that's the first occurrence (change them all).
+ */
+export const endSeriesBefore = (target: EventRef, before: string, allDay: boolean) =>
+  invoke<string[] | null>("end_series_before", { target, before, allDay });
 
 export const updateEvent = (
   target: EventRef,

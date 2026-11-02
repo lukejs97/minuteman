@@ -127,6 +127,11 @@ pub struct AgendaItem {
     /// (see `LOCAL_ALERTS` in google/calendar.rs).
     #[serde(default)]
     pub leave_alerts: Vec<u32>,
+    /// Google events: the event's own color ("1" to "11", see
+    /// `google::calendar::event_color`), when it isn't the calendar's.
+    /// `color` is already that color.
+    #[serde(default)]
+    pub color_id: Option<String>,
 }
 
 #[derive(Serialize)]

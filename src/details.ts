@@ -4,6 +4,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { deleteEvent, deleteTask, errorMessage, eventRef, type AgendaItem, type Attendee } from "./api";
 import { openContacts } from "./contacts/open";
 import { el, setItemColor, showMenu } from "./dom";
+import { deleteInSeries, inSeries } from "./series";
 import { leaveDetail } from "./leave";
 import { mapLink } from "./maps";
 import { describeTimes, itemEnd, itemStart } from "./time";
@@ -20,9 +21,14 @@ export interface DetailActions {
   toggleTask(item: AgendaItem): void;
   /** Opens the Edit window. */
   edit(item: AgendaItem): void;
+  /** Opens the New window filled in as a copy of it. */
+  duplicate(item: AgendaItem): void;
   /** Runs once the item has been deleted. */
   deleted(item: AgendaItem): void;
 }
+
+/** Whether `item` can be duplicated: any event (into a Google calendar), and Todoist tasks. */
+const canDuplicate = (item: AgendaItem) => item.kind === "event" || item.source === "todoist";
 
 /** Opens the popup. */
 export function openDetails(item: AgendaItem, actions: DetailActions): void {
@@ -108,6 +114,14 @@ export function openDetails(item: AgendaItem, actions: DetailActions): void {
     });
     buttons.append(remove, edit);
   }
+  if (canDuplicate(item)) {
+    const copy = el("button", "text-button", "Duplicate");
+    copy.addEventListener("click", () => {
+      actions.duplicate(item); // the form first, so the dimmed background stays
+      dialog.close();
+    });
+    buttons.append(copy);
+  }
   if (item.kind === "task") {
     const toggle = el("button", "text-button", item.completed ? "Mark not done" : "Complete");
     toggle.addEventListener("click", () => {
@@ -144,6 +158,7 @@ export function showItemMenu(
   const changeable = item.editable || (item.kind === "task" && item.source === "todoist");
   const entries: [string, () => void][] = [["Open", () => actions.open(item)]];
   if (changeable) entries.push(["Edit", () => actions.edit(item)]);
+  if (canDuplicate(item)) entries.push(["Duplicate", () => actions.duplicate(item)]);
   if (item.kind === "task") entries.push([item.completed ? "Mark not done" : "Complete", () => actions.toggleTask(item)]);
   if (item.url) {
     const url = item.url;
@@ -179,14 +194,20 @@ async function deleteItem(item: AgendaItem): Promise<boolean> {
   }
   const guests = item.attendees.some((a) => !a.isSelf);
   const note = guests ? "Guests are emailed that it's cancelled." : "It's deleted in Google Calendar too.";
-  const choice = item.recurring
-    ? await ask(`Delete "${item.title}"?`, `It repeats. ${note}`, [
-        ["one", "This event only", false],
-        ["all", "All events", true],
-      ])
-    : await ask(`Delete "${item.title}"?`, note, [["one", "Delete event", true]]);
+  if (inSeries(item)) {
+    // As Google Calendar asks: this one, this and the ones after, or all.
+    const choice = await ask(`Delete "${item.title}"?`, `It repeats. ${note}`, [
+      ["one", "This event", true],
+      ["following", "This and following events", false],
+      ["all", "All events", false],
+    ]);
+    if (choice !== "one" && choice !== "following" && choice !== "all") return false;
+    await deleteInSeries(item, choice, guests);
+    return true;
+  }
+  const choice = await ask(`Delete "${item.title}"?`, note, [["one", "Delete event", true]]);
   if (!choice) return false;
-  await deleteEvent(eventRef(item, choice === "all"), guests);
+  await deleteEvent(eventRef(item, false), guests);
   return true;
 }
 

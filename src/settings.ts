@@ -34,6 +34,7 @@ import { defaultMapProvider } from "./maps";
 import type { MapProvider } from "./preferences";
 import { DAY_COUNTS, multiDayCount, savedMapProvider, setMapProvider, setMultiDayCount } from "./preferences";
 import { devicePosition, locate, type Place, searchPlaces, setWeatherSettings, type Unit, weatherSettings } from "./weather";
+import { enablePlaceSuggestions } from "./place-suggest";
 import { joinAddress, looksComplete, splitAddress } from "./routes-budget";
 
 const TOKEN_PAGE = "https://app.todoist.com/app/settings/integrations/developer";
@@ -317,6 +318,13 @@ function openTravelSettings(back: (() => void) | undefined, onAddress: (address:
   zip.classList.add("address-zip");
   zip.inputMode = "numeric";
   const parts = [street, town, state, zip];
+  // Suggestions as you type the street: picking one fills in all four.
+  enablePlaceSuggestions(street, (place) => {
+    street.value = place.street || place.name || "";
+    town.value = place.town;
+    state.value = place.state;
+    zip.value = place.zip;
+  });
   const address = { value: () => joinAddress({ street: street.value, town: town.value, state: state.value, zip: zip.value }) };
   let typed = false;
   for (const input of parts) {

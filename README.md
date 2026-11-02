@@ -29,20 +29,36 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
   day, place, repeat, alert, guests, notes, calendar). Switch to **Task** to
   add a Todoist task ("Boston Tea Party Dec 16 p1", "Paul Revere's ride Apr 18
   p1", "Lexington and Concord Apr 19 p1", "Muster every month on the 1st").
+  A place in the sentence ("at Old North Church", or lowercase like "at
+  starbucks" when there's one nearby by that name) fills in the place, with
+  its full address when one is found.
+- **Place suggestions:** start typing in a place or address field (an
+  event's place or leave-from, Settings → Leave from, a contact's address)
+  for matching places and addresses; pick one to fill it in. From
+  [Photon](https://photon.komoot.io), a free OpenStreetMap search with no
+  account or key, so it never costs anything. What you type there is sent
+  to it (from 3 letters); nearest your weather place first, if one is set.
 - **Quick actions:** right-click an event or task (on a phone, press and
-  hold it) for Open, Edit, Complete, Open in Google Calendar or Todoist, and
-  Delete. On a phone, press and hold a day's heading, an empty time, or an
+  hold it) for Open, Edit, Duplicate, Complete, Open in Google Calendar or
+  Todoist, and Delete. On a phone, press and hold a day's heading, an empty time, or an
   hour down the side (for the leftmost day), for a new event there.
 - **Same time in any time zone:** tick it on a timed event and it keeps its
   clock time wherever you are (a 9 AM muster stays 9 AM when you travel),
   while other events move to show the same moment in your new time zone.
   Google has no such events, so it's saved as a private mark on the event
   that Minuteman reads; Google's own apps still show it fixed.
-- **Edit and delete:** click an event or task, then **Edit** or **Delete**. For
-  a repeating event, choose this event only or all of them; its repeat shows
-  in words ("Every Monday", "Monthly on the second Tuesday"), and you can
-  change it or stop it after this one. Guests are emailed about changes if
-  you tick the box.
+- **Edit and delete:** click an event or task, then **Edit** or **Delete**.
+  For a repeating event, saving, dragging or deleting asks, as Google
+  Calendar does: **This event**, **This and following events**, or **All
+  events** ("this and following" ends the series there and starts a new one
+  from this event). Its repeat shows in words ("Every Monday", "Monthly on
+  the second Tuesday"), and you can change it or stop it after this one.
+  Guests are emailed about changes if you tick the box.
+- **Duplicate:** an event's or task's details (or its right-click menu) →
+  **Duplicate** opens New filled in like it, to change (the day, say) and add.
+- **Event colors:** Google Calendar's eleven, or the calendar's own, in
+  New or Edit (Color). For a repeating event, the question above says
+  whether it's for this event, the ones after it, or all.
 - **Details:** time, place (a map link; Apple Maps on a phone, Google Maps
   on a computer), a **Join** button for Google Meet, Zoom, Teams or Webex
   calls, guests and their replies, and notes.

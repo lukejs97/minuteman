@@ -37,7 +37,7 @@ import { boot } from "../boot";
 import { ask, openDetails } from "../details";
 import { setUpDockMenu } from "../dock-menu";
 import { el, showMenu } from "../dom";
-import { openEdit, openNew } from "../event-form";
+import { openDuplicate, openEdit, openNew } from "../event-form";
 import { mapLink } from "../maps";
 import { openSettings } from "../settings";
 import { announceChange } from "../sync";
@@ -736,6 +736,7 @@ function showEvent(item: AgendaItem): void {
   openDetails(item, {
     toggleTask: () => {},
     edit: (it) => openEdit(it, changed),
+    duplicate: (it) => openDuplicate(it, changed),
     deleted: changed,
   });
 }

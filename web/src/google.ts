@@ -9,6 +9,7 @@ import type {
   EventDraft,
   EventTimes,
 } from "../../src/api";
+import { eventColor } from "../../src/event-colors";
 import type { Env } from "./env";
 import { AppError, apiError, authFailed, configError, fetchOrFail, invalidInput, notSignedIn } from "./errors";
 import { type Account, readAccounts, readHiddenCalendars, removeAccount, writeAccounts } from "./store";
@@ -216,6 +217,7 @@ interface GoogleEvent {
   guestsCanModify?: boolean;
   recurringEventId?: string;
   extendedProperties?: { private?: Record<string, string> };
+  colorId?: string;
 }
 
 /**
@@ -242,7 +244,7 @@ const GOOGLE_MAX_MINUTES = 40_320;
 const EVENT_FIELDS =
   "nextPageToken,items(id,status,summary,location,htmlLink,start,end,eventType,description,hangoutLink," +
   "attendees(self,responseStatus,email,displayName,organizer,resource),conferenceData/entryPoints(entryPointType,uri)," +
-  "reminders,organizer/self,guestsCanModify,recurringEventId,extendedProperties/private)";
+  "reminders,organizer/self,guestsCanModify,recurringEventId,extendedProperties/private,colorId)";
 
 const path = (...segments: string[]) => segments.map(encodeURIComponent).join("/");
 
@@ -279,6 +281,60 @@ export async function recurrence(token: string, calendarId: string, eventId: str
   const url = new URL(`${API}/${path("calendars", calendarId, "events", eventId)}`);
   url.searchParams.set("fields", "recurrence");
   return (await google<{ recurrence?: string[] }>(token, url.toString())).recurrence ?? [];
+}
+
+/**
+ * "This and following events": ends the series just before its occurrence at
+ * `before` (an RFC 3339 time, or a date for an all-day series), and returns
+ * its rules for a new series from there (RRULE lines, COUNT dropped). Null
+ * when that's its first occurrence. As `end_series_before` in calendar.rs.
+ */
+export async function endSeriesBefore(
+  token: string,
+  calendarId: string,
+  seriesId: string,
+  before: string,
+  allDay: boolean,
+): Promise<string[] | null> {
+  const url = new URL(`${API}/${path("calendars", calendarId, "events", seriesId)}`);
+  url.searchParams.set("fields", "start,recurrence");
+  const series = await google<{ start?: { date?: string; dateTime?: string }; recurrence?: string[] }>(token, url.toString());
+  const rules = series.recurrence ?? [];
+  const until = untilBefore(before, allDay);
+  if (!until) throw invalidInput("not a time or date");
+  const first = series.start?.dateTime ?? series.start?.date ?? "";
+  if (rules.length === 0 || !startsBefore(first, before)) return null;
+  const isRule = (rule: string) => /^RRULE:/i.test(rule);
+  const ended = rules.map((rule) => (isRule(rule) ? `${withoutParts(rule, ["UNTIL", "COUNT"])};UNTIL=${until}` : rule));
+  url.search = "";
+  await google(token, url.toString(), { method: "PATCH", body: JSON.stringify({ recurrence: ended }) });
+  return rules.filter(isRule).map((rule) => withoutParts(rule, ["COUNT"]));
+}
+
+/** The UNTIL that ends a series just before `before`: the day before (all day), or a second before, in UTC. */
+export function untilBefore(before: string, allDay: boolean): string | null {
+  if (allDay) {
+    if (!isDay(before.slice(0, 10))) return null;
+    const day = new Date(`${before.slice(0, 10)}T00:00:00Z`);
+    day.setUTCDate(day.getUTCDate() - 1);
+    return day.toISOString().slice(0, 10).replaceAll("-", "");
+  }
+  const at = Date.parse(before);
+  if (Number.isNaN(at)) return null;
+  return new Date(at - 1000).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+}
+
+function startsBefore(first: string, before: string): boolean {
+  const [a, b] = [Date.parse(first), Date.parse(before)];
+  return Number.isNaN(a) || Number.isNaN(b) ? first.slice(0, 10) < before.slice(0, 10) : a < b;
+}
+
+function withoutParts(rule: string, names: string[]): string {
+  const kept = rule
+    .replace(/^RRULE:/i, "")
+    .split(";")
+    .filter((part) => part && !names.includes(part.split("=")[0].toUpperCase()));
+  return `RRULE:${kept.join(";")}`;
 }
 
 /** The signed-in account's email address, which is its primary calendar's ID. */
@@ -440,7 +496,8 @@ function toAgendaItem(account: Account, calendar: CalendarListEntry, event: Goog
     floating,
     timeZone,
     location: nonEmpty(event.location),
-    color: calendar.backgroundColor ?? null,
+    color: eventColor(event.colorId) ?? calendar.backgroundColor ?? null,
+    colorId: eventColor(event.colorId) ? event.colorId! : null,
     listName: calendarName(calendar),
     url: event.htmlLink ?? null,
     completed: false,
@@ -550,6 +607,12 @@ function draftJson(draft: EventDraft): Record<string, unknown> {
   if (typeof draft.leaveFrom === "string") privateProps[LEAVE_FROM] = draft.leaveFrom.trim();
   if (Object.keys(privateProps).length > 0) body.extendedProperties = { private: privateProps };
   if (draft.recurrence) body.recurrence = draft.recurrence;
+  // null removes the event's own color (Google's update is a PATCH).
+  if (typeof draft.colorId === "string") {
+    const id = draft.colorId.trim();
+    if (id && !eventColor(id)) throw invalidInput("that isn't one of Google Calendar's event colors");
+    body.colorId = id || null;
+  }
   if (draft.guests) {
     body.attendees = draft.guests.map((g) =>
       g.response ? { email: g.email.trim(), responseStatus: g.response } : { email: g.email.trim() },

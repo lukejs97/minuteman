@@ -22,7 +22,8 @@ import { GO_TO_DAY, openContacts } from "./contacts/open";
 import { openDetails, showItemMenu } from "./details";
 import { setUpDockMenu } from "./dock-menu";
 import { el, setItemMenu } from "./dom";
-import { openEdit, openNew, type At } from "./event-form";
+import { openDuplicate, openEdit, openNew, type At } from "./event-form";
+import { askSeriesChoice, inSeries, moveInSeries } from "./series";
 import { openSearch } from "./search";
 import { announceChange, onChangeElsewhere } from "./sync";
 import { refreshWeather } from "./weather";
@@ -203,6 +204,9 @@ async function moveItem(item: AgendaItem, start: Date, end: Date): Promise<void>
     rerender(); // dropped where it was
     return;
   }
+  // One of a repeating series: which ones move, as Google Calendar asks.
+  const choice = inSeries(item) ? await askSeriesChoice(`Move "${item.title}"?`) : "one";
+  if (!choice) return rerender(); // cancelled: back where it was
   const format = (d: Date) => (item.allDay ? toDateString(d) : toLocalIso(d));
   replaceShown({ ...item, start: format(start), end: format(end), overdue: false });
   try {
@@ -213,7 +217,14 @@ async function moveItem(item: AgendaItem, start: Date, end: Date): Promise<void>
       const zone = floatingZone(item);
       const at = (d: Date) => (zone ? sameClockIn(d, zone).toISOString() : format(d));
       const times = { start: at(start), end: at(end), allDay: item.allDay, timeZone: zone ?? localTimeZone() };
-      await setEventTimes(eventRef(item), times, hasGuests(item));
+      if (inSeries(item)) {
+        await moveInSeries(item, times, choice, hasGuests(item));
+        // The others moved too: fetch them fresh.
+        if (choice !== "one") {
+          cache.clear();
+          void load();
+        }
+      } else await setEventTimes(eventRef(item), times, hasGuests(item));
     }
     announceChange();
     // Other cached ranges may show it too; fetch them fresh when visited.
@@ -433,6 +444,7 @@ function changed(): void {
 const itemActions = {
   toggleTask,
   edit: (it: AgendaItem) => openEdit(it, changed),
+  duplicate: (it: AgendaItem) => openDuplicate(it, changed),
   deleted: changed,
   open: (it: AgendaItem) => showDetails(it),
 };
