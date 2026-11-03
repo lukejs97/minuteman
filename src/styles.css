@@ -769,14 +769,17 @@ main.loading > * {
   --check-color: #246fe0;
 }
 
-.task-check[aria-checked="true"]::after {
+/* The tick, always there (only its color changes): Safari lines a button up
+   by what's in it, so a tick drawn only on hover or when done moved the
+   circle down. */
+.task-check::after {
   content: "";
   position: absolute;
   left: 3.5px;
   top: 1px;
   width: 3px;
   height: 6px;
-  border: solid var(--check-color);
+  border: solid transparent;
   border-width: 0 1.5px 1.5px 0;
   transform: rotate(45deg);
 }
@@ -785,15 +788,7 @@ main.loading > * {
    "sticks" after a tap. */
 @media (hover: hover) {
   .task-check:hover::after {
-    content: "";
-    position: absolute;
-    left: 3.5px;
-    top: 1px;
-    width: 3px;
-    height: 6px;
-    border: solid var(--check-color);
-    border-width: 0 1.5px 1.5px 0;
-    transform: rotate(45deg);
+    border-color: var(--check-color);
   }
 }
 
@@ -822,8 +817,7 @@ main.loading > * {
   margin-top: 1px;
 }
 
-.item .task-check:hover::after,
-.item .task-check[aria-checked="true"]::after {
+.item .task-check::after {
   left: 5px;
   top: 2px;
   width: 4px;
@@ -2277,7 +2271,7 @@ main.loading > * {
     margin-top: calc((1.4em - 22px) / 2);
   }
 
-  .item .task-check[aria-checked="true"]::after {
+  .item .task-check::after {
     left: 6.5px;
     top: 3px;
     width: 5px;
