@@ -256,7 +256,10 @@ open-at-login still go to the app. `localStorage` is swapped for a view of
 it whose keys start with `demo:`, so the demo's settings stay apart. The
 switch is kept per tab on the website (`sessionStorage`) and for every
 window in the app (`localStorage`, with an event that reloads them).
-Its clock starts at 9:45 PM on April 18, 1775 (`DEMO_START`): `Date` is
+In the desktop app the calendar window sends the demo's next days each
+minute (`set_demo`): the menu bar shows its next event, and the alert loop
+holds real alerts, then delivers them when it's turned off (marked "During
+Demo mode"; more than five as one notice). Its clock starts at 9:45 PM on April 18, 1775 (`DEMO_START`): `Date` is
 replaced when demo.ts loads, before the pages' own code runs, and its
 weather is made up (`demoWeather`). Before 1883 a place kept its own local
 time, seconds off the hour, which an ISO offset can't say, so `toLocalIso`

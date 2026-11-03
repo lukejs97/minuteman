@@ -22,6 +22,10 @@ use crate::{desktop, prefs};
 
 const CHECK_EVERY: Duration = Duration::from_secs(30);
 const RELOAD_EVERY: TimeDelta = TimeDelta::minutes(5);
+/// After Demo mode, up to this many alerts it held come one by one; more
+/// come as one notice.
+const MISSED_SHOWN_ONE_BY_ONE: usize = 5;
+
 /// Alerts more than this late are skipped, so waking a laptop that slept
 /// through the morning doesn't deliver a pile of them at once.
 const LATEST: TimeDelta = TimeDelta::minutes(2);
@@ -31,7 +35,8 @@ static STALE: AtomicBool = AtomicBool::new(false);
 /// Wakes the loop early, e.g. after a settings change.
 static WAKE: OnceLock<Notify> = OnceLock::new();
 /// Demo mode is on (Settings → Demo mode): the menu bar shows the demo's
-/// next event (`show_demo`), and real alerts wait until it's off.
+/// next event (`show_demo`), and real alerts wait until it's off, then come
+/// (marked as from Demo mode).
 static DEMO: AtomicBool = AtomicBool::new(false);
 
 /// Demo mode on, with its items and its clock (April 1775): the menu bar shows
@@ -65,6 +70,8 @@ pub fn start(app: AppHandle) {
         let mut last_check = Local::now();
         // Alerts already shown: item, its start, and minutes before.
         let mut sent = HashSet::new();
+        // When Demo mode began, while it's on: its alerts come once it's off.
+        let mut demo_since: Option<DateTime<Local>> = None;
         loop {
             let now = Local::now();
             let stale = STALE.swap(false, Ordering::Relaxed);
@@ -74,19 +81,37 @@ pub fn start(app: AppHandle) {
                 upcoming = items;
                 loaded_at = Some(now);
             }
-            let from = last_check.max(now - LATEST);
-            last_check = now;
-            // Demo mode: nothing real is shown, and what comes due meanwhile
-            // is skipped rather than delivered once it's off.
+            // Demo mode: nothing real is shown meanwhile. What comes due
+            // waits, and comes once it's off (`last_check` stays put).
             if DEMO.load(Ordering::Relaxed) {
+                demo_since.get_or_insert(last_check);
                 tokio::select! {
                     _ = tokio::time::sleep(CHECK_EVERY) => {}
                     _ = wake().notified() => {}
                 }
                 continue;
             }
-            for (key, title, body) in due(&upcoming, from, now) {
-                if sent.insert(key) {
+            let from = match demo_since.take() {
+                // Just out of Demo mode: everything since it began (up to a
+                // day, after a laptop slept through it).
+                Some(since) => since.max(now - TimeDelta::hours(24)),
+                None => last_check.max(now - LATEST),
+            };
+            let missed_in_demo = from < now - LATEST;
+            last_check = now;
+            let alerts: Vec<_> = due(&upcoming, from, now).into_iter().filter(|(key, ..)| sent.insert(key.clone())).collect();
+            if missed_in_demo && alerts.len() > MISSED_SHOWN_ONE_BY_ONE {
+                // Many: one notice for them all, rather than a pile.
+                let titles: Vec<&str> = alerts.iter().map(|(_, title, _)| title.as_str()).collect();
+                let _ = app
+                    .notification()
+                    .builder()
+                    .title(format!("{} alerts during Demo mode", alerts.len()))
+                    .body(titles.join(" · "))
+                    .show();
+            } else {
+                for (_, title, body) in alerts {
+                    let body = if missed_in_demo { format!("During Demo mode · {body}") } else { body };
                     let _ = app.notification().builder().title(title).body(body).show();
                 }
             }
