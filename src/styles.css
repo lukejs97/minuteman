@@ -824,9 +824,30 @@ main.loading > * {
   height: 8px;
 }
 
-.tl-allday-item .task-check,
-.month-bar .task-check {
-  margin-right: 5px;
+/* In an all-day or month bar, the checkbox sits at the start of the line,
+   centered on it, beside the title rather than in its text: Safari lines a
+   button in text up by what's drawn inside it, so there it sat low. */
+.tl-allday-title:has(> .task-check) {
+  padding-left: 19px;
+}
+
+.tl-allday-title > .task-check {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.month-bar:has(> .task-check) {
+  position: relative;
+  padding-left: 25px;
+}
+
+.month-bar > .task-check {
+  position: absolute;
+  left: 6px;
+  top: 50%;
+  transform: translateY(-50%);
 }
 
 .tl-event.task {
@@ -1895,6 +1916,10 @@ main.loading > * {
 /* Narrow all-day bars: the name, not a checkbox (tick it off in its details). */
 .timeline.narrow .tl-allday-item .task-check {
   display: none;
+}
+
+.timeline.narrow .tl-allday-title:has(> .task-check) {
+  padding-left: 0;
 }
 
 .timeline.narrow .tl-allday-item {
