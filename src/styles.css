@@ -2489,6 +2489,14 @@ body.detached .fly-close {
   display: none;
 }
 
+/* Two buttons on one Settings row (Alerts: "Send a test" and "Turn off"). */
+.settings-controls {
+  display: flex;
+  flex: none;
+  gap: 4px;
+  align-items: center;
+}
+
 .settings-select {
   width: auto;
   flex: none;

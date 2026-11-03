@@ -232,6 +232,21 @@ becomes `AgendaItem.color` (else the calendar's) and `colorId`.
 `EventDraft.colorId`: missing leaves it, "" clears it (sent as null in the
 PATCH), an id sets it.
 
+**Alerts on phones and browsers** (website): `web/src/push.ts` and
+`reminders.ts`. A browser that turns alerts on (Settings → Alerts on this
+device, `push-client.ts`) subscribes with the site's key (`push_key`) and
+sends its subscription (`push_subscribe`); `public/sw.js` shows what
+arrives. A Cloudflare cron every minute (`sendDueAlerts`) fetches the next
+few days and sends what's due in that minute: reminders, exact-time alerts
+and "before leaving" ones (`routes.leaveTimes`, with its caps and cache),
+in the desktop's words (`alerts.rs`). A second cron every 30 minutes
+(`lookAhead`) finds long-lead ones (up to 4 weeks) and keeps them for the
+minute's run (`pushUpcoming`), staying far inside the free plan's 1,000
+KV writes a day. Pushes are encrypted for each browser (RFC 8291,
+aes128gcm) and signed (VAPID, ES256), all WebCrypto; the signing key is
+made on first use and kept encrypted in KV, so there's nothing to set up.
+A subscription the push service calls gone (404/410) is forgotten.
+
 **Demo mode** (`demo.ts`, Settings → Demo mode, or `?demo`): `boot()` starts
 it before anything else, with `dev-mock.ts`'s sample data. On the website
 and in `npm run dev` it stands in for the server or Rust side (`mockIPC`);

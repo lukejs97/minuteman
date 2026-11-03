@@ -7,6 +7,9 @@
 //   leaveSettings       default leave-from address and the Routes caps
 //   routesUsage         how many Routes attempts have been made (the free-tier cap)
 //   routesCache         recent drive times, so a refresh doesn't ask again
+//   pushSubscriptions   encrypted list of phones and browsers with alerts on (push.ts)
+//   pushKey             encrypted key the site signs its alerts with (push.ts)
+//   pushUpcoming        encrypted alerts due in the next half hour, further ahead (reminders.ts)
 //   session:<hash>      a signed-in browser (only a hash of its cookie is kept)
 //   oauth:<state>       a Google sign-in in progress (10 minutes)
 //

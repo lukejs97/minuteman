@@ -28,6 +28,7 @@ import {
   todoistStatus,
 } from "./api";
 import { isDemo, setDemo } from "./demo";
+import { type PushState, pushState, sendTestPush, turnOffPush, turnOnPush } from "./push-client";
 import { el } from "./dom";
 import { refreshLeaveTimes } from "./leave";
 import { defaultMapProvider } from "./maps";
@@ -127,6 +128,8 @@ export async function openSettings(actions: SettingsActions): Promise<void> {
     settingsRow("Maps", el("span", "settings-note", "Where a place opens"), maps),
     demoRow(),
   );
+  // The website: alerts on this phone or browser, from the server.
+  if (!isTauri() && !import.meta.env.DEV && !isDemo()) rows.append(alertsRow());
   // The website (web/): removing an account removes it for every device, so
   // there's also a sign-out that only affects this browser.
   if (!isTauri() && !import.meta.env.DEV && !isDemo()) {
@@ -733,6 +736,51 @@ function backTo(dialog: HTMLDialogElement, back?: () => void): HTMLElement[] {
     dialog.close();
   });
   return [button];
+}
+
+/**
+ * The website: alerts on this device (push-client.ts), sent by the server
+ * even while Minuteman is closed. On an iPhone, from the Home Screen app.
+ */
+function alertsRow(): HTMLElement {
+  const note = el("span", "settings-note", "…");
+  const button = el("button", "pill-button", "…");
+  const test = el("button", "text-button", "Send a test");
+  test.hidden = true;
+  const controls = el("div", "settings-controls");
+  controls.append(test, button);
+  const show = (state: PushState) => {
+    const notes: Record<PushState, string> = {
+      unsupported: "This browser can't show alerts",
+      homeScreen: "Add Minuteman to your Home Screen (Share → Add to Home Screen), then turn alerts on there",
+      blocked: /iPhone|iPad/.test(navigator.userAgent)
+        ? "Notifications are blocked for Minuteman: allow them in Settings → Notifications → Minuteman"
+        : "Notifications are blocked for this site: allow them in your browser's settings for it",
+      off: "Event alerts here, also while Minuteman is closed",
+      on: "On: event alerts come here, also while Minuteman is closed",
+    };
+    note.textContent = notes[state];
+    button.textContent = state === "on" ? "Turn off" : "Turn on";
+    button.hidden = state === "unsupported" || state === "homeScreen" || state === "blocked";
+    test.hidden = state !== "on";
+    button.disabled = false;
+  };
+  button.addEventListener("click", async () => {
+    button.disabled = true;
+    try {
+      show(button.textContent === "Turn off" ? await turnOffPush() : await turnOnPush());
+    } catch (err) {
+      note.textContent = `Couldn't change alerts: ${errorMessage(err)}`;
+      button.disabled = false;
+    }
+  });
+  test.addEventListener("click", async () => {
+    test.disabled = true;
+    await sendTestPush().catch((err) => (note.textContent = `Couldn't send a test: ${errorMessage(err)}`));
+    test.disabled = false;
+  });
+  void pushState().then(show, () => show("unsupported"));
+  return settingsRow("Alerts on this device", note, controls);
 }
 
 /** Demo mode: sample data in place of yours, for screenshots (see demo.ts). */

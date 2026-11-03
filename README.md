@@ -120,6 +120,12 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
 - **Alerts** at each event's reminder times from Google Calendar, also with
   the window closed. An event can have several, including an exact time and
   "before leaving".
+- **Alerts on your phone** (Settings → Alerts on this device, on the
+  website): the same alerts, sent by Minuteman's server even while it's
+  closed. On an iPhone, add Minuteman to the Home Screen (Share → Add to
+  Home Screen), open it from there, and turn alerts on (iOS 16.4 or later).
+  **Send a test** checks it. The desktop apps keep alerting too, so both
+  get them. "Before leaving" alerts start from the address in Settings.
 - **Leave by** (Settings → Leave from): a default starting address (in
   separate street, town, state and ZIP fields, so AutoFill fills it all), or
   **Start from where I am** to use the device's location, with the address

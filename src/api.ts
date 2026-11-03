@@ -401,6 +401,14 @@ export const eventRecurrence = (target: EventRef) => invoke<string[]>("event_rec
  * before its occurrence at `before`, and resolves to its rules for a new
  * series from there; null when that's the first occurrence (change them all).
  */
+/** Website: the key a browser subscribes to alerts with (web/src/push.ts). */
+export const pushKey = () => invoke<string>("push_key");
+/** Website: this browser's alerts on (its push subscription), or off. */
+export const pushSubscribe = (subscription: { endpoint: string; keys: { p256dh: string; auth: string } }, site: string) =>
+  invoke<void>("push_subscribe", { subscription, site });
+export const pushUnsubscribe = (endpoint: string) => invoke<void>("push_unsubscribe", { endpoint });
+/** Website: a test alert now, to every device that has them on. */
+export const pushTest = () => invoke<void>("push_test");
 /**
  * Desktop app: Demo mode on (with the demo's items and clock: the menu bar
  * shows its next event, and real alerts wait) or off.

@@ -33,6 +33,8 @@ import {
 } from "./store";
 import * as routes from "./routes";
 import { clampLimits, capped, emptyUsage, pacificDate, MAX_DAILY, MAX_MONTHLY } from "../../src/routes-budget";
+import * as push from "./push";
+import * as reminders from "./reminders";
 import * as todoist from "./todoist";
 
 type Args = Record<string, unknown>;
@@ -128,6 +130,29 @@ export const commands: Record<string, Command> = {
     const notify = flag(args, "notifyGuests");
     if (occurrence) await google.updateSeries(token, ctx.zone, calendarId, target.eventId, occurrence, event, notify);
     else await google.updateEvent(token, calendarId, target.eventId, event, notify);
+    return null;
+  },
+  // Alerts on this browser (push.ts): the key to subscribe with, and turning
+  // them on and off. A test sends one now, to every browser that's on.
+  async push_key(ctx) {
+    return push.publicKey(ctx.env);
+  },
+  async push_subscribe(ctx, args) {
+    const sub = value<{ endpoint: string; keys: { p256dh: string; auth: string } }>(args, "subscription");
+    const site = text(args, "site");
+    if (!/^https:\/\//.test(sub?.endpoint ?? "") || !sub.keys?.p256dh || !sub.keys?.auth) throw invalidInput("not a push subscription");
+    if (!/^https:\/\//.test(site)) throw invalidInput("not this site's address");
+    await push.subscribe(ctx.env, { endpoint: sub.endpoint, keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth }, zone: ctx.zone, site });
+    // Alerts further ahead, now rather than at the next half hour.
+    await reminders.lookAhead(ctx.env, Date.now()).catch(() => {});
+    return null;
+  },
+  async push_unsubscribe(ctx, args) {
+    await push.unsubscribe(ctx.env, text(args, "endpoint"));
+    return null;
+  },
+  async push_test(ctx) {
+    await push.sendToAll(ctx.env, { title: "Minuteman", body: "Alerts are on for this device.", tag: "test" });
     return null;
   },
   async event_recurrence(ctx, args) {

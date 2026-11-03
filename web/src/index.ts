@@ -23,6 +23,10 @@ import {
   takePendingSignIn,
 } from "./store";
 import { validZone } from "./zone";
+import { lookAhead, sendDueAlerts } from "./reminders";
+
+/** The cron (wrangler.jsonc) that looks further ahead for alerts; the other runs each minute. */
+const LOOK_AHEAD_CRON = "*/30 * * * *";
 
 const COOKIE = "__Host-minuteman";
 
@@ -135,6 +139,13 @@ async function runCommand(request: Request, env: Env, name: string): Promise<Res
 }
 
 export default {
+  // Every minute: alerts due now, to the phones and browsers that turned
+  // them on (reminders.ts, push.ts).
+  async scheduled(controller, env, ctx): Promise<void> {
+    // Every 30 minutes, separately: the look further ahead (reminders.ts).
+    const run = controller.cron === LOOK_AHEAD_CRON ? lookAhead : sendDueAlerts;
+    ctx.waitUntil(run(env, controller.scheduledTime).catch((e) => console.error("alerts:", e)));
+  },
   async fetch(request, env): Promise<Response> {
     const url = new URL(request.url);
     try {

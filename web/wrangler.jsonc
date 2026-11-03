@@ -19,6 +19,9 @@
     // `npx wrangler kv namespace create STORE`).
     { "binding": "STORE", "id": "5e8ed544177e4ee8a61345093aa235d6" }
   ],
+  // Every minute: alerts due now, sent to phones and browsers; every 30
+  // minutes: the look further ahead for them (reminders.ts, index.ts).
+  "triggers": { "crons": ["* * * * *", "*/30 * * * *"] },
   "vars": {
     // Google accounts allowed to sign in to this site (comma-separated).
     "ALLOWED_EMAILS": "lukesassa9@gmail.com"
