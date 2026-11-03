@@ -317,15 +317,29 @@ async function allowedPosition(): Promise<Spot | null> {
   );
 }
 
-/** Contacts with an address: the saved ones (or fetched), kept a few minutes. */
+/**
+ * Contacts with an address, kept a few minutes. The ones saved on this
+ * device (the desktop app's, from the last time Contacts loaded) answer
+ * straight away; Google is asked too, and its answer replaces them as soon
+ * as it comes (a saved copy can be days old: contacts added since were
+ * missing). The website saves none, so it waits for Google.
+ */
 let people: { at: number; list: Promise<Contact[]> } | null = null;
 function contactsWithAddresses(): Promise<Contact[]> {
   if (!people || Date.now() - people.at > 10 * 60_000) {
-    const list = getSavedContacts()
-      .then((saved) => saved ?? getContacts())
-      .then((all) => all.contacts.filter((c) => c.addresses.length > 0))
-      .catch(() => []);
-    people = { at: Date.now(), list };
+    const withAddresses = (all: { contacts: Contact[] }) => all.contacts.filter((c) => c.addresses.length > 0);
+    const fresh = getContacts().then(withAddresses);
+    const saved = getSavedContacts()
+      .then((list) => (list ? withAddresses(list) : null))
+      .catch(() => null);
+    const at = Date.now();
+    people = { at, list: saved.then((list) => list ?? fresh).catch(() => []) };
+    void fresh.then(
+      (list) => {
+        if (people?.at === at) people = { at, list: Promise.resolve(list) };
+      },
+      () => {}, // offline: the saved ones will do
+    );
   }
   return people.list;
 }
