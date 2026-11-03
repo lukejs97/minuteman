@@ -35,6 +35,17 @@ export async function signOutHere(): Promise<void> {
   location.reload();
 }
 
+/**
+ * Opens a link from the website. Web pages open in a new tab. Links to an
+ * app (maps:, tel:, sms:, mailto:, facetime:) go straight to it: a new
+ * window for one is a blank page (on an iPhone, a browser sheet) that stays
+ * behind after the app opens.
+ */
+export function openLink(url: string): void {
+  if (/^https?:/i.test(url)) window.open(url, "_blank", "noopener,noreferrer");
+  else location.href = url;
+}
+
 export function install(): void {
   mockIPC((command, args) => {
     switch (command) {
@@ -43,7 +54,7 @@ export function install(): void {
         location.assign("/auth/google/start");
         return new Promise(() => {});
       case "plugin:opener|open_url":
-        window.open((args as { url: string }).url, "_blank", "noopener,noreferrer");
+        openLink((args as { url: string }).url);
         return null;
       default:
         // Other desktop plugins (windows, events) have nothing to do here.

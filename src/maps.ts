@@ -31,9 +31,17 @@ export function mapProvider(): MapProvider {
   return savedMapProvider() ?? defaultMapProvider();
 }
 
+/** An iPhone or iPad (iPadOS Safari says it's a Mac, but has a touch screen). */
+const isIOS = () =>
+  typeof navigator !== "undefined" &&
+  (/iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1));
+
 /** A link that searches `place` in Apple Maps or Google Maps. */
 export function mapLink(place: string, provider: MapProvider = mapProvider()): string {
   const query = encodeURIComponent(place);
+  // On an iPhone, straight into the Maps app: a web link first opens a
+  // browser sheet, which stays behind, blank, once Maps takes over.
+  if (provider === "apple" && isIOS()) return `maps://?q=${query}`;
   if (provider === "apple") return `https://maps.apple.com/?q=${query}`;
   return `https://www.google.com/maps/search/?api=1&query=${query}`;
 }

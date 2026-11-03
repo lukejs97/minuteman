@@ -729,9 +729,13 @@ export function install(inApp = false): void {
         contacts = contacts.map((c) => (c.resourceName === target.resourceName ? { ...c, starred, etag: `%${Date.now()}` } : c));
         return contacts.find((c) => c.resourceName === target.resourceName);
       }
-      case "plugin:opener|open_url":
-        window.open((args as { url: string }).url, "_blank", "noopener,noreferrer");
+      case "plugin:opener|open_url": {
+        // As the website does (web-bridge.ts `openLink`).
+        const { url } = args as { url: string };
+        if (/^https?:/i.test(url)) window.open(url, "_blank", "noopener,noreferrer");
+        else location.href = url;
         return null;
+      }
       default:
         console.info("mock IPC:", cmd, args);
         return null;
