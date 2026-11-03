@@ -54,6 +54,9 @@ interface PhotonFeature {
     country?: string;
     countrycode?: string;
     type?: string;
+    /** What it is in OpenStreetMap: "highway" + "bus_stop", "amenity" + "cafe"… */
+    osm_key?: string;
+    osm_value?: string;
   };
 }
 
@@ -129,12 +132,19 @@ async function suggest(text: string, signal: AbortSignal): Promise<PlaceSuggesti
     near ? photon(text.trim(), LIMIT, near, signal, areaAround(near)).catch(() => []) : Promise.resolve([]),
     photon(text.trim(), LIMIT + 4, near, signal),
   ]);
-  const features = [...local.slice(0, 4), ...everywhere];
+  // Bus stops and platforms ("Poinsett Hwy @ Nora Dr") are named after the
+  // street they're on, so they match a typed address well, but they're
+  // seldom where you're going.
+  const features = [...local.slice(0, 4), ...everywhere].filter((f) => !isStop(f));
   const houseNumber = /^(\d+[a-z]?)\s+\S/i.exec(text.trim())?.[1] ?? null;
+  const hasNumber = (f: PhotonFeature) => !!houseNumber && f.properties.housenumber?.toLowerCase() === houseNumber.toLowerCase();
+  // That house found: it first, and no other street gets the number put in
+  // front (they'd look like real addresses that may not exist).
+  const exactFound = features.some(hasNumber);
   const ranked = features.map((feature, order) => {
     const [lon, lat] = feature.geometry?.coordinates ?? [NaN, NaN];
     const far = near && Number.isFinite(lat) ? kmBetween(near, { latitude: lat, longitude: lon }) > NEAR_KM : false;
-    return { feature, order, far };
+    return { feature, order, far, exact: hasNumber(feature) };
   });
   // Mailing towns for US addresses outside any town's limits.
   const needed = features
@@ -148,17 +158,27 @@ async function suggest(text: string, signal: AbortSignal): Promise<PlaceSuggesti
       if (town) towns.set(zip, town);
     }),
   );
-  // Near you first, otherwise as Photon ranked them.
-  ranked.sort((a, b) => Number(a.far) - Number(b.far) || a.order - b.order);
+  // The house typed first, then near you, otherwise as Photon ranked them.
+  ranked.sort((a, b) => Number(b.exact) - Number(a.exact) || Number(a.far) - Number(b.far) || a.order - b.order);
   const seen = new Set<string>();
   const found = ranked
-    .map(({ feature }) => toSuggestion(feature, houseNumber, towns))
+    .map(({ feature }) => toSuggestion(feature, exactFound ? null : houseNumber, towns))
     .filter((s): s is PlaceSuggestion => !!s && !seen.has(s.line) && !!seen.add(s.line))
     .slice(0, LIMIT);
   cache.set(key, found);
   if (cache.size > 100) cache.delete(cache.keys().next().value!);
   return found;
 }
+
+/** A bus or tram stop, or a platform: not a place to go to (stations are). */
+const isStop = (f: PhotonFeature) => {
+  const { osm_key: key, osm_value: value } = f.properties;
+  return (
+    (key === "highway" && (value === "bus_stop" || value === "platform")) ||
+    (key === "public_transport" && (value === "platform" || value === "stop_position")) ||
+    (key === "railway" && (value === "platform" || value === "tram_stop"))
+  );
+};
 
 /** About 110 km each way around `near`, as Photon's bbox (west, south, east, north). */
 function areaAround(near: Spot): string {

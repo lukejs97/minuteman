@@ -200,7 +200,10 @@ Contacts' addresses come first (`contactSuggestions`, from 2 letters,
 matched on name, nickname or company, from the saved contacts; never sent
 anywhere), except in the Contacts form itself, and `findPlace` checks them
 before Photon. OpenStreetMap often has a street but not its house numbers, so a typed
-number goes in front of a street found without one ("20 Nora Drive"). A US
+number goes in front of a street found without one ("20 Nora Drive"),
+unless that very house was found: then it comes first, and no other street
+gets the number. Bus stops and platforms (named after their street corner,
+"Poinsett Hwy @ Nora Dr") are left out. A US
 address with no city, town or village (outside any town's limits, where
 OpenStreetMap has only a neighborhood) gets its mailing town from the ZIP,
 as addresses are written (`postalTown`: Zippopotam.us, free, no key, in
