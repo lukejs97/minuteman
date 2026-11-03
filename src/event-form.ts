@@ -225,6 +225,8 @@ class Form {
   private projectsRequested = false;
   /** A repeat in Todoist's own words, from the sentence. */
   private taskRepeat: string | null = null;
+  /** Editing a Todoist task: its repeat, in Todoist's words; empty for none. */
+  private taskRepeatInput = input("text", "None, or e.g. every Monday");
   /** A repeating event's series' rules, once fetched (to show them, or end them). */
   private seriesRules: string[] | null = null;
 
@@ -441,9 +443,14 @@ class Form {
 
     this.row(grid, "Name", this.taskName);
     const due = this.row(grid, "Due", this.dueDate, this.dueTime, this.repeatRow);
-    if (this.item?.recurring) {
-      this.dueDate.disabled = this.dueTime.disabled = true;
-      due.append(el("p", "form-notes", "This task repeats; change its schedule in Todoist."));
+    // Editing: the repeat in Todoist's words, as its own app shows it. A new
+    // date moves just the next one; the repeat goes on from there.
+    if (this.item) {
+      this.taskRepeatInput.setAttribute("aria-label", "Repeat");
+      const words = this.row(grid, "Repeat", this.taskRepeatInput);
+      words.append(el("div", "form-notes", "Todoist's words for it, like “every Monday” or “every 2 weeks”. Empty: it doesn't repeat."));
+      if (this.item.recurring) due.append(el("div", "form-notes", "A new date moves the next one; it keeps repeating."));
+      this.track("repeatWords", this.taskRepeatInput);
     }
     this.row(grid, "Priority", this.priority);
     this.row(grid, "Project", this.project, this.projectNotes);
@@ -573,6 +580,9 @@ class Form {
       this.dueTime.value = item.allDay ? "" : timeString(start);
       this.priority.value = String(item.priority ?? 4);
       this.taskNotes.value = item.description ?? "";
+      this.taskRepeatInput.value = item.repeat ?? "";
+      // A copy repeats as it does (as Todoist's Duplicate does).
+      if (copy && item.repeat) this.taskRepeat = item.repeat;
       this.showTaskRepeat();
       return;
     }
@@ -947,15 +957,20 @@ class Form {
     const item = this.item;
     const editing = (name: string) => !item || this.touched.has(name);
     let due: TaskDue | null = null;
+    const at = this.dueDate.value
+      ? this.dueTime.value
+        ? toLocalIso(combine(this.dueDate.value, this.dueTime.value))
+        : this.dueDate.value
+      : null;
     if (this.taskRepeat) due = { kind: "words", at: this.taskRepeat };
-    else if (editing("due") && !item?.recurring) {
-      if (!this.dueDate.value) due = item ? { kind: "none" } : null;
-      else {
-        const at = this.dueTime.value
-          ? toLocalIso(combine(this.dueDate.value, this.dueTime.value))
-          : this.dueDate.value;
-        due = { kind: "at", at };
-      }
+    else if (item && this.touched.has("repeatWords")) {
+      // A new repeat, in Todoist's words; emptied, it stops repeating.
+      const words = this.taskRepeatInput.value.trim();
+      due = words ? { kind: "words", at: words } : at ? { kind: "at", at } : { kind: "none" };
+    } else if (editing("due")) {
+      if (!at) due = item ? { kind: "none" } : null;
+      // A repeating one: just its next date, and it goes on repeating.
+      else due = { kind: item?.recurring ? "move" : "at", at };
     }
     return {
       content: this.taskName.value.trim(),

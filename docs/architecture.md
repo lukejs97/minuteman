@@ -133,10 +133,10 @@ Mac only (`#[cfg(target_os = "macos")]`), through the `objc2-*` crates:
   sends it as `here` ("@lat,lng" to 3 decimals, about 100 m, so the cache
   still hits) to `leave_times`, and Google gets it as a `latLng` waypoint
   (`spot_origin`, `pick_origin`, `waypoint`). The Mac app finds it with
-  Core Location, also for background alerts (`alerts.rs` `here_now`,
-  re-found every 5 minutes); the website and Windows use the browser's or
-  WebView's location for what's on screen, and Windows' background alerts
-  use the address. The event's own Leave from still wins, and with no
+  Core Location and the Windows app with Windows' location service
+  (`winlocation.rs`; "Let desktop apps access your location" must be on),
+  also for background alerts (`device_location`, `alerts.rs` `here_now`,
+  re-found every 5 minutes); the website uses the browser's location. The event's own Leave from still wins, and with no
   location the address is used. Answers are cached, and refreshed sooner as the
   event gets closer
   (5 minutes inside 45 minutes, up to 4 hours when it's more than 12 hours
@@ -221,8 +221,9 @@ the Location field gets the full address once found.
 one event of a Google series ask "This event / This and following events /
 All events". "This and following" is `end_series_before`: the series gets
 an UNTIL just before this event (`occurrenceStart`, the time Google keeps),
-and the rules come back for a new series created from this event (COUNT
-dropped, as what's left of it isn't known). For the series' first event,
+and the rules come back for a new series created from this event (a COUNT
+less the occurrences before this one, counted with Google's `instances`,
+cancelled ones included as they count too). For the series' first event,
 nothing comes before it, so it's all events instead.
 
 **Event colors** (`event-colors.ts`, `EVENT_COLORS` in calendar.rs): an
@@ -344,8 +345,11 @@ Minuteman's Cardhop: a second page, `contacts.html` (Vite builds both pages,
 - Tasks go to Todoist (`create_task`, `update_task`, `delete_task`), into
   the chosen project (Inbox first). Repeats are sent as Todoist's own words
   (`due_string`, e.g. "every month on the 1st"); "p1"–"p4" set the priority.
-  Repeating tasks can't be moved or have their date changed here (Todoist
-  would end the repeat).
+  Repeating tasks work as in Todoist's own apps: a new date (Edit or a drag)
+  is `TaskDue::Move`, which `reschedule` sends as a Sync API `item_update`
+  with the task's own repeat words and only the date changed (a plain date
+  update would end the repeat; a new day alone keeps its time), as Doist's
+  own tools do. `AgendaItem.repeat` carries the words, for Edit → Repeat.
 
 ## Details, moving, search, alerts, offline (done)
 

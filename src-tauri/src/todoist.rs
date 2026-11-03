@@ -6,7 +6,7 @@ use std::collections::HashMap;
 
 use chrono::{DateTime, Days, Local, NaiveDate, NaiveDateTime, TimeDelta, Utc};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{Value, json};
 use serde::de::DeserializeOwned;
 use url::Url;
 
@@ -60,12 +60,15 @@ pub struct TaskDraft {
 
 /// A task's due date: none; a day ("YYYY-MM-DD") or time (RFC 3339); or
 /// words Todoist reads itself, such as a repeat ("every Monday at 7am").
+/// `Move`: a repeating task's next date moves there and it keeps repeating,
+/// as rescheduling one does in Todoist's own apps.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", tag = "kind", content = "at")]
 pub enum TaskDue {
     None,
     At(String),
     Words(String),
+    Move(String),
 }
 
 impl TaskDraft {
@@ -82,7 +85,8 @@ impl TaskDraft {
             // Todoist's API counts the other way: 4 is P1.
             body["priority"] = json!(5 - priority.clamp(1, 4));
         }
-        if let Some(due) = &self.due {
+        // A move is its own request (`reschedule`), after this one.
+        if let Some(due) = self.due.as_ref().filter(|due| !matches!(due, TaskDue::Move(_))) {
             set_due(&mut body, due)?;
         }
         Ok(body)
@@ -94,8 +98,10 @@ fn set_due(body: &mut serde_json::Value, due: &TaskDue) -> Result<()> {
     match due {
         TaskDue::None => body["due_string"] = json!("no date"),
         TaskDue::Words(words) => body["due_string"] = json!(words.trim()),
-        TaskDue::At(day) if NaiveDate::parse_from_str(day, "%Y-%m-%d").is_ok() => body["due_date"] = json!(day),
-        TaskDue::At(time) => {
+        TaskDue::At(day) | TaskDue::Move(day) if NaiveDate::parse_from_str(day, "%Y-%m-%d").is_ok() => {
+            body["due_date"] = json!(day)
+        }
+        TaskDue::At(time) | TaskDue::Move(time) => {
             let time = DateTime::parse_from_rfc3339(time)
                 .map_err(|_| AppError::InvalidInput(format!("not a date or time: {time:?}")))?;
             // Todoist wants a fixed time in UTC.
@@ -129,6 +135,11 @@ struct Due {
     datetime: Option<String>,
     #[serde(default)]
     is_recurring: bool,
+    /// In words: "every Monday at 9am".
+    string: Option<String>,
+    /// Set for a fixed time; none for one that follows you across time zones.
+    timezone: Option<String>,
+    lang: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -295,6 +306,7 @@ fn to_agenda_item(
 
     let project = projects.get(task.project_id.as_str());
     let recurring = task.due.as_ref().is_some_and(|d| d.is_recurring);
+    let repeat = task.due.as_ref().filter(|d| d.is_recurring).and_then(|d| d.string.clone());
     Some(AgendaItem {
         url: Some(format!("https://app.todoist.com/app/task/{}", task.id)),
         id: format!("todoist:{}", task.id),
@@ -315,7 +327,8 @@ fn to_agenda_item(
         list_id: Some(task.project_id),
         source_id: Some(task.id),
         series_id: None,
-        editable: !recurring,
+        // Repeating ones too: a new date moves the next one (`TaskDue::Move`).
+        editable: true,
         recurring,
         description: Some(task.description).filter(|d| !d.trim().is_empty()),
         attendees: Vec::new(),
@@ -328,6 +341,7 @@ fn to_agenda_item(
         leave_from: None,
         leave_alerts: Vec::new(),
         color_id: None,
+        repeat,
     })
 }
 
@@ -361,6 +375,9 @@ pub async fn create_task(http: &reqwest::Client, token: &str, task: &TaskDraft) 
 pub async fn update_task(http: &reqwest::Client, token: &str, task_id: &str, task: &TaskDraft) -> Result<()> {
     let body = task.to_json()?;
     check(http.post(api_url(&["tasks", task_id])).bearer_auth(token).json(&body).send().await?).await?;
+    if let Some(TaskDue::Move(at)) = &task.due {
+        reschedule(http, token, task_id, at).await?;
+    }
     if let Some(project) = &task.project_id {
         let move_to = json!({ "project_id": project });
         check(http.post(api_url(&["tasks", task_id, "move"])).bearer_auth(token).json(&move_to).send().await?)
@@ -371,10 +388,73 @@ pub async fn update_task(http: &reqwest::Client, token: &str, task_id: &str, tas
 
 /// Changes only a task's due date or time (dragging it).
 pub async fn set_task_due(http: &reqwest::Client, token: &str, task_id: &str, due: &TaskDue) -> Result<()> {
+    if let TaskDue::Move(at) = due {
+        return reschedule(http, token, task_id, at).await;
+    }
     let mut body = json!({});
     set_due(&mut body, due)?;
     check(http.post(api_url(&["tasks", task_id])).bearer_auth(token).json(&body).send().await?).await?;
     Ok(())
+}
+
+/// Moves a repeating task's next date to `at` (a day, or an RFC 3339 time)
+/// and keeps it repeating, as Todoist's own apps do: its due is sent back
+/// with the same words ("every Monday") and only the date changed (Sync
+/// API `item_update`; a plain date update would end the repeat). A new day
+/// alone keeps the time it had. Not repeating: an ordinary new date.
+async fn reschedule(http: &reqwest::Client, token: &str, task_id: &str, at: &str) -> Result<()> {
+    #[derive(Deserialize)]
+    struct Current {
+        due: Option<Due>,
+    }
+    let current: Current = check(http.get(api_url(&["tasks", task_id])).bearer_auth(token).send().await?)
+        .await?
+        .json()
+        .await?;
+    let Some(due) = current.due.filter(|due| due.is_recurring) else {
+        let mut body = json!({});
+        set_due(&mut body, &TaskDue::At(at.to_string()))?;
+        check(http.post(api_url(&["tasks", task_id])).bearer_auth(token).json(&body).send().await?).await?;
+        return Ok(());
+    };
+    let date = rescheduled_date(at, &due)?;
+    let uuid = format!("{:032x}", rand::random::<u128>());
+    let command = json!([{
+        "type": "item_update",
+        "uuid": uuid,
+        "args": {
+            "id": task_id,
+            "due": { "date": date, "string": due.string, "is_recurring": true, "timezone": due.timezone, "lang": due.lang },
+        },
+    }]);
+    let reply: Value = check(
+        http.post(api_url(&["sync"])).bearer_auth(token).form(&[("commands", command.to_string())]).send().await?,
+    )
+    .await?
+    .json()
+    .await?;
+    match &reply["sync_status"][&uuid] {
+        Value::String(ok) if ok == "ok" => Ok(()),
+        other => Err(AppError::Config(format!("Todoist didn't move the task: {other}"))),
+    }
+}
+
+/// The date Todoist keeps for a repeating task moved to `at`: a day alone
+/// keeps the time it had; a time is fixed (UTC, "Z") if the task's was, or
+/// else a clock time ("09:00:00") that follows you across time zones.
+fn rescheduled_date(at: &str, due: &Due) -> Result<String> {
+    // The time it had: in its date ("2026-11-09T09:00:00"), or given apart.
+    let with_time = if due.date.len() > 10 { Some(due.date.as_str()) } else { due.datetime.as_deref() };
+    let had_time = with_time.and_then(|d| d.get(10..)).filter(|rest| rest.starts_with('T'));
+    if NaiveDate::parse_from_str(at, "%Y-%m-%d").is_ok() {
+        return Ok(format!("{at}{}", had_time.unwrap_or("")));
+    }
+    let time = DateTime::parse_from_rfc3339(at).map_err(|_| AppError::InvalidInput(format!("not a date or time: {at:?}")))?;
+    Ok(if due.timezone.is_some() {
+        time.with_timezone(&Utc).format("%Y-%m-%dT%H:%M:%SZ").to_string()
+    } else {
+        time.naive_local().format("%Y-%m-%dT%H:%M:%S").to_string()
+    })
 }
 
 pub async fn delete_task(http: &reqwest::Client, token: &str, task_id: &str) -> Result<()> {
@@ -396,6 +476,28 @@ pub async fn set_completed(http: &reqwest::Client, token: &str, item_id: &str, c
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_repeating_task_moved_keeps_its_time_and_kind_of_time() {
+        let due = |date: &str, timezone: Option<&str>| Due {
+            date: date.into(),
+            datetime: None,
+            is_recurring: true,
+            string: Some("every Monday at 9am".into()),
+            timezone: timezone.map(String::from),
+            lang: Some("en".into()),
+        };
+        // A new day alone keeps its 9 AM, floating or fixed.
+        assert_eq!(rescheduled_date("2026-11-10", &due("2026-11-09T09:00:00", None)).unwrap(), "2026-11-10T09:00:00");
+        assert_eq!(rescheduled_date("2026-11-10", &due("2026-11-09T14:00:00Z", Some("America/New_York"))).unwrap(), "2026-11-10T14:00:00Z");
+        assert_eq!(rescheduled_date("2026-11-10", &due("2026-11-09", None)).unwrap(), "2026-11-10");
+        // A time: fixed in UTC if it was fixed, else the clock time.
+        assert_eq!(rescheduled_date("2026-11-10T10:30:00-05:00", &due("2026-11-09T09:00:00", None)).unwrap(), "2026-11-10T10:30:00");
+        assert_eq!(
+            rescheduled_date("2026-11-10T10:30:00-05:00", &due("2026-11-09T14:00:00Z", Some("America/New_York"))).unwrap(),
+            "2026-11-10T15:30:00Z"
+        );
+    }
 
     #[test]
     fn due_dates_and_times() {

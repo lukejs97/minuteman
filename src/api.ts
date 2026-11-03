@@ -95,6 +95,8 @@ export interface AgendaItem {
    * these; the time depends on traffic, so Google Calendar can't.
    */
   leaveAlerts?: number[];
+  /** A repeating Todoist task's repeat, in Todoist's words ("every Monday"). */
+  repeat?: string | null;
   /**
    * Google events: the event's own color ("1" to "11", see event-colors.ts),
    * when it isn't its calendar's. `color` is already that color.
@@ -239,7 +241,16 @@ export interface TodoistProject {
 }
 
 /** A task's due date: none; a day ("YYYY-MM-DD") or ISO time; or words Todoist reads ("every Monday"). */
-export type TaskDue = { kind: "none" } | { kind: "at"; at: string } | { kind: "words"; at: string };
+/**
+ * A task's due date: none, a day or time, Todoist's own words ("every
+ * Monday"), or (`move`) a repeating task's next date moved there, still
+ * repeating, as rescheduling one does in Todoist.
+ */
+export type TaskDue =
+  | { kind: "none" }
+  | { kind: "at"; at: string }
+  | { kind: "words"; at: string }
+  | { kind: "move"; at: string };
 
 /** A task as the New or Edit form filled it in. Mirrors `TaskDraft` in todoist.rs. */
 export interface TaskDraft {
@@ -390,6 +401,12 @@ export const eventRecurrence = (target: EventRef) => invoke<string[]>("event_rec
  * before its occurrence at `before`, and resolves to its rules for a new
  * series from there; null when that's the first occurrence (change them all).
  */
+/**
+ * Desktop app: Demo mode on (with the demo's items and clock: the menu bar
+ * shows its next event, and real alerts wait) or off.
+ */
+export const showDemoInMenuBar = (on: boolean, items: AgendaItem[] = [], now: string | null = null) =>
+  invoke<void>("set_demo", { on, items, now });
 export const endSeriesBefore = (target: EventRef, before: string, allDay: boolean) =>
   invoke<string[] | null>("end_series_before", { target, before, allDay });
 

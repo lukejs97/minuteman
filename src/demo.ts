@@ -15,6 +15,7 @@
 // them all when it's turned on or off.
 import { isTauri } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
+import { getAgenda, showDemoInMenuBar } from "./api";
 
 const FLAG = "minuteman.demo";
 /** Tells the desktop app's other windows to reload, after a switch. */
@@ -86,7 +87,12 @@ export async function setDemo(next: boolean): Promise<void> {
   } catch {
     // Storage blocked: only ?demo works, so go by the address.
   }
-  if (isTauri()) await emit(DEMO_CHANGED).catch(() => {});
+  if (isTauri()) {
+    // The menu bar and alerts: the real calendar again (or the demo's, once
+    // the window has started again in it).
+    if (!next) await showDemoInMenuBar(false).catch(() => {});
+    await emit(DEMO_CHANGED).catch(() => {});
+  }
   const url = new URL(location.href);
   url.searchParams.delete("demo");
   if (next && !flagStore()) url.searchParams.set("demo", "");
@@ -112,6 +118,24 @@ export async function startDemo(): Promise<boolean> {
   (await import("./dev-mock")).install(isTauri());
   document.documentElement.classList.add("demo");
   return true;
+}
+
+/**
+ * Desktop app in Demo mode: the menu bar shows the demo's next event (on its
+ * 1775 clock) and real alerts wait, refreshed each minute. From the calendar
+ * window only, so there's one of it.
+ */
+export function startDemoMenuBar(): void {
+  if (!isTauri() || !isDemo()) return;
+  const day = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const show = async () => {
+    const now = new Date();
+    const later = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 2);
+    const agenda = await getAgenda(day(now), day(later)).catch(() => null);
+    await showDemoInMenuBar(true, agenda?.items ?? [], now.toISOString()).catch(() => {});
+  };
+  void show();
+  window.setInterval(() => void show(), 60_000);
 }
 
 /** `storage`, with every key starting with "demo:", so the demo's settings stay apart. */

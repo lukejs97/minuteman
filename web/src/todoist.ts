@@ -22,7 +22,16 @@ interface Task {
   description?: string;
   project_id: string;
   /** "YYYY-MM-DD" for a due day; a time with "Z" (fixed, UTC) or without ("floating", your local time). */
-  due?: { date: string; datetime?: string | null; is_recurring?: boolean } | null;
+  due?: {
+    date: string;
+    datetime?: string | null;
+    is_recurring?: boolean;
+    /** In words: "every Monday at 9am". */
+    string?: string | null;
+    /** Set for a fixed time; none for one that follows you across time zones. */
+    timezone?: string | null;
+    lang?: string | null;
+  } | null;
   duration?: { amount: number; unit: "minute" | "day" } | null;
   /** 4 = most urgent ("P1" in the app) … 1 = normal ("P4"). */
   priority: number;
@@ -151,6 +160,7 @@ function toAgendaItem(
 
   const project = projects.get(task.project_id);
   const recurring = !!task.due.is_recurring;
+  const repeat = recurring ? (task.due.string ?? null) : null;
   const description = task.description?.trim() ? task.description : null;
   return {
     id: `todoist:${task.id}`,
@@ -172,9 +182,10 @@ function toAgendaItem(
     listId: task.project_id,
     sourceId: task.id,
     seriesId: null,
-    // Changing a repeating task's date here would end its repeat.
-    editable: !recurring,
+    // Repeating ones too: a new date moves the next one ("move").
+    editable: true,
     recurring,
+    repeat,
     description,
     attendees: [],
     conferenceUrl: null,
@@ -192,6 +203,7 @@ export async function projects(token: string): Promise<TodoistProject[]> {
 /** Puts a due date or time into a request, or removes it. */
 function setDue(body: Record<string, unknown>, due: TaskDue): void {
   if (due.kind === "none") body.due_string = "no date";
+  else if (due.kind === "move") setDue(body, { kind: "at", at: due.at });
   else if (due.kind === "words") body.due_string = due.at.trim();
   else if (parseDay(due.at)) body.due_date = due.at;
   else {
@@ -209,7 +221,8 @@ function draftJson(task: TaskDraft): Record<string, unknown> {
   if (task.description !== null && task.description !== undefined) body.description = task.description.trim();
   // Todoist's API counts the other way: 4 is P1.
   if (task.priority) body.priority = 5 - Math.min(4, Math.max(1, task.priority));
-  if (task.due) setDue(body, task.due);
+  // A move is its own request (`reschedule`), after this one.
+  if (task.due && task.due.kind !== "move") setDue(body, task.due);
   return body;
 }
 
@@ -223,6 +236,7 @@ export async function createTask(token: string, task: TaskDraft): Promise<void> 
 /** Saves an edited task, moving it to `task.projectId` if that's set. */
 export async function updateTask(token: string, id: string, task: TaskDraft): Promise<void> {
   await todoist(token, url("tasks", id), { method: "POST", body: JSON.stringify(draftJson(task)) });
+  if (task.due?.kind === "move") await reschedule(token, id, task.due.at);
   if (task.projectId) {
     await todoist(token, url("tasks", id, "move"), { method: "POST", body: JSON.stringify({ project_id: task.projectId }) });
   }
@@ -230,9 +244,55 @@ export async function updateTask(token: string, id: string, task: TaskDraft): Pr
 
 /** Changes only a task's due date or time (dragging it). */
 export async function setTaskDue(token: string, id: string, due: TaskDue): Promise<void> {
+  if (due.kind === "move") return reschedule(token, id, due.at);
   const body: Record<string, unknown> = {};
   setDue(body, due);
   await todoist(token, url("tasks", id), { method: "POST", body: JSON.stringify(body) });
+}
+
+/**
+ * Moves a repeating task's next date to `at` (a day, or an ISO time) and
+ * keeps it repeating, as Todoist's own apps do: its due goes back with the
+ * same words and only the date changed (Sync API `item_update`; a plain date
+ * update would end the repeat). As `reschedule` in todoist.rs.
+ */
+async function reschedule(token: string, id: string, at: string): Promise<void> {
+  const task = (await (await todoist(token, url("tasks", id))).json()) as Task;
+  const due = task.due;
+  if (!due?.is_recurring) return setTaskDue(token, id, { kind: "at", at });
+  const uuid = crypto.randomUUID();
+  const commands = JSON.stringify([
+    {
+      type: "item_update",
+      uuid,
+      args: {
+        id,
+        due: { date: rescheduledDate(at, due), string: due.string, is_recurring: true, timezone: due.timezone ?? null, lang: due.lang ?? null },
+      },
+    },
+  ]);
+  const reply = (await (
+    await todoist(token, url("sync"), {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ commands }).toString(),
+    })
+  ).json()) as { sync_status?: Record<string, unknown> };
+  if (reply.sync_status?.[uuid] !== "ok") {
+    throw new AppError("api", `Todoist didn't move the task: ${JSON.stringify(reply.sync_status?.[uuid] ?? null)}`, 502);
+  }
+}
+
+/** As `rescheduled_date` in todoist.rs: a day keeps the time it had; a time is fixed (UTC) if it was, else a clock time. */
+export function rescheduledDate(at: string, due: NonNullable<Task["due"]>): string {
+  const withTime = due.date.length > 10 ? due.date : (due.datetime ?? "");
+  const hadTime = withTime.slice(10).startsWith("T") ? withTime.slice(10) : "";
+  if (parseDay(at)) return `${at}${hadTime}`;
+  const t = Date.parse(at);
+  if (Number.isNaN(t)) throw invalidInput(`not a date or time: ${JSON.stringify(at)}`);
+  if (due.timezone) return new Date(t).toISOString().replace(/\.\d{3}Z$/, "Z");
+  // The clock time as written ("2026-11-10T10:30:00-05:00" → 10:30).
+  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?/.test(at) ? `${at.slice(0, 16)}:00` : new Date(t).toISOString().slice(0, 19);
 }
 
 export async function deleteTask(token: string, id: string): Promise<void> {

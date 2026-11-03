@@ -79,6 +79,7 @@ function saveSettings(settings: WeatherSettings): void {
 }
 
 const isMacApp = () => isTauri() && /Macintosh|Mac OS X/.test(navigator.userAgent) && !/iPhone|iPad/.test(navigator.userAgent);
+const isWindowsApp = () => isTauri() && /Windows/.test(navigator.userAgent);
 
 /**
  * Where you are now, to about a kilometre: from the Mac's location in the
@@ -96,12 +97,21 @@ export async function locate(): Promise<Place> {
   };
 }
 
-/** Where the device is: the Mac's location in the Mac app, otherwise the browser's. */
+/**
+ * Where the device is: the Mac's or PC's location in the desktop app (its
+ * location service, as background alerts use), otherwise the browser's.
+ */
 export async function devicePosition(): Promise<{ latitude: number; longitude: number }> {
   let here: { latitude: number; longitude: number };
-  if (isMacApp()) {
+  if (isMacApp() || isWindowsApp()) {
     const found = await currentLocation();
-    if (!found) throw new Error("Allow Minuteman in System Settings → Privacy & Security → Location Services.");
+    if (!found) {
+      throw new Error(
+        isMacApp()
+          ? "Allow Minuteman in System Settings → Privacy & Security → Location Services."
+          : "Turn on location in Windows Settings → Privacy & security → Location, with “Let desktop apps access your location” on.",
+      );
+    }
     here = found;
   } else {
     if (!navigator.geolocation) throw new Error("This device can't share its location.");

@@ -30,6 +30,21 @@ const LATEST: TimeDelta = TimeDelta::minutes(2);
 static STALE: AtomicBool = AtomicBool::new(false);
 /// Wakes the loop early, e.g. after a settings change.
 static WAKE: OnceLock<Notify> = OnceLock::new();
+/// Demo mode is on (Settings → Demo mode): the menu bar shows the demo's
+/// next event (`show_demo`), and real alerts wait until it's off.
+static DEMO: AtomicBool = AtomicBool::new(false);
+
+/// Demo mode on, with its items and its clock (April 1775): the menu bar shows
+/// the demo's next event. Off: back to the real calendar, now.
+pub fn show_demo(app: &AppHandle, on: bool, items: &[AgendaItem], now: Option<DateTime<Local>>) {
+    DEMO.store(on, Ordering::Relaxed);
+    if on {
+        let next = if prefs::get().menu_bar_next { menu_bar_text(items, now.unwrap_or_else(Local::now)) } else { None };
+        desktop::set_menu_bar_text(app, next);
+    } else {
+        refresh();
+    }
+}
 
 fn wake() -> &'static Notify {
     WAKE.get_or_init(Notify::new)
@@ -61,6 +76,15 @@ pub fn start(app: AppHandle) {
             }
             let from = last_check.max(now - LATEST);
             last_check = now;
+            // Demo mode: nothing real is shown, and what comes due meanwhile
+            // is skipped rather than delivered once it's off.
+            if DEMO.load(Ordering::Relaxed) {
+                tokio::select! {
+                    _ = tokio::time::sleep(CHECK_EVERY) => {}
+                    _ = wake().notified() => {}
+                }
+                continue;
+            }
             for (key, title, body) in due(&upcoming, from, now) {
                 if sent.insert(key) {
                     let _ = app.notification().builder().title(title).body(body).show();
@@ -144,9 +168,9 @@ const LOOK_AHEAD_DAYS: i64 = 120;
 /// Today's items and the ones far enough ahead that a reminder can come due
 /// now: fetched if possible (and saved for offline use), otherwise as saved
 /// last time. `None` if neither works, e.g. signed out.
-/// Where the Mac is, for drives that start from there (Settings → Leave from),
-/// asked at most every 5 minutes. Elsewhere `None`: Windows has no location
-/// here, so alerts there use the address in Settings.
+/// Where the Mac or PC is, for drives that start from there (Settings →
+/// Leave from), asked at most every 5 minutes. `None` when location is off:
+/// alerts then use the address in Settings.
 async fn here_now(app: &AppHandle) -> Option<String> {
     use std::sync::Mutex;
     use std::time::Instant;
@@ -156,15 +180,9 @@ async fn here_now(app: &AppHandle) -> Option<String> {
     {
         return spot;
     }
-    #[cfg(target_os = "macos")]
-    let spot = crate::travel::current_location(app)
+    let spot = crate::device_location(app)
         .await
         .map(|(latitude, longitude)| crate::leave::spot_origin(latitude, longitude));
-    #[cfg(not(target_os = "macos"))]
-    let spot = {
-        let _ = app;
-        None
-    };
     *LAST.lock().expect("not poisoned") = Some((Instant::now(), spot.clone()));
     spot
 }
@@ -353,6 +371,7 @@ mod tests {
             leave_from: None,
             leave_alerts: Vec::new(),
             color_id: None,
+            repeat: None,
         }
     }
 

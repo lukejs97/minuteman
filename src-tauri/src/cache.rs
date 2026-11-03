@@ -164,6 +164,7 @@ mod tests {
             leave_from: None,
             leave_alerts: Vec::new(),
             color_id: None,
+            repeat: None,
         }
     }
 

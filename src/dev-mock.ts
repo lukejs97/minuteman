@@ -54,7 +54,15 @@ function sampleItems(from: Date, to: Date): AgendaItem[] {
   };
   const today = startOfDay(new Date());
 
-  const task = (day: Date, title: string, priority: number, project: Calendar, hour?: number, overdue = false) => {
+  const task = (
+    day: Date,
+    title: string,
+    priority: number,
+    project: Calendar,
+    hour?: number,
+    overdue = false,
+    extra: Partial<AgendaItem> = {},
+  ) => {
     const start = hour === undefined ? null : new Date(day.getFullYear(), day.getMonth(), day.getDate(), hour);
     items.push({
       ...base,
@@ -75,6 +83,7 @@ function sampleItems(from: Date, to: Date): AgendaItem[] {
       listName: project.name,
       overdue,
       priority,
+      ...extra,
     });
   };
 
@@ -131,7 +140,9 @@ function sampleItems(from: Date, to: Date): AgendaItem[] {
           "<p>Muster on the green. Orders: <a href=\"https://docs.example.com/muster\">drill notes</a></p><p>Three things:<br>powder, shot, provisions.</p>",
       });
     }
-    if (weekday === 1 || weekday === 4) task(day, "Read the dispatches", 4, INBOX);
+    if (weekday === 1 || weekday === 4) {
+      task(day, "Read the dispatches", 4, INBOX, undefined, false, { recurring: true, repeat: "every mon, thu" });
+    }
     if (weekday === 3) task(day, "Shoe the horse", 2, HOME, 13);
     if (weekday === 5) task(day, "Send the ledger to the Committee", 1, WORK_TASKS);
     if (isSameDay(day, today)) {
@@ -297,6 +308,8 @@ const DESKTOP_COMMANDS = new Set([
   "current_location",
   "open_at_login",
   "set_open_at_login",
+  // The menu bar and alerts, told Demo mode is on (demo.ts).
+  "set_demo",
 ]);
 
 /**
@@ -336,7 +349,7 @@ export function install(inApp = false): void {
     return { reminders, emailReminders, alertAt, leaveAlerts };
   };
   const dueFields = (due: TaskDue): Partial<AgendaItem> => {
-    if (due.kind !== "at") return {};
+    if (due.kind !== "at" && due.kind !== "move") return {};
     const allDay = due.at.length === 10;
     return { start: due.at, end: allDay ? toDateString(addDays(parseDate(due.at), 1)) : due.at, allDay, overdue: false };
   };

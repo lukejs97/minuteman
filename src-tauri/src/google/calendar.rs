@@ -285,9 +285,9 @@ pub async fn recurrence(http: &reqwest::Client, token: &str, calendar_id: &str, 
 
 /// "This and following events": ends the series `series_id` just before its
 /// occurrence at `before` (an RFC 3339 time, or a date for an all-day series),
-/// and returns its rules for a new series from there on (RRULE lines, with
-/// any COUNT dropped: what's left of it isn't known). `None` when `before` is
-/// its first occurrence: nothing comes before it, so change the whole series.
+/// and returns its rules for a new series from there on (RRULE lines; a
+/// COUNT becomes what's left of it). `None` when `before` is its first
+/// occurrence: nothing comes before it, so change the whole series.
 pub async fn end_series_before(
     http: &reqwest::Client,
     token: &str,
@@ -313,15 +313,89 @@ pub async fn end_series_before(
     if series.recurrence.is_empty() || !starts_before(&first, before) {
         return Ok(None);
     }
+    // "10 times": the new series has as many as are left after the ones before.
+    let counted = series.recurrence.iter().any(|rule| count_of(rule).is_some());
+    let before_count = if counted {
+        instances_before(http, token, calendar_id, series_id, before, all_day).await?
+    } else {
+        0
+    };
     let ended = with_until(&series.recurrence, &until);
     let _patched: Value = send(http.patch(url).bearer_auth(token).json(&json!({ "recurrence": ended }))).await?;
-    let following = series
-        .recurrence
+    Ok(Some(following_rules(&series.recurrence, before_count)))
+}
+
+/// A series' rules for the part from an occurrence on: RRULE lines only (the
+/// others belong to the old series' dates), with any COUNT less the
+/// `before_count` occurrences that came before it.
+fn following_rules(rules: &[String], before_count: u32) -> Vec<String> {
+    rules
         .iter()
         .filter(|rule| rule.to_ascii_uppercase().starts_with("RRULE:"))
-        .map(|rule| without_parts(rule, &["COUNT"]))
-        .collect();
-    Ok(Some(following))
+        .map(|rule| match count_of(rule) {
+            Some(count) => format!("{};COUNT={}", without_parts(rule, &["COUNT"]), count.saturating_sub(before_count).max(1)),
+            None => rule.clone(),
+        })
+        .collect()
+}
+
+/// An RRULE's COUNT, if it has one.
+fn count_of(rule: &str) -> Option<u32> {
+    rule.get("RRULE:".len()..)?.split(';').find_map(|part| {
+        let (name, value) = part.split_once('=')?;
+        name.eq_ignore_ascii_case("COUNT").then(|| value.parse().ok()).flatten()
+    })
+}
+
+/// How many of a series' occurrences start before `before`. Cancelled ones
+/// count too, as they do toward its COUNT.
+async fn instances_before(
+    http: &reqwest::Client,
+    token: &str,
+    calendar_id: &str,
+    series_id: &str,
+    before: &str,
+    all_day: bool,
+) -> Result<u32> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Instances {
+        #[serde(default)]
+        items: Vec<Value>,
+        next_page_token: Option<String>,
+    }
+    // An all-day series: before that day starts here.
+    let time_max = if all_day {
+        let day = NaiveDate::parse_from_str(before.get(..10).unwrap_or(before), "%Y-%m-%d")
+            .map_err(|_| AppError::InvalidInput("not a date".into()))?;
+        Local
+            .from_local_datetime(&day.and_time(NaiveTime::MIN))
+            .earliest()
+            .ok_or_else(|| AppError::InvalidInput("not a date".into()))?
+            .to_rfc3339()
+    } else {
+        before.to_string()
+    };
+    let mut count = 0;
+    let mut page: Option<String> = None;
+    loop {
+        let mut url = Url::parse(API).expect("valid URL");
+        url.path_segments_mut().expect("base URL").extend(["calendars", calendar_id, "events", series_id, "instances"]);
+        {
+            let mut query = url.query_pairs_mut();
+            query.append_pair("timeMax", &time_max).append_pair("showDeleted", "true");
+            query.append_pair("maxResults", "2500").append_pair("fields", "items(id),nextPageToken");
+            if let Some(token) = &page {
+                query.append_pair("pageToken", token);
+            }
+        }
+        let found: Instances = get_json(http, token, url).await?;
+        count += found.items.len() as u32;
+        match found.next_page_token {
+            Some(next) => page = Some(next),
+            None => return Ok(count),
+        }
+    }
 }
 
 /// The UNTIL that ends a series just before `before`: the day before (all
@@ -1151,6 +1225,7 @@ fn to_agenda_item(account: &str, can_edit: bool, calendar: &CalendarListEntry, e
             .map(str::to_string)
             .or_else(|| calendar.background_color.clone()),
         color_id: event.color_id.filter(|id| event_color(id).is_some()),
+        repeat: None,
         list_name: calendar.name(),
         url: event.html_link,
         completed: false,
@@ -1223,6 +1298,12 @@ mod tests {
         );
         assert_eq!(without_parts("RRULE:FREQ=DAILY;UNTIL=20270101;INTERVAL=2", &["UNTIL"]), "RRULE:FREQ=DAILY;INTERVAL=2");
         assert!(starts_before("2026-10-06T09:00:00-04:00", "2026-11-10T09:00:00-05:00"));
+        assert_eq!(
+            following_rules(&["RRULE:FREQ=WEEKLY;COUNT=10;BYDAY=TU".into(), "EXDATE:20261103T140000Z".into()], 4),
+            vec!["RRULE:FREQ=WEEKLY;BYDAY=TU;COUNT=6".to_string()]
+        );
+        assert_eq!(following_rules(&["RRULE:FREQ=DAILY".into()], 4), vec!["RRULE:FREQ=DAILY".to_string()]);
+        assert_eq!(count_of("RRULE:FREQ=DAILY;count=3"), Some(3));
         // Its first occurrence: nothing before it to keep.
         assert!(!starts_before("2026-11-10T09:00:00-05:00", "2026-11-10T09:00:00-05:00"));
         assert!(starts_before("2026-10-06", "2026-11-10"));

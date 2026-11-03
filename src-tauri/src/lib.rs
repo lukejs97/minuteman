@@ -17,6 +17,8 @@ mod secrets;
 mod todoist;
 #[cfg(target_os = "macos")]
 mod travel;
+#[cfg(windows)]
+mod winlocation;
 
 use std::time::Duration;
 
@@ -231,6 +233,21 @@ async fn update_event(
 async fn event_recurrence(state: State<'_, AppState>, target: EventRef) -> Result<Vec<String>> {
     let token = state.google_auth.access_token(&target.email).await?;
     google::calendar::recurrence(&state.http, &token, &target.calendar_id, &target.event_id).await
+}
+
+/// Demo mode (Settings → Demo mode) on or off. On, with the demo's items and
+/// its clock (`now`, RFC 3339): the menu bar shows its next event, and real
+/// alerts wait. Off: back to the real calendar.
+#[tauri::command]
+fn set_demo(app: AppHandle, on: bool, items: Vec<agenda::AgendaItem>, now: Option<String>) {
+    let now = now
+        .as_deref()
+        .and_then(|now| chrono::DateTime::parse_from_rfc3339(now).ok())
+        .map(|now| now.with_timezone(&chrono::Local));
+    #[cfg(desktop)]
+    alerts::show_demo(&app, on, &items, now);
+    #[cfg(mobile)]
+    let _ = (app, on, items, now);
 }
 
 /// "This and following events": ends a series just before its occurrence at
@@ -520,21 +537,31 @@ fn set_open_at_login(app: AppHandle, enabled: bool) -> Result<()> {
     }
 }
 
-/// Mac only: where the Mac is, for the weather (`{latitude, longitude}`), or
-/// `null` if that isn't allowed or known. Elsewhere `null`: the page asks
-/// the browser instead.
+/// Where the Mac or PC is (`{latitude, longitude}`), from its location
+/// service, or `null` if that isn't allowed or known. Elsewhere `null`: the
+/// page asks the browser instead.
 #[tauri::command]
 async fn current_location(app: AppHandle) -> Option<serde_json::Value> {
+    let (latitude, longitude) = device_location(&app).await?;
+    Some(serde_json::json!({ "latitude": latitude, "longitude": longitude }))
+}
+
+/// The Mac's location (Core Location) or the PC's (Windows' location service).
+#[allow(clippy::let_and_return)] // one of the three, per platform
+pub(crate) async fn device_location(app: &AppHandle) -> Option<(f64, f64)> {
     #[cfg(target_os = "macos")]
-    {
-        let (latitude, longitude) = travel::current_location(&app).await?;
-        Some(serde_json::json!({ "latitude": latitude, "longitude": longitude }))
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
+    let here = travel::current_location(app).await;
+    #[cfg(windows)]
+    let here = {
+        let _ = app;
+        winlocation::current_location().await
+    };
+    #[cfg(not(any(target_os = "macos", windows)))]
+    let here = {
         let _ = app;
         None
-    }
+    };
+    here
 }
 
 /// Where a drive to an event starts from, and how long it takes in traffic.
@@ -821,6 +848,7 @@ pub fn run() {
             update_event,
             event_recurrence,
             end_series_before,
+            set_demo,
             set_event_times,
             delete_event,
             get_contacts,

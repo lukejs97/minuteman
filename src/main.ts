@@ -27,6 +27,7 @@ import { askSeriesChoice, inSeries, moveInSeries } from "./series";
 import { openSearch } from "./search";
 import { announceChange, onChangeElsewhere } from "./sync";
 import { refreshWeather } from "./weather";
+import { startDemoMenuBar } from "./demo";
 import { openSettings } from "./settings";
 import {
   addDays,
@@ -211,7 +212,8 @@ async function moveItem(item: AgendaItem, start: Date, end: Date): Promise<void>
   replaceShown({ ...item, start: format(start), end: format(end), overdue: false });
   try {
     if (item.source === "todoist") {
-      await setTaskDue(item.sourceId!, { kind: "at", at: format(start) });
+      // A repeating one moves just its next date, and keeps repeating.
+      await setTaskDue(item.sourceId!, { kind: item.recurring ? "move" : "at", at: format(start) });
     } else {
       // Kept at its clock time anywhere: saved as that clock time in its own zone.
       const zone = floatingZone(item);
@@ -675,6 +677,8 @@ async function start(): Promise<void> {
   // The menu bar window loads this same page (or, to preview it in a browser, add ?flyout).
   const flyoutPreview = import.meta.env.DEV && new URLSearchParams(location.search).has("flyout");
   if (window.__MINUTEMAN_FLYOUT__ || flyoutPreview) return (await import("./flyout")).startFlyout();
+  // Demo mode in the desktop app: the menu bar shows the demo's next event.
+  startDemoMenuBar();
 
   setUpControls();
   // Right-click (or press and hold) an event or task: quick actions.

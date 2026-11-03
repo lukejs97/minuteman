@@ -68,8 +68,8 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
   calls, guests and their replies, and notes.
 - **Drag to move:** in Day and Week view, drag an event to another time or
   day, or its bottom edge to change its length (15-minute steps). In Month view
-  and the all-day row, drag anything to another day. Tasks move too (not
-  repeating ones).
+  and the all-day row, drag anything to another day. Tasks move too; a repeating one moves
+  just its next date and keeps repeating, as in Todoist.
 - **Choose calendars** (Settings → Calendars): hide any of your Google
   calendars; their events stay out of every view, search, alerts and the menu
   bar.
@@ -123,7 +123,8 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
 - **Leave by** (Settings → Leave from): a default starting address (in
   separate street, town, state and ZIP fields, so AutoFill fills it all), or
   **Start from where I am** to use the device's location, with the address
-  as a fallback. An event can set its own starting place. Events at a real place show when to leave, from live
+  as a fallback (on Windows, turn on Settings → Privacy & security →
+  Location → "Let desktop apps access your location"). An event can set its own starting place. Events at a real place show when to leave, from live
   traffic (Google's Routes API). Add **before leaving** as an alert — for
   example 10 minutes before that time, or 0 to be told at the leave-by time
   itself. The API key goes in Settings or in `MINUTEMAN_ROUTES_API_KEY` on
@@ -158,7 +159,10 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
   ([docs/google-cloud-setup.md](docs/google-cloud-setup.md#6-publish-the-app-in-production)).
 - **Todoist** (optional): Settings → Todoist, then paste your API token
   from Todoist → Settings → Integrations → Developer. Tasks with a due date
-  appear with a checkbox in every view, overdue ones on today.
+  appear with a checkbox in every view, overdue ones on today. Repeating
+  ones work as in Todoist's app: change the name, notes, priority or project
+  freely; a new date moves just the next one; Edit → Repeat holds the repeat
+  in Todoist's words ("every Monday"), to change it or (emptied) stop it.
 
 **Keyboard:** `D` `X` `W` `M` `Y` `A` switch views (`X` is the multi-day one), `T` jumps to today, `N` adds
 an event or task, `/` searches, `C` opens Contacts, `,` opens Settings, `←` `→` go back and forward (or swipe sideways

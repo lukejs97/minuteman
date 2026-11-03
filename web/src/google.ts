@@ -18,6 +18,7 @@ import {
   addDays,
   dayOf,
   dayString,
+  midnight,
   parseDay,
   type Wall,
   validZone,
@@ -287,11 +288,13 @@ export async function recurrence(token: string, calendarId: string, eventId: str
 /**
  * "This and following events": ends the series just before its occurrence at
  * `before` (an RFC 3339 time, or a date for an all-day series), and returns
- * its rules for a new series from there (RRULE lines, COUNT dropped). Null
- * when that's its first occurrence. As `end_series_before` in calendar.rs.
+ * its rules for a new series from there (RRULE lines; a COUNT becomes what's
+ * left of it). Null when that's its first occurrence. As `end_series_before`
+ * in calendar.rs. `zone`: where an all-day `before` day starts.
  */
 export async function endSeriesBefore(
   token: string,
+  zone: string,
   calendarId: string,
   seriesId: string,
   before: string,
@@ -306,10 +309,46 @@ export async function endSeriesBefore(
   const first = series.start?.dateTime ?? series.start?.date ?? "";
   if (rules.length === 0 || !startsBefore(first, before)) return null;
   const isRule = (rule: string) => /^RRULE:/i.test(rule);
+  // "10 times": the new series has as many as are left after the ones before.
+  const counted = rules.some((rule) => countOf(rule) !== null);
+  const beforeCount = counted ? await instancesBefore(token, calendarId, seriesId, allDay ? midnight(before.slice(0, 10), zone).toISOString() : before) : 0;
   const ended = rules.map((rule) => (isRule(rule) ? `${withoutParts(rule, ["UNTIL", "COUNT"])};UNTIL=${until}` : rule));
   url.search = "";
   await google(token, url.toString(), { method: "PATCH", body: JSON.stringify({ recurrence: ended }) });
-  return rules.filter(isRule).map((rule) => withoutParts(rule, ["COUNT"]));
+  return followingRules(rules, beforeCount);
+}
+
+/** RRULE lines for the part from an occurrence on, any COUNT less the `beforeCount` that came before. */
+export function followingRules(rules: string[], beforeCount: number): string[] {
+  return rules
+    .filter((rule) => /^RRULE:/i.test(rule))
+    .map((rule) => {
+      const count = countOf(rule);
+      return count === null ? rule : `${withoutParts(rule, ["COUNT"])};COUNT=${Math.max(1, count - beforeCount)}`;
+    });
+}
+
+function countOf(rule: string): number | null {
+  const m = /(?:^RRULE:|;)COUNT=(\d+)/i.exec(rule);
+  return m ? Number(m[1]) : null;
+}
+
+/** How many of a series' occurrences start before `timeMax`, cancelled ones too (they count toward its COUNT). */
+async function instancesBefore(token: string, calendarId: string, seriesId: string, timeMax: string): Promise<number> {
+  let count = 0;
+  let page: string | undefined;
+  do {
+    const url = new URL(`${API}/${path("calendars", calendarId, "events", seriesId, "instances")}`);
+    url.searchParams.set("timeMax", timeMax);
+    url.searchParams.set("showDeleted", "true");
+    url.searchParams.set("maxResults", "2500");
+    url.searchParams.set("fields", "items(id),nextPageToken");
+    if (page) url.searchParams.set("pageToken", page);
+    const found = await google<{ items?: unknown[]; nextPageToken?: string }>(token, url.toString());
+    count += found.items?.length ?? 0;
+    page = found.nextPageToken;
+  } while (page);
+  return count;
 }
 
 /** The UNTIL that ends a series just before `before`: the day before (all day), or a second before, in UTC. */

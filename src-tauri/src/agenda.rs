@@ -145,6 +145,9 @@ pub struct AgendaItem {
     /// `color` is already that color.
     #[serde(default)]
     pub color_id: Option<String>,
+    /// A repeating Todoist task's repeat, in Todoist's words ("every Monday").
+    #[serde(default)]
+    pub repeat: Option<String>,
 }
 
 #[derive(Serialize)]

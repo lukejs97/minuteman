@@ -145,8 +145,6 @@ pub struct LeaveNotice {
 /// Where you are, as a starting point: "@42.447,-71.227", rounded to about
 /// 100 m so a little GPS wobble doesn't ask Google again. Kept in step with
 /// `spotOrigin` in src/routes-budget.ts.
-// Only the Mac finds a location in Rust (Core Location); elsewhere the page sends it.
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub fn spot_origin(latitude: f64, longitude: f64) -> String {
     format!("@{latitude:.3},{longitude:.3}")
 }
