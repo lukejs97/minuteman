@@ -200,7 +200,11 @@ Contacts' addresses come first (`contactSuggestions`, from 2 letters,
 matched on name, nickname or company, from the saved contacts; never sent
 anywhere), except in the Contacts form itself, and `findPlace` checks them
 before Photon. OpenStreetMap often has a street but not its house numbers, so a typed
-number goes in front of a street found without one ("20 Nora Drive"). The
+number goes in front of a street found without one ("20 Nora Drive"). A US
+address with no city, town or village (outside any town's limits, where
+OpenStreetMap has only a neighborhood) gets its mailing town from the ZIP,
+as addresses are written (`postalTown`: Zippopotam.us, free, no key, in
+both CSPs; each ZIP looked up once and kept). The
 list is placed in the field's own box (`.place-suggest-host`), so it moves
 with the field; it goes above the field when there's more room there than
 below, measured against `visualViewport` (above a phone's keyboard). US states are shortened ("MA") so a picked address reads like one

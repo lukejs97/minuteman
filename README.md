@@ -39,7 +39,9 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
   sentence box knows them too ("Dinner at Samuel Adams tomorrow 6pm"). From
   [Photon](https://photon.komoot.io), a free OpenStreetMap search with no
   account or key, so it never costs anything. What you type there is sent
-  to it (from 3 letters); nearest your weather place first, if one is set.
+  to it (from 3 letters); places near you come first. An address outside
+  any town's limits gets its mailing town from its ZIP code (Zippopotam.us,
+  also free; only the ZIP is sent, once).
 - **Quick actions:** right-click an event or task (on a phone, press and
   hold it) for Open, Edit, Duplicate, Complete, Open in Google Calendar or
   Todoist, and Delete. On a phone, press and hold a day's heading, an empty time, or an

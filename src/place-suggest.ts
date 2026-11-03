@@ -76,12 +76,20 @@ const US_STATES: Record<string, string> = {
  * of a street found without one: OpenStreetMap often has the street but not
  * each house on it.
  */
-export function toSuggestion(feature: PhotonFeature, houseNumber: string | null = null): PlaceSuggestion | null {
+export function toSuggestion(
+  feature: PhotonFeature,
+  houseNumber: string | null = null,
+  postalTowns: Map<string, string> = new Map(),
+): PlaceSuggestion | null {
   const p = feature.properties;
   if (p.type && ["country", "state", "county"].includes(p.type)) return null;
   const us = p.countrycode?.toUpperCase() === "US";
   const street = [p.housenumber, p.street].filter(Boolean).join(" ");
-  const town = p.city ?? p.town ?? p.village ?? p.district ?? "";
+  // No city, town or village (outside any town's limits): the mailing
+  // address's town, from the ZIP (`postalTown`), rather than the
+  // neighborhood OpenStreetMap has.
+  const postal = us && p.postcode ? postalTowns.get(p.postcode) : undefined;
+  const town = p.city ?? p.town ?? p.village ?? postal ?? p.district ?? "";
   const state = (us && p.state && US_STATES[p.state]) || p.state || "";
   const zip = p.postcode ?? "";
   // A street on its own comes as its name; an address has none, or its
@@ -128,11 +136,23 @@ async function suggest(text: string, signal: AbortSignal): Promise<PlaceSuggesti
     const far = near && Number.isFinite(lat) ? kmBetween(near, { latitude: lat, longitude: lon }) > NEAR_KM : false;
     return { feature, order, far };
   });
+  // Mailing towns for US addresses outside any town's limits.
+  const needed = features
+    .map((f) => f.properties)
+    .filter((p) => p.countrycode?.toUpperCase() === "US" && p.postcode && !p.city && !p.town && !p.village)
+    .map((p) => p.postcode!);
+  const towns = new Map<string, string>();
+  await Promise.all(
+    [...new Set(needed)].map(async (zip) => {
+      const town = await postalTown(zip);
+      if (town) towns.set(zip, town);
+    }),
+  );
   // Near you first, otherwise as Photon ranked them.
   ranked.sort((a, b) => Number(a.far) - Number(b.far) || a.order - b.order);
   const seen = new Set<string>();
   const found = ranked
-    .map(({ feature }) => toSuggestion(feature, houseNumber))
+    .map(({ feature }) => toSuggestion(feature, houseNumber, towns))
     .filter((s): s is PlaceSuggestion => !!s && !seen.has(s.line) && !!seen.add(s.line))
     .slice(0, LIMIT);
   cache.set(key, found);
@@ -167,6 +187,41 @@ async function photon(
   const response = await fetch(url, { signal });
   if (!response.ok) throw new Error(`Place search unavailable (${response.status})`);
   return ((await response.json()) as { features?: PhotonFeature[] }).features ?? [];
+}
+
+const ZIP_TOWNS_KEY = "calendar.zipTowns";
+
+/**
+ * The town a US ZIP code's mail goes to ("29609" → "Greenville"), as an
+ * address is written. From Zippopotam.us (free, no key); only the ZIP is
+ * sent, once, and kept on this device. Null if it can't be found quickly.
+ */
+async function postalTown(zip: string): Promise<string | null> {
+  const five = zip.slice(0, 5);
+  if (!/^\d{5}$/.test(five)) return null;
+  let saved: Record<string, string> = {};
+  try {
+    saved = JSON.parse(localStorage.getItem(ZIP_TOWNS_KEY) ?? "{}") as Record<string, string>;
+  } catch {
+    // Look it up.
+  }
+  if (saved[five]) return saved[five];
+  try {
+    const response = await fetch(`https://api.zippopotam.us/us/${five}`, { signal: AbortSignal.timeout(2500) });
+    if (!response.ok) return null;
+    const body = (await response.json()) as { places?: { "place name"?: string }[] };
+    const town = body.places?.[0]?.["place name"]?.trim();
+    if (!town) return null;
+    saved[five] = town;
+    try {
+      localStorage.setItem(ZIP_TOWNS_KEY, JSON.stringify(saved));
+    } catch {
+      // Kept for now only.
+    }
+    return town;
+  } catch {
+    return null; // offline or slow: the neighborhood will do
+  }
 }
 
 /** Straight-line distance in km. */

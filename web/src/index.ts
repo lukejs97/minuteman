@@ -32,7 +32,7 @@ const SECURITY_HEADERS: Record<string, string> = {
     // Contacts' photos come straight from Google.
     "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://*.googleusercontent.com; " +
     // The weather (src/weather.ts) comes straight from Open-Meteo.
-    "connect-src 'self' https://api.open-meteo.com https://geocoding-api.open-meteo.com https://photon.komoot.io; " +
+    "connect-src 'self' https://api.open-meteo.com https://geocoding-api.open-meteo.com https://photon.komoot.io https://api.zippopotam.us; " +
     "frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
   "X-Content-Type-Options": "nosniff",
   "Referrer-Policy": "no-referrer",
