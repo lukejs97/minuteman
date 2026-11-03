@@ -1167,8 +1167,13 @@ main.loading > * {
 }
 
 /* Suggested places under a place or address field (place-suggest.ts). */
+/* The field's box: the list is placed in it, under (or over) the field. */
+.place-suggest-host {
+  position: relative;
+}
+
 .place-suggest {
-  position: fixed;
+  position: absolute;
   z-index: 1000;
   max-height: 260px;
   overflow-y: auto;

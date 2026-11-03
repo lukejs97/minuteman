@@ -157,7 +157,22 @@ function sampleItems(from: Date, to: Date): AgendaItem[] {
       timed(day, "1:1 with Captain Parker", WORK, 15, 30);
     }
     if (weekday === 5) timed(day, "Sons of Liberty", PERSONAL, 18, 120, "Green Dragon Tavern");
-    if (weekday === 6) timed(day, "Midnight ride", PERSONAL, 22, 180, "Charlestown"); // runs past midnight
+    if (weekday === 6) timed(day, "Night watch", PERSONAL, 22, 180, "Boston Neck"); // runs past midnight
+    // Demo mode's clock starts at 9:45 PM on April 18, 1775 (demo.ts).
+    if (day.getFullYear() === 1775 && day.getMonth() === 3 && date === 18) {
+      task(day, "Warn Hancock and Adams", 1, WORK_TASKS);
+      timed(day, "Two lanterns in the Old North Church", PERSONAL, 21.5, 15, "Old North Church, 193 Salem St, Boston, MA");
+      timed(day, "Row across the Charles", PERSONAL, 22, 30, "Charlestown, MA");
+      timed(day, "Midnight ride", PERSONAL, 22.5, 150, "Hancock-Clarke House, 36 Hancock St, Lexington, MA", {
+        description: "<p>The regulars are coming out. By way of Medford, rousing every house to Lexington.</p>",
+        reminders: [10],
+      });
+    }
+    if (day.getFullYear() === 1775 && day.getMonth() === 3 && date === 19) {
+      allDay(day, "Battles of Lexington and Concord", WORK);
+      timed(day, "Muster on Lexington Green", WORK, 4.5, 60, "Lexington Green, Lexington, MA");
+      timed(day, "North Bridge", WORK, 9.5, 60, "Old North Bridge, Concord, MA");
+    }
     if (weekday === 0) timed(day, "Family dinner", FAMILY, 18.5, 90);
     if (date === 1) allDay(day, "Pay the rent", PERSONAL);
     if (date === 12) allDay(day, "Second Continental Congress", WORK, 3);

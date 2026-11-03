@@ -46,10 +46,36 @@ let on: boolean | null = null;
 export function isDemo(): boolean {
   if (on === null) {
     const asked = new URLSearchParams(location.search).has("demo");
-    if (asked) flagStore()?.setItem(FLAG, "1");
-    on = asked || flagStore()?.getItem(FLAG) === "1";
+    try {
+      if (asked) flagStore()?.setItem(FLAG, "1");
+      on = asked || flagStore()?.getItem(FLAG) === "1";
+    } catch {
+      on = asked;
+    }
   }
   return on;
+}
+
+/**
+ * Demo mode's clock: 9:45 PM on April 18, 1775, the night of Paul Revere's
+ * ride, each time it starts, and running on from there. Every `new Date()`
+ * and `Date.now()` in the page says so; the real calendar keeps real time.
+ */
+export const DEMO_START = () => new Date(1775, 3, 18, 21, 45);
+
+function startDemoClock(): void {
+  const Real = Date;
+  const ahead = DEMO_START().getTime() - Real.now();
+  class DemoDate extends Real {
+    constructor(...args: unknown[]) {
+      if (args.length === 0) super(Real.now() + ahead);
+      else super(...(args as [number]));
+    }
+    static now(): number {
+      return Real.now() + ahead;
+    }
+  }
+  globalThis.Date = DemoDate as DateConstructor;
 }
 
 /** Turns Demo mode on or off, and starts again (every window, in the desktop app). */
@@ -125,3 +151,7 @@ function seedWeather(): void {
     // No weather in the demo, then.
   }
 }
+
+// Before any other module asks the time (this runs as boot.ts is loaded,
+// ahead of the pages' own code).
+if (isDemo()) startDemoClock();

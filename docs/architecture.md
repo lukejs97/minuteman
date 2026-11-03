@@ -187,8 +187,16 @@ bar would otherwise be at the far right of the six weeks.
 **Place suggestions** (`place-suggest.ts`): `enablePlaceSuggestions(field)`
 puts a list under a field (in its dialog, `position: fixed`) from Photon
 (`photon.komoot.io`, free OpenStreetMap search, no key; in both CSPs'
-`connect-src`), from 3 letters after a 250 ms pause, nearest the weather's
-place. US states are shortened ("MA") so a picked address reads like one
+`connect-src`), from 3 letters after a 250 ms pause. Near you first
+(`nearYou`, never asking for anything new): the weather's place, else the
+town of the Leave from address (only "town, ST ZIP" is looked up, once, and
+kept), else the device's location if already allowed; sent rounded to about
+a kilometre, and results more than 150 km away come after nearer ones.
+OpenStreetMap often has a street but not its house numbers, so a typed
+number goes in front of a street found without one ("20 Nora Drive"). The
+list is placed in the field's own box (`.place-suggest-host`), so it moves
+with the field; it goes above the field when there's more room there than
+below, measured against `visualViewport` (above a phone's keyboard). US states are shortened ("MA") so a picked address reads like one
 typed. `findPlace(text)` is for places in the sentence: `parseEvent` finds
 capitalised ones ("at Old North Church"); the form looks up lowercase ones
 it can't tell from words (`placeAtEnd`: "coffee at starbucks", not "look at
@@ -218,6 +226,11 @@ open-at-login still go to the app. `localStorage` is swapped for a view of
 it whose keys start with `demo:`, so the demo's settings stay apart. The
 switch is kept per tab on the website (`sessionStorage`) and for every
 window in the app (`localStorage`, with an event that reloads them).
+Its clock starts at 9:45 PM on April 18, 1775 (`DEMO_START`): `Date` is
+replaced when demo.ts loads, before the pages' own code runs, and its
+weather is made up (`demoWeather`). Before 1883 a place kept its own local
+time, seconds off the hour, which an ISO offset can't say, so `toLocalIso`
+gives such times in UTC.
 
 ## Contacts (done)
 

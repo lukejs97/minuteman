@@ -140,7 +140,7 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
   searches) it without internet.
 - **Demo mode** (Settings → Demo mode): made-up events, tasks and people
   (Paul Revere's calendar: the militia muster, the Sons of Liberty, the
-  midnight ride) in place of yours, for screenshots, screen recordings and copied text that
+  midnight ride; its clock starts at 9:45 PM on April 18, 1775) in place of yours, for screenshots, screen recordings and copied text that
   show nothing real. Nothing is sent to Google, Todoist or the server while
   it's on, and settings changed in it are kept apart from your real ones. On
   the website it's just that tab (or add `?demo` to the address, e.g. in a

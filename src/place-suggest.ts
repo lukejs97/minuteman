@@ -8,6 +8,8 @@
 // Up and down choose, Enter or a tap/click picks, Escape closes. Picking
 // fills the field (or, with `onPick`, whatever the caller fills in). Video
 // links are left alone.
+import { isTauri } from "@tauri-apps/api/core";
+import { getPreferences } from "./api";
 import { el } from "./dom";
 import { weatherSettings } from "./weather";
 
@@ -32,6 +34,8 @@ export interface PlaceSuggestion {
 }
 
 interface PhotonFeature {
+  /** [longitude, latitude] */
+  geometry?: { coordinates?: [number, number] };
   properties: {
     name?: string;
     housenumber?: string;
@@ -62,8 +66,13 @@ const US_STATES: Record<string, string> = {
   "Puerto Rico": "PR",
 };
 
-/** A Photon result as a suggestion; null for whole countries, states and the like. */
-export function toSuggestion(feature: PhotonFeature): PlaceSuggestion | null {
+/**
+ * A Photon result as a suggestion; null for whole countries, states and the
+ * like. `houseNumber`, typed before the street ("20 Nora Dr"), goes in front
+ * of a street found without one: OpenStreetMap often has the street but not
+ * each house on it.
+ */
+export function toSuggestion(feature: PhotonFeature, houseNumber: string | null = null): PlaceSuggestion | null {
   const p = feature.properties;
   if (p.type && ["country", "state", "county"].includes(p.type)) return null;
   const us = p.countrycode?.toUpperCase() === "US";
@@ -76,7 +85,8 @@ export function toSuggestion(feature: PhotonFeature): PlaceSuggestion | null {
   // "house") keep theirs.
   const isStreet = p.type === "street";
   const name = p.name && !isStreet && p.name !== street && p.name !== p.street ? p.name : null;
-  const streetPart = street || (isStreet ? (p.name ?? "") : "");
+  let streetPart = street || (isStreet ? (p.name ?? "") : "");
+  if (houseNumber && isStreet && !p.housenumber && streetPart) streetPart = `${houseNumber} ${streetPart}`;
   const regionZip = [state, zip].filter(Boolean).join(" ");
   const country = us ? "" : (p.country ?? "");
   const line = [name, streetPart, town !== name ? town : "", regionZip, country].filter(Boolean).join(", ");
@@ -86,33 +96,115 @@ export function toSuggestion(feature: PhotonFeature): PlaceSuggestion | null {
 
 const cache = new Map<string, PlaceSuggestion[]>();
 
-/** Places and addresses matching `text`, nearest the weather's place first if one is set. */
+interface Spot {
+  latitude: number;
+  longitude: number;
+}
+
+/** Results this far away (km) come after the nearer ones. */
+const NEAR_KM = 150;
+
+/** Places and addresses matching `text`, the ones near you first. */
 async function suggest(text: string, signal: AbortSignal): Promise<PlaceSuggestion[]> {
   const key = text.trim().toLowerCase();
   const cached = cache.get(key);
   if (cached) return cached;
-  const url = new URL(PHOTON);
-  url.searchParams.set("q", text.trim());
-  url.searchParams.set("limit", String(LIMIT + 2));
-  const lang = navigator.language.slice(0, 2).toLowerCase();
-  if (["en", "de", "fr", "it"].includes(lang)) url.searchParams.set("lang", lang);
-  // Somewhere near you first: the weather's place, when there is one.
-  const place = weatherSettings().place;
-  if (place) {
-    url.searchParams.set("lat", String(place.latitude));
-    url.searchParams.set("lon", String(place.longitude));
-  }
-  const response = await fetch(url, { signal });
-  if (!response.ok) throw new Error(`Place search unavailable (${response.status})`);
-  const body = (await response.json()) as { features?: PhotonFeature[] };
+  const near = await nearYou();
+  const features = await photon(text.trim(), LIMIT + 4, near, signal);
+  const houseNumber = /^(\d+[a-z]?)\s+\S/i.exec(text.trim())?.[1] ?? null;
+  const ranked = features.map((feature, order) => {
+    const [lon, lat] = feature.geometry?.coordinates ?? [NaN, NaN];
+    const far = near && Number.isFinite(lat) ? kmBetween(near, { latitude: lat, longitude: lon }) > NEAR_KM : false;
+    return { feature, order, far };
+  });
+  // Near you first, otherwise as Photon ranked them.
+  ranked.sort((a, b) => Number(a.far) - Number(b.far) || a.order - b.order);
   const seen = new Set<string>();
-  const found = (body.features ?? [])
-    .map(toSuggestion)
+  const found = ranked
+    .map(({ feature }) => toSuggestion(feature, houseNumber))
     .filter((s): s is PlaceSuggestion => !!s && !seen.has(s.line) && !!seen.add(s.line))
     .slice(0, LIMIT);
   cache.set(key, found);
   if (cache.size > 100) cache.delete(cache.keys().next().value!);
   return found;
+}
+
+async function photon(query: string, limit: number, near: Spot | null, signal?: AbortSignal): Promise<PhotonFeature[]> {
+  const url = new URL(PHOTON);
+  url.searchParams.set("q", query);
+  url.searchParams.set("limit", String(limit));
+  const lang = navigator.language.slice(0, 2).toLowerCase();
+  if (["en", "de", "fr", "it"].includes(lang)) url.searchParams.set("lang", lang);
+  if (near) {
+    // To about a kilometre: enough to put nearby places first.
+    url.searchParams.set("lat", near.latitude.toFixed(2));
+    url.searchParams.set("lon", near.longitude.toFixed(2));
+  }
+  const response = await fetch(url, { signal });
+  if (!response.ok) throw new Error(`Place search unavailable (${response.status})`);
+  return ((await response.json()) as { features?: PhotonFeature[] }).features ?? [];
+}
+
+/** Straight-line distance in km. */
+function kmBetween(a: Spot, b: Spot): number {
+  const rad = Math.PI / 180;
+  const dLat = (b.latitude - a.latitude) * rad;
+  const dLon = (b.longitude - a.longitude) * rad;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.latitude * rad) * Math.cos(b.latitude * rad) * Math.sin(dLon / 2) ** 2;
+  return 12_742 * Math.asin(Math.sqrt(h));
+}
+
+const BIAS_KEY = "calendar.placeSearchNear";
+let nearby: Promise<Spot | null> | null = null;
+
+/**
+ * Where to look first, without asking for anything new: the weather's
+ * place; else the town of the Leave from address in Settings (found once,
+ * and kept);
+ * else this device's location, only if it's already allowed.
+ */
+function nearYou(): Promise<Spot | null> {
+  const place = weatherSettings().place;
+  if (place) return Promise.resolve(place);
+  nearby ??= (async () => (await leaveFromSpot().catch(() => null)) ?? (await allowedPosition().catch(() => null)))();
+  return nearby;
+}
+
+async function leaveFromSpot(): Promise<Spot | null> {
+  const address = (await getPreferences()).leaveFrom?.trim();
+  if (!address) return null;
+  try {
+    const saved = JSON.parse(localStorage.getItem(BIAS_KEY) ?? "null") as (Spot & { address: string }) | null;
+    if (saved?.address === address) return saved;
+  } catch {
+    // Look it up again.
+  }
+  // Only the town, state and ZIP are looked up, not the street address.
+  const area = address.split(",").slice(1).join(",").trim();
+  if (!area) return null;
+  const [lon, lat] = (await photon(area, 1, null))[0]?.geometry?.coordinates ?? [];
+  if (lat === undefined || lon === undefined) return null;
+  const spot = { address, latitude: lat, longitude: lon };
+  try {
+    localStorage.setItem(BIAS_KEY, JSON.stringify(spot));
+  } catch {
+    // Kept for now only.
+  }
+  return spot;
+}
+
+/** This device's location, if the browser already allows it (it never asks here). */
+async function allowedPosition(): Promise<Spot | null> {
+  if (isTauri() || !navigator.permissions || !navigator.geolocation) return null;
+  const { state } = await navigator.permissions.query({ name: "geolocation" });
+  if (state !== "granted") return null;
+  return new Promise((resolve) =>
+    navigator.geolocation.getCurrentPosition(
+      (p) => resolve({ latitude: p.coords.latitude, longitude: p.coords.longitude }),
+      () => resolve(null),
+      { maximumAge: 60 * 60 * 1000, timeout: 5000 },
+    ),
+  );
 }
 
 /**
@@ -175,21 +267,34 @@ export function enablePlaceSuggestions(
     field.removeAttribute("aria-activedescendant");
   };
 
-  /** Under the field, in the same dialog (so it's above it), and as wide. */
+  /**
+   * Under the field, as wide: placed beside it in the page, so it moves with
+   * the field when the form scrolls or a phone's keyboard shifts the view.
+   * Above it when there's more room there than below, above the keyboard.
+   */
   const place = () => {
-    const host = field.closest("dialog") ?? document.body;
-    if (list.parentElement !== host) host.append(list);
+    const host = field.parentElement!;
+    if (list.parentElement !== host) {
+      host.classList.add("place-suggest-host");
+      field.after(list);
+    }
+    list.style.left = `${field.offsetLeft}px`;
+    list.style.width = `${field.offsetWidth}px`;
+    // What's on screen: above a phone's keyboard, not the whole page.
+    const view = window.visualViewport;
+    const top = view ? view.offsetTop : 0;
+    const bottom = view ? view.offsetTop + view.height : window.innerHeight;
     const r = field.getBoundingClientRect();
-    const below = window.innerHeight - r.bottom;
-    list.style.left = `${r.left}px`;
-    list.style.width = `${r.width}px`;
-    // Above the field when there's more room there (a field low on a phone).
-    if (below < 180 && r.top > below) {
+    const [below, above] = [bottom - r.bottom - 8, r.top - top - 8];
+    const wanted = Math.min(list.scrollHeight, 260);
+    const up = below < wanted && above > below;
+    list.style.maxHeight = `${Math.max(100, Math.min(260, up ? above : below))}px`;
+    if (up) {
       list.style.top = "";
-      list.style.bottom = `${window.innerHeight - r.top + 4}px`;
+      list.style.bottom = `${host.clientHeight - field.offsetTop + 4}px`;
     } else {
       list.style.bottom = "";
-      list.style.top = `${r.bottom + 4}px`;
+      list.style.top = `${field.offsetTop + field.offsetHeight + 4}px`;
     }
   };
 
@@ -231,8 +336,8 @@ export function enablePlaceSuggestions(
       }),
     );
     highlight(-1);
-    place();
     list.hidden = false;
+    place();
     field.setAttribute("aria-expanded", "true");
   };
 
@@ -270,8 +375,8 @@ export function enablePlaceSuggestions(
   });
   // A moment later: a tap on a suggestion can take the focus first (iPhone).
   field.addEventListener("blur", () => window.setTimeout(() => document.activeElement !== field && close(), 200));
-  // Scrolling the form moves the field away from the list.
-  window.addEventListener("scroll", () => !list.hidden && place(), true);
+  // The keyboard coming or going changes the room above and below.
+  window.visualViewport?.addEventListener("resize", () => !list.hidden && place());
   window.addEventListener("resize", () => !list.hidden && place());
 }
 

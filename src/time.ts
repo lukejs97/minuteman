@@ -125,6 +125,13 @@ export function describeTimes(start: Date, end: Date, allDay: boolean): string {
 
 /** "2026-10-29T13:00:00+01:00": local time with its UTC offset. */
 export function toLocalIso(d: Date): string {
+  // Before time zones (1883 in the US), a place kept its own clock, minutes
+  // and seconds off the hour (Boston: 4:56:02 behind). An offset can't say
+  // the seconds, so say exactly when it is, in UTC.
+  const exact = Date.UTC(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours(), d.getMinutes(), d.getSeconds(), d.getMilliseconds());
+  if ((exact - d.getTime()) % 60_000 !== 0) {
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours(), d.getMinutes()).toISOString();
+  }
   const pad = (n: number) => String(Math.floor(Math.abs(n))).padStart(2, "0");
   const offset = -d.getTimezoneOffset();
   const sign = offset >= 0 ? "+" : "-";

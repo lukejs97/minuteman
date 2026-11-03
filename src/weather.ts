@@ -4,6 +4,7 @@
 // it with the main window.
 import { isTauri } from "@tauri-apps/api/core";
 import { currentLocation } from "./api";
+import { isDemo } from "./demo";
 import { el } from "./dom";
 import { toDateString } from "./time";
 
@@ -165,6 +166,7 @@ const keyFor = (settings: WeatherSettings) =>
  * true if it fetched a new one (so the views should redraw).
  */
 export function refreshWeather(): Promise<boolean> {
+  if (isDemo()) return Promise.resolve(false); // made up (`demoWeather`)
   const settings = weatherSettings();
   if (!settings.place) return Promise.resolve(false);
   forecast ??= savedForecast();
@@ -231,9 +233,32 @@ async function fetchForecast(settings: WeatherSettings, key: string): Promise<Sa
 export function weatherOn(day: Date): DayWeather | undefined {
   const settings = weatherSettings();
   if (!settings.place) return undefined;
+  if (isDemo()) return demoWeather(day, settings.unit);
   forecast ??= savedForecast();
   if (forecast?.key !== keyFor(settings)) return undefined;
   return forecast.days[toDateString(day)];
+}
+
+/**
+ * Demo mode's weather, as no forecast goes back to 1775: a spring in New
+ * England, the same for a day each time. April 18, 1775 was clear (a bright
+ * moon for the ride), and the 19th warm for April.
+ */
+function demoWeather(day: Date, unit: Unit): DayWeather {
+  const key = day.getFullYear() * 10_000 + (day.getMonth() + 1) * 100 + day.getDate();
+  const known: Record<number, [number, number, number]> = { 17750418: [0, 57, 41], 17750419: [1, 66, 45] };
+  const roll = (salt: number) => {
+    const x = Math.sin(key * 12.9898 + salt * 78.233) * 43_758.5453;
+    return x - Math.floor(x);
+  };
+  const codes = [0, 0, 1, 1, 2, 2, 3, 3, 61, 80, 45, 51];
+  const [code, high, low] = known[key] ?? [
+    codes[Math.floor(roll(1) * codes.length)],
+    Math.round(48 + roll(2) * 16),
+    Math.round(34 + roll(3) * 10),
+  ];
+  const degrees = (f: number) => (unit === "celsius" ? Math.round(((f - 32) * 5) / 9) : f);
+  return { code, high: degrees(high), low: degrees(Math.min(low, high - 8)) };
 }
 
 /** An icon and words for a WMO weather code. */
