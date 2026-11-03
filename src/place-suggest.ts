@@ -114,7 +114,14 @@ async function suggest(text: string, signal: AbortSignal): Promise<PlaceSuggesti
   const cached = cache.get(key);
   if (cached) return cached;
   const near = await nearYou();
-  const features = await photon(text.trim(), LIMIT + 4, near, signal);
+  // Near you: a search of just the area around you, as well as the usual
+  // one, so a house on your street isn't crowded out by better-known
+  // matches far away. Its results come first.
+  const [local, everywhere] = await Promise.all([
+    near ? photon(text.trim(), LIMIT, near, signal, areaAround(near)).catch(() => []) : Promise.resolve([]),
+    photon(text.trim(), LIMIT + 4, near, signal),
+  ]);
+  const features = [...local.slice(0, 4), ...everywhere];
   const houseNumber = /^(\d+[a-z]?)\s+\S/i.exec(text.trim())?.[1] ?? null;
   const ranked = features.map((feature, order) => {
     const [lon, lat] = feature.geometry?.coordinates ?? [NaN, NaN];
@@ -133,8 +140,21 @@ async function suggest(text: string, signal: AbortSignal): Promise<PlaceSuggesti
   return found;
 }
 
-async function photon(query: string, limit: number, near: Spot | null, signal?: AbortSignal): Promise<PhotonFeature[]> {
+/** About 110 km each way around `near`, as Photon's bbox (west, south, east, north). */
+function areaAround(near: Spot): string {
+  const [dLat, dLon] = [1, 1 / Math.max(0.2, Math.cos((near.latitude * Math.PI) / 180))];
+  return [near.longitude - dLon, near.latitude - dLat, near.longitude + dLon, near.latitude + dLat].map((n) => n.toFixed(2)).join(",");
+}
+
+async function photon(
+  query: string,
+  limit: number,
+  near: Spot | null,
+  signal?: AbortSignal,
+  bbox?: string,
+): Promise<PhotonFeature[]> {
   const url = new URL(PHOTON);
+  if (bbox) url.searchParams.set("bbox", bbox);
   url.searchParams.set("q", query);
   url.searchParams.set("limit", String(limit));
   const lang = navigator.language.slice(0, 2).toLowerCase();
@@ -158,7 +178,8 @@ function kmBetween(a: Spot, b: Spot): number {
   return 12_742 * Math.asin(Math.sqrt(h));
 }
 
-const BIAS_KEY = "calendar.placeSearchNear";
+// ".v2": the first version could keep a town of the same name in another state.
+const BIAS_KEY = "calendar.placeSearchNear.v2";
 let nearby: Promise<Spot | null> | null = null;
 
 /**
@@ -170,7 +191,11 @@ let nearby: Promise<Spot | null> | null = null;
 function nearYou(): Promise<Spot | null> {
   const place = weatherSettings().place;
   if (place) return Promise.resolve(place);
-  nearby ??= (async () => (await leaveFromSpot().catch(() => null)) ?? (await allowedPosition().catch(() => null)))();
+  nearby ??= (async () => {
+    const spot = (await leaveFromSpot().catch(() => null)) ?? (await allowedPosition().catch(() => null));
+    if (!spot) nearby = null; // none yet (offline, say): try again next time
+    return spot;
+  })();
   return nearby;
 }
 
@@ -183,10 +208,16 @@ async function leaveFromSpot(): Promise<Spot | null> {
   } catch {
     // Look it up again.
   }
-  // Only the town, state and ZIP are looked up, not the street address.
-  const area = address.split(",").slice(1).join(",").trim();
-  if (!area) return null;
-  const [lon, lat] = (await photon(area, 1, null))[0]?.geometry?.coordinates ?? [];
+  // Only the town and state are looked up, not the street address. Photon
+  // doesn't know "SC" for South Carolina, so the state goes by its name, and
+  // only a town in that state will do ("Greenville" is in several).
+  const { town, state, zip } = splitAddress(address);
+  const usState = Object.entries(US_STATES).find(([, code]) => code === state.trim().toUpperCase())?.[0];
+  const query = town ? [town, usState ?? state.trim()].filter(Boolean).join(", ") : zip;
+  if (!query) return null;
+  const found = await photon(query, 5, null);
+  const match = usState ? found.find((f) => f.properties.state === usState) : found[0];
+  const [lon, lat] = match?.geometry?.coordinates ?? [];
   if (lat === undefined || lon === undefined) return null;
   const spot = { address, latitude: lat, longitude: lon };
   try {

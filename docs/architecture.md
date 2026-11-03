@@ -189,9 +189,13 @@ puts a list under a field (in its dialog, `position: fixed`) from Photon
 (`photon.komoot.io`, free OpenStreetMap search, no key; in both CSPs'
 `connect-src`), from 3 letters after a 250 ms pause. Near you first
 (`nearYou`, never asking for anything new): the weather's place, else the
-town of the Leave from address (only "town, ST ZIP" is looked up, once, and
-kept), else the device's location if already allowed; sent rounded to about
-a kilometre, and results more than 150 km away come after nearer ones.
+town of the Leave from address (only "town, State" is looked up, the state
+by its full name, as Photon doesn't know "SC", and only a match in that
+state counts; kept), else the device's location if already allowed. With a
+spot, a second search covers only about 110 km around it (`bbox`), and its
+results come first, so a house nearby isn't crowded out by better-known
+matches far away; the rest follow, nearest first. Sent rounded to about a
+kilometre.
 Contacts' addresses come first (`contactSuggestions`, from 2 letters,
 matched on name, nickname or company, from the saved contacts; never sent
 anywhere), except in the Contacts form itself, and `findPlace` checks them
