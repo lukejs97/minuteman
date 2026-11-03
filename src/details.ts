@@ -66,7 +66,7 @@ export function openDetails(item: AgendaItem, actions: DetailActions): void {
     );
     const where = el("span");
     where.append(place, " ", map);
-    rows.append(row("Where", where));
+    rows.append(row("Location", where));
     const leaveRow = row("Leave by", "…");
     leaveRow.hidden = true;
     rows.append(leaveRow);

@@ -33,8 +33,10 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
   starbucks" when there's one nearby by that name) fills in the place, with
   its full address when one is found.
 - **Place suggestions:** start typing in a place or address field (an
-  event's place or leave-from, Settings → Leave from, a contact's address)
-  for matching places and addresses; pick one to fill it in. From
+  event's Location or Leave from, Settings → Leave from, a contact's address)
+  for matching places and addresses; pick one to fill it in. A contact's
+  name ("sam ad") suggests their addresses from Google Contacts, first; the
+  sentence box knows them too ("Dinner at Samuel Adams tomorrow 6pm"). From
   [Photon](https://photon.komoot.io), a free OpenStreetMap search with no
   account or key, so it never costs anything. What you type there is sent
   to it (from 3 letters); nearest your weather place first, if one is set.

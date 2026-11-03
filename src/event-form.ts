@@ -370,7 +370,7 @@ class Form {
     this.row(grid, "Title", this.eventTitle);
     this.row(grid, "Starts", this.startDate, this.startTime, allDayLabel);
     this.row(grid, "Ends", this.endDate, this.endTime, this.floatingLabel);
-    this.row(grid, "Where", this.location);
+    this.row(grid, "Location", this.location);
     this.row(grid, "Leave from", this.leaveFrom, this.leaveHint);
     enablePlaceSuggestions(this.location);
     enablePlaceSuggestions(this.leaveFrom);

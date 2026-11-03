@@ -221,7 +221,8 @@ class LabeledList {
       input.type = this.kind === "emails" ? "email" : this.kind === "phones" ? "tel" : this.kind === "urls" ? "url" : "text";
     } else {
       input.rows = 2;
-      enablePlaceSuggestions(input);
+      // Places only: not other people's addresses.
+      enablePlaceSuggestions(input, undefined, { contacts: false });
     }
     input.placeholder = PLACEHOLDERS[this.kind];
     input.value = value.value;

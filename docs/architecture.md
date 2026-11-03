@@ -192,7 +192,10 @@ puts a list under a field (in its dialog, `position: fixed`) from Photon
 town of the Leave from address (only "town, ST ZIP" is looked up, once, and
 kept), else the device's location if already allowed; sent rounded to about
 a kilometre, and results more than 150 km away come after nearer ones.
-OpenStreetMap often has a street but not its house numbers, so a typed
+Contacts' addresses come first (`contactSuggestions`, from 2 letters,
+matched on name, nickname or company, from the saved contacts; never sent
+anywhere), except in the Contacts form itself, and `findPlace` checks them
+before Photon. OpenStreetMap often has a street but not its house numbers, so a typed
 number goes in front of a street found without one ("20 Nora Drive"). The
 list is placed in the field's own box (`.place-suggest-host`), so it moves
 with the field; it goes above the field when there's more room there than

@@ -9,8 +9,10 @@
 // fills the field (or, with `onPick`, whatever the caller fills in). Video
 // links are left alone.
 import { isTauri } from "@tauri-apps/api/core";
-import { getPreferences } from "./api";
+import { type Contact, getContacts, getPreferences, getSavedContacts } from "./api";
 import { el } from "./dom";
+import { splitAddress } from "./routes-budget";
+import { placeOnOneLine } from "./time";
 import { weatherSettings } from "./weather";
 
 const PHOTON = "https://photon.komoot.io/api/";
@@ -31,6 +33,8 @@ export interface PlaceSuggestion {
   country: string;
   /** All of it on one line, for a Location field. */
   line: string;
+  /** A contact's address: whose, and which ("Samuel Adams · Home"). */
+  contact?: string;
 }
 
 interface PhotonFeature {
@@ -207,14 +211,51 @@ async function allowedPosition(): Promise<Spot | null> {
   );
 }
 
+/** Contacts with an address: the saved ones (or fetched), kept a few minutes. */
+let people: { at: number; list: Promise<Contact[]> } | null = null;
+function contactsWithAddresses(): Promise<Contact[]> {
+  if (!people || Date.now() - people.at > 10 * 60_000) {
+    const list = getSavedContacts()
+      .then((saved) => saved ?? getContacts())
+      .then((all) => all.contacts.filter((c) => c.addresses.length > 0))
+      .catch(() => []);
+    people = { at: Date.now(), list };
+  }
+  return people.list;
+}
+
 /**
- * The place `text` names ("Old North Church", "starbucks", "boston"), if
- * one nearby is called that; null if not, or offline. For a place found in
- * a sentence: is it one, and (with a street) where it actually is.
+ * Addresses of contacts whose name (or nickname, or company) has every word
+ * typed: "sam ad" finds Samuel Adams's. Nothing is sent anywhere for these.
+ */
+async function contactSuggestions(text: string): Promise<PlaceSuggestion[]> {
+  const wanted = words(text);
+  if (wanted.length === 0) return [];
+  const found: PlaceSuggestion[] = [];
+  for (const person of await contactsWithAddresses()) {
+    const names = words([person.name, person.nickname, person.organization].filter(Boolean).join(" "));
+    if (!wanted.every((w) => names.some((n) => n.startsWith(w)))) continue;
+    for (const address of person.addresses) {
+      const line = placeOnOneLine(address.value);
+      if (!line) continue;
+      const label = address.label ? ` · ${address.label[0].toUpperCase()}${address.label.slice(1)}` : "";
+      found.push({ ...splitAddress(line), name: null, country: "", line, contact: `${person.name || person.organization}${label}` });
+    }
+  }
+  return found.slice(0, 4);
+}
+
+/**
+ * The place `text` names ("Old North Church", "starbucks", "boston", or a
+ * contact: "sam adams"), if one nearby (or in Contacts) is called that;
+ * null if not, or offline. For a place found in a sentence: is it one, and
+ * (with a street) where it actually is.
  */
 export async function findPlace(text: string): Promise<PlaceSuggestion | null> {
   const wanted = words(text);
   if (wanted.length === 0) return null;
+  const person = (await contactSuggestions(text))[0];
+  if (person) return person;
   const found = await suggest(text, new AbortController().signal).catch(() => []);
   return (
     found.find((s) => {
@@ -237,12 +278,14 @@ const words = (text: string) =>
 const notAPlace = (text: string) => /:\/\/|^www\.|zoom|meet\.google|teams\.|webex|facetime/i.test(text);
 
 /**
- * Suggests places under `field` as you type. `onPick` fills in what's
- * picked; without it, the field gets the one-line form.
+ * Suggests places under `field` as you type, and contacts' addresses
+ * (unless `contacts` is false). `onPick` fills in what's picked; without
+ * it, the field gets the one-line form.
  */
 export function enablePlaceSuggestions(
   field: HTMLInputElement | HTMLTextAreaElement,
   onPick?: (place: PlaceSuggestion) => void,
+  { contacts = true } = {},
 ): void {
   const list = el("div", "place-suggest");
   list.setAttribute("role", "listbox");
@@ -325,7 +368,11 @@ export function enablePlaceSuggestions(
         const option = el("div", "place-suggest-option");
         option.id = `${list.id}-${i}`;
         option.setAttribute("role", "option");
-        const [first, ...rest] = s.name ? [s.name, s.line.slice(s.name.length + 2)] : [s.line];
+        const [first, ...rest] = s.contact
+          ? [s.contact, s.line]
+          : s.name
+            ? [s.name, s.line.slice(s.name.length + 2)]
+            : [s.line];
         option.append(el("span", "place-suggest-main", first));
         if (rest[0]) option.append(el("span", "place-suggest-detail", rest[0]));
         // Pressed, not clicked: the field keeps focus (and a phone its keyboard).
@@ -346,12 +393,18 @@ export function enablePlaceSuggestions(
     const text = field.value;
     window.clearTimeout(timer);
     request?.abort();
-    if (text.trim().length < MIN_LETTERS || notAPlace(text) || text === picked || text.includes("\n")) return close();
+    // Contacts from 2 letters (they're here already); places from 3.
+    const length = text.trim().length;
+    if (length < (contacts ? 2 : MIN_LETTERS) || notAPlace(text) || text === picked || text.includes("\n")) return close();
     timer = window.setTimeout(() => {
       request = new AbortController();
       const asked = text;
-      suggest(text, request.signal)
-        .then((found) => field.value === asked && show(found))
+      const people = contacts ? contactSuggestions(text) : Promise.resolve([]);
+      // Contacts as soon as they're matched, then the places after them.
+      void people.then((found) => field.value === asked && found.length > 0 && show(found));
+      if (length < MIN_LETTERS) return;
+      Promise.all([people, suggest(text, request.signal)])
+        .then(([found, places]) => field.value === asked && show([...found, ...places]))
         .catch(() => {}); // offline or stopped: just no suggestions
     }, PAUSE_MS);
   });
