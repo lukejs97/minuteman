@@ -886,25 +886,25 @@ main.loading > * {
   --dialog-room: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom));
 }
 
-/* The dimming around a dialog is drawn by the dialog itself, as a shadow
-   to the edges of the window, not by ::backdrop: the Mac app's web view
-   repainted ::backdrop as a dialog's contents changed (calendars loading
-   into New event, say), and it flickered. Only the top dialog dims, so one
-   opened over another (a question over a form, or one screen of Settings
-   replacing another) never doubles it. The backdrop still takes clicks
-   outside the dialog. */
+/* The dimming behind dialogs is one layer of its own, above the page and
+   below the dialogs (which are in the top layer), shown while any is open
+   (boot.ts). Not ::backdrop or a shadow on the dialog: those are repainted
+   as a dialog's contents change size, and the Mac's web view flickered.
+   Its own compositing layer, so redrawing the page under it can't either.
+   The (transparent) backdrop still takes clicks outside the dialog. */
 .dialog::backdrop {
   background: transparent;
 }
 
-.dialog[open] {
-  box-shadow:
-    0 12px 40px rgb(0 0 0 / 0.3),
-    0 0 0 200vmax rgb(0 0 0 / 0.35);
-}
-
-.dialog[open]:has(~ .dialog[open]) {
-  box-shadow: 0 12px 40px rgb(0 0 0 / 0.3);
+body.dimmed::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  background: rgb(0 0 0 / 0.35);
+  pointer-events: none;
+  transform: translateZ(0);
+  will-change: transform;
 }
 
 .dialog h2 {
@@ -1295,9 +1295,20 @@ main.loading > * {
   font-weight: 600;
 }
 
+/* The focus ring is drawn inside the button (the list clips its corners). */
 .ask-choice:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.ask-choice:first-child {
+  border-top-left-radius: 9px;
+  border-top-right-radius: 9px;
+}
+
+.ask-choice:last-child {
+  border-bottom-left-radius: 9px;
+  border-bottom-right-radius: 9px;
 }
 
 /* An invitation's details: Yes / Maybe / No. */

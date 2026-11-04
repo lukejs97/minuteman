@@ -248,9 +248,12 @@ repeating event, the occurrence or its series.
 date all day, else the end of that day here in UTC) and reads a series' own
 rule back when editing one.
 
-**Dialogs** dim the page with a box-shadow to the window's edges, not
-`::backdrop`, which the Mac's web view repainted (a flicker) as a dialog's
-contents changed. Only the top dialog dims (`:has(~ .dialog[open])`).
+**Dialogs** dim the page with one layer of its own (`body.dimmed::after`,
+on its own compositing layer, above the page and below the top layer),
+shown while any dialog is open (`boot.ts` wraps `showModal`). Not
+`::backdrop` or a shadow on the dialog: both are repainted as a dialog's
+contents change size, and the Mac's web view flickered. The layer stays on
+while one dialog replaces another.
 
 **Event colors** (`event-colors.ts`, `EVENT_COLORS` in calendar.rs): an
 event's `colorId` ("1" to "11", Google's names and the colors its apps show)

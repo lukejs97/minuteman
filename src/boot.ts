@@ -2,7 +2,29 @@
 import { isTauri } from "@tauri-apps/api/core";
 import { startDemo } from "./demo";
 
+/**
+ * The page is dimmed behind any open dialog by one layer of its own
+ * (body.dimmed::after), not by each dialog: a dialog's ::backdrop or shadow
+ * is repainted as its contents change size (calendars loading into New
+ * event), and the Mac's web view flickered doing it. The layer stays while
+ * one dialog replaces another, so it never blinks in between.
+ */
+function dimBehindDialogs(): void {
+  const update = () => document.body.classList.toggle("dimmed", !!document.querySelector("dialog[open]"));
+  const showModal = HTMLDialogElement.prototype.showModal;
+  HTMLDialogElement.prototype.showModal = function (this: HTMLDialogElement) {
+    showModal.call(this);
+    this.addEventListener("close", () => queueMicrotask(update), { once: true });
+    update();
+  };
+  // A dialog taken off the page while open (not closed first) mustn't leave the dimming behind.
+  new MutationObserver(() => document.body.classList.contains("dimmed") && update()).observe(document.body, {
+    childList: true,
+  });
+}
+
 export async function boot(): Promise<void> {
+  dimBehindDialogs();
   // Demo mode (Settings): sample data in place of the real thing, anywhere.
   // Otherwise, in a plain browser there's no Rust side: during `npm run dev`,
   // use sample data; on the website (web/), send commands to its server.
