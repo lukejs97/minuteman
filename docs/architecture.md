@@ -194,7 +194,11 @@ by its full name, as Photon doesn't know "SC", and only a match in that
 state counts; kept), else the device's location if already allowed. With a
 spot, a second search covers only about 110 km around it (`bbox`), and its
 results come first, so a house nearby isn't crowded out by better-known
-matches far away; the rest follow, nearest first. Sent rounded to about a
+matches far away; the rest follow, nearest first. With a house number, the
+area is also searched for the street alone ("Nora" for "20 Nora"), since a
+number that matches no house there can keep the street from being found.
+Near comes before exact: a house numbered 20 abroad doesn't beat your
+street. When anything near you matches, other countries are left out. Sent rounded to about a
 kilometre.
 Contacts' addresses come first (`contactSuggestions`, from 2 letters,
 matched on name, nickname or company, from the saved contacts; never sent

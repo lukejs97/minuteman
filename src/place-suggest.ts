@@ -125,27 +125,46 @@ async function suggest(text: string, signal: AbortSignal): Promise<PlaceSuggesti
   const cached = cache.get(key);
   if (cached) return cached;
   const near = await nearYou();
+  const query = text.trim();
+  const houseNumber = /^(\d+[a-z]?)\s+\S/i.exec(query)?.[1] ?? null;
   // Near you: a search of just the area around you, as well as the usual
   // one, so a house on your street isn't crowded out by better-known
-  // matches far away. Its results come first.
-  const [local, everywhere] = await Promise.all([
-    near ? photon(text.trim(), LIMIT, near, signal, areaAround(near)).catch(() => []) : Promise.resolve([]),
-    photon(text.trim(), LIMIT + 4, near, signal),
+  // matches far away. With a house number, the area is also searched for
+  // the street alone ("Nora" for "20 Nora"): OpenStreetMap often has the
+  // street but not each house, and a number that matches nothing there
+  // can keep the street from being found at all.
+  const street = houseNumber ? query.slice(houseNumber.length).trim() : "";
+  const area = near ? areaAround(near) : null;
+  const [local, localStreets, everywhere] = await Promise.all([
+    area ? photon(query, LIMIT, near, signal, area).catch(() => []) : Promise.resolve([]),
+    area && street.length >= 3 ? photon(street, LIMIT, near, signal, area).catch(() => []) : Promise.resolve([]),
+    photon(query, LIMIT + 4, near, signal),
   ]);
   // Bus stops and platforms ("Poinsett Hwy @ Nora Dr") are named after the
   // street they're on, so they match a typed address well, but they're
   // seldom where you're going.
-  const features = [...local.slice(0, 4), ...everywhere].filter((f) => !isStop(f));
-  const houseNumber = /^(\d+[a-z]?)\s+\S/i.exec(text.trim())?.[1] ?? null;
+  const features = [...local.slice(0, 4), ...localStreets.slice(0, 3), ...everywhere].filter((f) => !isStop(f));
   const hasNumber = (f: PhotonFeature) => !!houseNumber && f.properties.housenumber?.toLowerCase() === houseNumber.toLowerCase();
-  // That house found: it first, and no other street gets the number put in
-  // front (they'd look like real addresses that may not exist).
-  const exactFound = features.some(hasNumber);
+  // That very house found on a street: that street doesn't also get the
+  // number put in front (two of the same address).
+  const sameStreet = (f: PhotonFeature) =>
+    `${(f.properties.street ?? f.properties.name ?? "").toLowerCase()}|${f.properties.postcode ?? ""}`;
+  const housesFound = new Set(features.filter(hasNumber).map(sameStreet));
   const ranked = features.map((feature, order) => {
     const [lon, lat] = feature.geometry?.coordinates ?? [NaN, NaN];
     const far = near && Number.isFinite(lat) ? kmBetween(near, { latitude: lat, longitude: lon }) > NEAR_KM : false;
     return { feature, order, far, exact: hasNumber(feature) };
   });
+  // Something matches near you: other countries are left out (a 20 Via Nora
+  // in Italy isn't what someone in South Carolina means by "20 Nora").
+  const nearCountries = new Set(ranked.filter((r) => !r.far).map((r) => r.feature.properties.countrycode?.toUpperCase()));
+  const kept = (
+    near && nearCountries.size > 0
+      ? ranked.filter((r) => !r.far || nearCountries.has(r.feature.properties.countrycode?.toUpperCase()))
+      : ranked
+  )
+    // The house found: the bare street it's on isn't needed as well.
+    .filter((r) => !(r.feature.properties.type === "street" && housesFound.has(sameStreet(r.feature))));
   // Mailing towns for US addresses outside any town's limits.
   const needed = features
     .map((f) => f.properties)
@@ -158,11 +177,12 @@ async function suggest(text: string, signal: AbortSignal): Promise<PlaceSuggesti
       if (town) towns.set(zip, town);
     }),
   );
-  // The house typed first, then near you, otherwise as Photon ranked them.
-  ranked.sort((a, b) => Number(b.exact) - Number(a.exact) || Number(a.far) - Number(b.far) || a.order - b.order);
+  // Near you first; among those, the very house typed; otherwise as Photon
+  // ranked them.
+  kept.sort((a, b) => Number(a.far) - Number(b.far) || Number(b.exact) - Number(a.exact) || a.order - b.order);
   const seen = new Set<string>();
-  const found = ranked
-    .map(({ feature }) => toSuggestion(feature, exactFound ? null : houseNumber, towns))
+  const found = kept
+    .map(({ feature }) => toSuggestion(feature, housesFound.has(sameStreet(feature)) ? null : houseNumber, towns))
     .filter((s): s is PlaceSuggestion => !!s && !seen.has(s.line) && !!seen.add(s.line))
     .slice(0, LIMIT);
   cache.set(key, found);
