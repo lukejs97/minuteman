@@ -175,7 +175,7 @@ async function toggleTask(item: AgendaItem, undoable = true): Promise<void> {
   try {
     await setTaskCompleted(item.id, completed);
     announceChange();
-    if (completed && undoable) offerUndo(`Completed "${item.title}"`, () => toggleTask({ ...item, completed }, false));
+    if (completed && undoable) offerUndo(`Completed “${item.title}”`, () => toggleTask({ ...item, completed }, false));
     if (!completed) {
       // Reopened: Todoist lists it again, so fetch it fresh.
       toggledTasks.delete(item.id);
@@ -213,7 +213,7 @@ async function moveItem(item: AgendaItem, start: Date, end: Date, undoing: Serie
     return;
   }
   // One of a repeating series: which ones move, as Google Calendar asks.
-  const choice = undoing ?? (inSeries(item) ? await askSeriesChoice(`Move "${item.title}"?`) : "one");
+  const choice = undoing ?? (inSeries(item) ? await askSeriesChoice(`Move “${item.title}”?`) : "one");
   if (!choice) return rerender(); // cancelled: back where it was
   const format = (d: Date) => (item.allDay ? toDateString(d) : toLocalIso(d));
   replaceShown({ ...item, start: format(start), end: format(end), overdue: false });
@@ -241,7 +241,7 @@ async function moveItem(item: AgendaItem, start: Date, end: Date, undoing: Serie
     // Undo moves it back ("this and following" made a new series: not that one).
     if (!undoing && choice !== "following") {
       const moved = { ...item, start: format(start), end: format(end), overdue: false };
-      const what = choice === "all" ? `every "${item.title}"` : `"${item.title}"`;
+      const what = choice === "all" ? `every “${item.title}”` : `“${item.title}”`;
       offerUndo(`Moved ${what}`, () => moveItem(moved, itemStart(item), itemEnd(item), choice));
     }
   } catch (e) {

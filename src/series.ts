@@ -31,7 +31,7 @@ export async function askSeriesChoice(question: string, allowOne = true): Promis
     ["all", "All events", false],
   ];
   if (allowOne) answers.unshift(["one", "This event", true]);
-  const answer = await ask(question, "It repeats. Which events should change?", answers);
+  const answer = await ask(question, "This is a repeating event.", answers);
   return answer === "one" || answer === "following" || answer === "all" ? answer : null;
 }
 

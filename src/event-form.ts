@@ -825,7 +825,7 @@ class Form {
   private async askSeriesChoice(): Promise<"one" | "following" | "all" | null> {
     const repeat = this.repeat.value;
     if (repeat === "end") return "all";
-    return askSeriesChoice(`Save "${this.eventTitle.value.trim()}"?`, repeat === "keep");
+    return askSeriesChoice(`Save “${this.eventTitle.value.trim()}”?`, repeat === "keep");
   }
 
   private checkEvent(): Saved {

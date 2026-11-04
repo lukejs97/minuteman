@@ -177,7 +177,7 @@ export function showItemMenu(
         try {
           if (await deleteItem(item, actions)) actions.changed(item);
         } catch (e) {
-          await ask(`Couldn't delete "${item.title}"`, errorMessage(e), []);
+          await ask(`Couldn't delete “${item.title}”`, errorMessage(e), []);
         }
       },
     ]);
@@ -195,21 +195,21 @@ async function deleteItem(item: AgendaItem, actions: DetailActions): Promise<boo
   const later = (message: string, matches: (i: AgendaItem) => boolean, send: () => Promise<unknown>) =>
     deleteWithUndo(message, matches, send, () => actions.deleted(item), (e) => {
       actions.changed(item);
-      void ask(`Couldn't delete "${item.title}"`, errorMessage(e), []);
+      void ask(`Couldn't delete “${item.title}”`, errorMessage(e), []);
     });
   const same = (i: AgendaItem) => i.id === item.id;
   if (item.kind === "task") {
-    if ((await ask(`Delete "${item.title}"?`, "It's deleted in Todoist too.", [["delete", "Delete task", true]])) !== "delete") {
+    if ((await ask(`Delete “${item.title}”?`, "It's deleted in Todoist too.", [["delete", "Delete task", true]])) !== "delete") {
       return false;
     }
-    later(`Deleted "${item.title}"`, same, () => deleteTask(item.sourceId!));
+    later(`Deleted “${item.title}”`, same, () => deleteTask(item.sourceId!));
     return true;
   }
   const guests = item.attendees.some((a) => !a.isSelf);
   const note = guests ? "Guests are emailed that it's cancelled." : "It's deleted in Google Calendar too.";
   if (inSeries(item)) {
     // As Google Calendar asks: this one, this and the ones after, or all.
-    const choice = await ask(`Delete "${item.title}"?`, `It repeats. ${note}`, [
+    const choice = await ask(`Delete “${item.title}”?`, `This is a repeating event. ${note}`, [
       ["one", "This event", true],
       ["following", "This and following events", false],
       ["all", "All events", false],
@@ -219,13 +219,13 @@ async function deleteItem(item: AgendaItem, actions: DetailActions): Promise<boo
     const matches =
       choice === "one" ? same : choice === "all" ? series : (i: AgendaItem) => series(i) && itemStart(i) >= itemStart(item);
     const message =
-      choice === "one" ? `Deleted "${item.title}"` : choice === "all" ? `Deleted every "${item.title}"` : `Deleted "${item.title}" and the ones after`;
+      choice === "one" ? `Deleted “${item.title}”` : choice === "all" ? `Deleted every “${item.title}”` : `Deleted “${item.title}” and the ones after`;
     later(message, matches, () => deleteInSeries(item, choice, guests));
     return true;
   }
-  const choice = await ask(`Delete "${item.title}"?`, note, [["one", "Delete event", true]]);
+  const choice = await ask(`Delete “${item.title}”?`, note, [["one", "Delete event", true]]);
   if (!choice) return false;
-  later(`Deleted "${item.title}"`, same, () => deleteEvent(eventRef(item, false), guests));
+  later(`Deleted “${item.title}”`, same, () => deleteEvent(eventRef(item, false), guests));
   return true;
 }
 
@@ -245,16 +245,39 @@ export function ask(question: string, detail: string, answers: [string, string, 
     const cancel = el("button", "text-button", "Cancel");
     cancel.addEventListener("click", () => dialog.close());
     const buttons = el("div", "dialog-buttons");
+    const choose = (value: string) => () => {
+      answer = value;
+      dialog.close();
+    };
+    dialog.append(el("h2", undefined, question), el("p", undefined, detail));
+    // A choice between answers ("This event", "This and following events",
+    // "All events"): one under another, all alike, the usual one marked and
+    // ready for Enter. Cancel below.
+    if (answers.length >= 2) {
+      const list = el("div", "ask-choices");
+      list.setAttribute("role", "group");
+      list.setAttribute("aria-label", question);
+      for (const [value, label, usual] of answers) {
+        const button = el("button", usual ? "ask-choice usual" : "ask-choice", label);
+        button.type = "button";
+        button.addEventListener("click", choose(value));
+        list.append(button);
+      }
+      buttons.append(cancel);
+      dialog.append(list, buttons);
+      dialog.showModal();
+      (list.querySelector<HTMLElement>(".usual") ?? list.querySelector<HTMLElement>(".ask-choice"))?.focus();
+      return;
+    }
+    // One answer (Delete…): beside Cancel, which has the focus, so Enter
+    // doesn't delete by mistake.
     buttons.append(cancel);
     for (const [value, label, danger] of answers) {
       const button = el("button", danger ? "primary-button danger" : "text-button", label);
-      button.addEventListener("click", () => {
-        answer = value;
-        dialog.close();
-      });
+      button.addEventListener("click", choose(value));
       buttons.append(button);
     }
-    dialog.append(el("h2", undefined, question), el("p", undefined, detail), buttons);
+    dialog.append(buttons);
     dialog.showModal();
     cancel.focus();
   });
@@ -309,7 +332,7 @@ function replyButtons(item: AgendaItem, current: string | null, actions: DetailA
       if (button.getAttribute("aria-pressed") === "true") return;
       let all = false;
       if (inSeries(item)) {
-        const scope = await ask(`Reply to "${item.title}"?`, "It repeats. Which events is this for?", [
+        const scope = await ask(`Reply to “${item.title}”?`, "This is a repeating event.", [
           ["one", "This event", true],
           ["all", "All events", false],
         ]);
