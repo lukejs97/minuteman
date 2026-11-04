@@ -821,6 +821,37 @@ fn events_url(calendar_id: &str, event_id: Option<&str>, notify_guests: bool) ->
     url
 }
 
+/// Your reply to an invitation: "accepted", "declined" or "tentative" (maybe).
+/// Only your own entry on the guest list changes; everyone else's (and their
+/// replies, notes and the rest) is sent back as it was. The organizer is told,
+/// as Google Calendar does.
+pub async fn respond(http: &reqwest::Client, token: &str, calendar_id: &str, event_id: &str, response: &str) -> Result<()> {
+    if !["accepted", "declined", "tentative"].contains(&response) {
+        return Err(AppError::InvalidInput("a reply is yes, no or maybe".into()));
+    }
+    #[derive(Deserialize)]
+    struct Guests {
+        #[serde(default)]
+        attendees: Vec<Value>,
+    }
+    let mut url = events_url(calendar_id, Some(event_id), true);
+    let mut read = url.clone();
+    read.set_query(Some("fields=attendees"));
+    let Guests { mut attendees } = get_json(http, token, read).await?;
+    let attendees = with_reply(&mut attendees, response)
+        .ok_or_else(|| AppError::InvalidInput("you're not on this event's guest list".into()))?;
+    url.query_pairs_mut().append_pair("fields", "id");
+    let _replied: Value = send(http.patch(url).bearer_auth(token).json(&json!({ "attendees": attendees }))).await?;
+    Ok(())
+}
+
+/// The guest list with your own reply set to `response`; `None` if you aren't on it.
+fn with_reply<'a>(attendees: &'a mut [Value], response: &str) -> Option<&'a [Value]> {
+    let you = attendees.iter_mut().find(|a| a.get("self").and_then(Value::as_bool) == Some(true))?;
+    you["responseStatus"] = json!(response);
+    Some(attendees)
+}
+
 /// Adds an event to the calendar `calendar_id`, inviting its guests.
 pub async fn create_event(http: &reqwest::Client, token: &str, calendar_id: &str, draft: &EventDraft) -> Result<()> {
     let url = events_url(calendar_id, None, draft.has_guests());
@@ -1274,6 +1305,19 @@ fn find_meeting_link(text: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_reply_changes_only_your_own_entry() {
+        let mut guests = vec![
+            json!({ "email": "parker@example.com", "organizer": true, "responseStatus": "accepted" }),
+            json!({ "email": "you@example.com", "self": true, "responseStatus": "needsAction", "comment": "kept" }),
+        ];
+        let replied = with_reply(&mut guests, "tentative").unwrap();
+        assert_eq!(replied[0]["responseStatus"], "accepted");
+        assert_eq!(replied[1]["responseStatus"], "tentative");
+        assert_eq!(replied[1]["comment"], "kept");
+        assert!(with_reply(&mut [json!({ "email": "a@example.com" })], "accepted").is_none());
+    }
 
     #[test]
     fn an_address_with_line_breaks_shows_on_one_line() {

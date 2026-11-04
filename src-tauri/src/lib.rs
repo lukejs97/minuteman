@@ -268,6 +268,16 @@ async fn end_series_before(
     Ok(ended)
 }
 
+/// Your reply to an invitation: "accepted", "declined" or "tentative". For a
+/// repeating event, `target` is the one occurrence, or its series for all.
+#[tauri::command]
+async fn respond_to_event(state: State<'_, AppState>, target: EventRef, response: String) -> Result<()> {
+    let token = state.google_auth.access_token(&target.email).await?;
+    google::calendar::respond(&state.http, &token, &target.calendar_id, &target.event_id, &response).await?;
+    events_changed();
+    Ok(())
+}
+
 /// Moves or resizes an event (dragging it).
 #[tauri::command]
 async fn set_event_times(
@@ -848,6 +858,7 @@ pub fn run() {
             update_event,
             event_recurrence,
             end_series_before,
+            respond_to_event,
             set_demo,
             set_event_times,
             delete_event,

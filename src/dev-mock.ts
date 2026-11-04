@@ -327,6 +327,8 @@ export function install(inApp = false): void {
   // Changes to sample items, which are made afresh for every request.
   const edits = new Map<string, Partial<AgendaItem>>();
   const deleted = new Set<string>();
+  /** Your replies to invitations, by event (or series) ID. */
+  const replies = new Map<string, string>();
   const edit = (id: string, changes: Partial<AgendaItem>) => edits.set(id, { ...edits.get(id), ...changes });
   /** What the form saved, as the agenda would show it after a reload. Null leaves them as they are. */
   const savedAlerts = (
@@ -429,6 +431,10 @@ export function install(inApp = false): void {
         const items = [...sampleItems(range.from, range.to), ...created]
           .filter((item) => !deleted.has(item.id))
           .map((item) => ({ ...item, ...edits.get(item.id), sourceId: item.id }))
+          .map((item) => {
+            const reply = replies.get(item.id) ?? (item.seriesId ? replies.get(item.seriesId) : undefined);
+            return reply ? { ...item, attendees: item.attendees.map((a) => (a.isSelf ? { ...a, response: reply } : a)) } : item;
+          })
           .filter((item) => overlaps(item, range.from, range.to))
           .filter((item) => (item.kind === "task" ? todoistConnected && !completedTasks.has(item.id) : true))
           .filter((item) => item.source !== "google" || !hiddenCalendars.has(item.listName.toLowerCase()));
@@ -504,6 +510,11 @@ export function install(inApp = false): void {
         }));
       case "event_recurrence":
         return ["RRULE:FREQ=WEEKLY;BYDAY=MO", "EXDATE;TZID=America/New_York:20261102T100000"];
+      case "respond_to_event": {
+        const { target, response } = args as { target: { eventId: string }; response: string };
+        replies.set(target.eventId, response);
+        return null;
+      }
       case "end_series_before":
         // As if the series went on before this one: it's cut there, and goes on in a new one.
         console.info("mock IPC: end_series_before", args);

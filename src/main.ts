@@ -23,7 +23,8 @@ import { openDetails, showItemMenu } from "./details";
 import { setUpDockMenu } from "./dock-menu";
 import { el, setItemMenu } from "./dom";
 import { openDuplicate, openEdit, openNew, type At } from "./event-form";
-import { askSeriesChoice, inSeries, moveInSeries } from "./series";
+import { askSeriesChoice, inSeries, moveInSeries, type SeriesChoice } from "./series";
+import { isHidden, offerUndo, onHiddenChange } from "./undo";
 import { openSearch } from "./search";
 import { announceChange, onChangeElsewhere } from "./sync";
 import { refreshWeather } from "./weather";
@@ -121,7 +122,8 @@ function itemsToShow(agenda: Agenda, from: Date, to: Date): AgendaItem[] {
   const doneElsewhere = [...toggledTasks.values()].filter(
     (task) => !loaded.has(task.id) && overlaps(task, from, to),
   );
-  return [...agenda.items.map((item) => toggledTasks.get(item.id) ?? item), ...doneElsewhere];
+  // Waiting to be deleted (Undo is still offered): not shown.
+  return [...agenda.items.map((item) => toggledTasks.get(item.id) ?? item), ...doneElsewhere].filter((item) => !isHidden(item));
 }
 
 function render(agenda: Agenda): void {
@@ -166,13 +168,14 @@ function rerender(): void {
 }
 
 /** Ticks a task off (or back on) right away, then tells Todoist. */
-async function toggleTask(item: AgendaItem): Promise<void> {
+async function toggleTask(item: AgendaItem, undoable = true): Promise<void> {
   const completed = !item.completed;
   toggledTasks.set(item.id, { ...item, completed });
   rerender();
   try {
     await setTaskCompleted(item.id, completed);
     announceChange();
+    if (completed && undoable) offerUndo(`Completed "${item.title}"`, () => toggleTask({ ...item, completed }, false));
     if (!completed) {
       // Reopened: Todoist lists it again, so fetch it fresh.
       toggledTasks.delete(item.id);
@@ -200,13 +203,17 @@ function replaceShown(item: AgendaItem): void {
 const hasGuests = (item: AgendaItem) => item.attendees.some((a) => !a.isSelf);
 
 /** Moves an event or task right away on screen (after dragging it), then saves it. */
-async function moveItem(item: AgendaItem, start: Date, end: Date): Promise<void> {
+/**
+ * `undoing`: putting back a move just made (so the series isn't asked about
+ * again, and no Undo is offered for the Undo).
+ */
+async function moveItem(item: AgendaItem, start: Date, end: Date, undoing: SeriesChoice | null = null): Promise<void> {
   if (start.getTime() === itemStart(item).getTime() && end.getTime() === itemEnd(item).getTime()) {
     rerender(); // dropped where it was
     return;
   }
   // One of a repeating series: which ones move, as Google Calendar asks.
-  const choice = inSeries(item) ? await askSeriesChoice(`Move "${item.title}"?`) : "one";
+  const choice = undoing ?? (inSeries(item) ? await askSeriesChoice(`Move "${item.title}"?`) : "one");
   if (!choice) return rerender(); // cancelled: back where it was
   const format = (d: Date) => (item.allDay ? toDateString(d) : toLocalIso(d));
   replaceShown({ ...item, start: format(start), end: format(end), overdue: false });
@@ -231,6 +238,12 @@ async function moveItem(item: AgendaItem, start: Date, end: Date): Promise<void>
     announceChange();
     // Other cached ranges may show it too; fetch them fresh when visited.
     for (const key of cache.keys()) if (key !== shown?.range) cache.delete(key);
+    // Undo moves it back ("this and following" made a new series: not that one).
+    if (!undoing && choice !== "following") {
+      const moved = { ...item, start: format(start), end: format(end), overdue: false };
+      const what = choice === "all" ? `every "${item.title}"` : `"${item.title}"`;
+      offerUndo(`Moved ${what}`, () => moveItem(moved, itemStart(item), itemEnd(item), choice));
+    }
   } catch (e) {
     replaceShown(item);
     banner.replaceChildren(el("p", "error", `Couldn't move "${item.title}": ${errorMessage(e)}`));
@@ -448,6 +461,7 @@ const itemActions = {
   edit: (it: AgendaItem) => openEdit(it, changed),
   duplicate: (it: AgendaItem) => openDuplicate(it, changed),
   deleted: changed,
+  changed,
   open: (it: AgendaItem) => showDetails(it),
 };
 
@@ -681,6 +695,7 @@ async function start(): Promise<void> {
   startDemoMenuBar();
 
   setUpControls();
+  onHiddenChange(rerender);
   // Right-click (or press and hold) an event or task: quick actions.
   setItemMenu((item, x, y) => showItemMenu(item, x, y, itemActions));
   keepPageInPlace();

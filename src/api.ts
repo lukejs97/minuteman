@@ -426,6 +426,9 @@ export const updateEvent = (
   occurrence: EventTimes | null = null,
 ) => invoke<void>("update_event", { target, event, moveTo, notifyGuests, occurrence });
 /** Moves or resizes an event (dragging it). */
+/** Your reply to an invitation. For a repeating event, `target` is one occurrence, or its series for all. */
+export const respondToEvent = (target: EventRef, response: "accepted" | "declined" | "tentative") =>
+  invoke<void>("respond_to_event", { target, response });
 export const setEventTimes = (target: EventRef, times: EventTimes, notifyGuests: boolean) =>
   invoke<void>("set_event_times", { target, times, notifyGuests });
 export const deleteEvent = (target: EventRef, notifyGuests: boolean) =>

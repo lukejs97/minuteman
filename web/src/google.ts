@@ -819,6 +819,22 @@ export async function moveToCalendar(token: string, calendarId: string, eventId:
   await google(token, url, { method: "POST" });
 }
 
+/**
+ * Your reply to an invitation ("accepted", "declined", "tentative"): only your
+ * own entry on the guest list changes, and the organizer is told. As
+ * `respond` in calendar.rs.
+ */
+export async function respondToEvent(token: string, calendarId: string, eventId: string, response: string): Promise<void> {
+  if (!["accepted", "declined", "tentative"].includes(response)) throw invalidInput("a reply is yes, no or maybe");
+  const read = new URL(`${API}/${path("calendars", calendarId, "events", eventId)}`);
+  read.searchParams.set("fields", "attendees");
+  const { attendees = [] } = await google<{ attendees?: Record<string, unknown>[] }>(token, read.toString());
+  const you = attendees.find((a) => a.self === true);
+  if (!you) throw invalidInput("you're not on this event's guest list");
+  you.responseStatus = response;
+  await google(token, `${eventsUrl(calendarId, eventId, true)}&fields=id`, { method: "PATCH", body: JSON.stringify({ attendees }) });
+}
+
 /** Changes only when an event happens (dragging it). */
 export async function setEventTimes(
   token: string,

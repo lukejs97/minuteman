@@ -1,10 +1,11 @@
 // The details popup for an event or task: when and where, a button to join
 // the video call, guests, and notes. Opens on click instead of the browser.
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { deleteEvent, deleteTask, errorMessage, eventRef, type AgendaItem, type Attendee } from "./api";
+import { deleteEvent, deleteTask, errorMessage, eventRef, respondToEvent, type AgendaItem, type Attendee } from "./api";
 import { openContacts } from "./contacts/open";
 import { el, setItemColor, showMenu } from "./dom";
 import { deleteInSeries, inSeries } from "./series";
+import { deleteWithUndo } from "./undo";
 import { leaveDetail } from "./leave";
 import { mapLink } from "./maps";
 import { describeTimes, itemEnd, itemStart } from "./time";
@@ -25,6 +26,8 @@ export interface DetailActions {
   duplicate(item: AgendaItem): void;
   /** Runs once the item has been deleted. */
   deleted(item: AgendaItem): void;
+  /** Runs once it has changed in place (a reply to an invitation). */
+  changed(item: AgendaItem): void;
 }
 
 /** Whether `item` can be duplicated: any event (into a Google calendar), and Todoist tasks. */
@@ -83,6 +86,9 @@ export function openDetails(item: AgendaItem, actions: DetailActions): void {
   } else {
     rows.append(row("Calendar", item.account ? `${item.listName} (${item.account})` : item.listName));
   }
+  // Invited (not the organizer): your reply, as Google Calendar asks it.
+  const you = item.kind === "event" && item.source === "google" ? item.attendees.find((a) => a.isSelf && !a.organizer) : null;
+  if (you) rows.append(row("Going?", replyButtons(item, you.response, actions)));
   if (item.attendees.length > 0) rows.append(row("Guests", guestList(item.attendees)));
   if (item.description) {
     const notes = el("div", "details-notes");
@@ -99,7 +105,7 @@ export function openDetails(item: AgendaItem, actions: DetailActions): void {
     remove.addEventListener("click", async () => {
       error.textContent = "";
       try {
-        if (await deleteItem(item)) {
+        if (await deleteItem(item, actions)) {
           dialog.close();
           actions.deleted(item);
         }
@@ -169,7 +175,7 @@ export function showItemMenu(
       "Delete…",
       async () => {
         try {
-          if (await deleteItem(item)) actions.deleted(item);
+          if (await deleteItem(item, actions)) actions.changed(item);
         } catch (e) {
           await ask(`Couldn't delete "${item.title}"`, errorMessage(e), []);
         }
@@ -184,12 +190,19 @@ export function showItemMenu(
  * event, asks whether to delete just it or the whole series. Resolves to
  * false if you cancelled.
  */
-async function deleteItem(item: AgendaItem): Promise<boolean> {
+async function deleteItem(item: AgendaItem, actions: DetailActions): Promise<boolean> {
+  /** Hides what's being deleted, with Undo; it's sent once the bar goes away. */
+  const later = (message: string, matches: (i: AgendaItem) => boolean, send: () => Promise<unknown>) =>
+    deleteWithUndo(message, matches, send, () => actions.deleted(item), (e) => {
+      actions.changed(item);
+      void ask(`Couldn't delete "${item.title}"`, errorMessage(e), []);
+    });
+  const same = (i: AgendaItem) => i.id === item.id;
   if (item.kind === "task") {
     if ((await ask(`Delete "${item.title}"?`, "It's deleted in Todoist too.", [["delete", "Delete task", true]])) !== "delete") {
       return false;
     }
-    await deleteTask(item.sourceId!);
+    later(`Deleted "${item.title}"`, same, () => deleteTask(item.sourceId!));
     return true;
   }
   const guests = item.attendees.some((a) => !a.isSelf);
@@ -202,12 +215,17 @@ async function deleteItem(item: AgendaItem): Promise<boolean> {
       ["all", "All events", false],
     ]);
     if (choice !== "one" && choice !== "following" && choice !== "all") return false;
-    await deleteInSeries(item, choice, guests);
+    const series = (i: AgendaItem) => same(i) || (!!item.seriesId && i.seriesId === item.seriesId);
+    const matches =
+      choice === "one" ? same : choice === "all" ? series : (i: AgendaItem) => series(i) && itemStart(i) >= itemStart(item);
+    const message =
+      choice === "one" ? `Deleted "${item.title}"` : choice === "all" ? `Deleted every "${item.title}"` : `Deleted "${item.title}" and the ones after`;
+    later(message, matches, () => deleteInSeries(item, choice, guests));
     return true;
   }
   const choice = await ask(`Delete "${item.title}"?`, note, [["one", "Delete event", true]]);
   if (!choice) return false;
-  await deleteEvent(eventRef(item, false), guests);
+  later(`Deleted "${item.title}"`, same, () => deleteEvent(eventRef(item, false), guests));
   return true;
 }
 
@@ -265,6 +283,57 @@ function callService(url: string): string {
   if (url.includes("teams.microsoft.com") || url.includes("teams.live.com")) return "Teams";
   if (url.includes("webex.com")) return "Webex";
   return "call";
+}
+
+/**
+ * Yes / Maybe / No for an invitation, showing the reply you've given. For a
+ * repeating event, asks whether it's for this one or all of them. The
+ * organizer is told.
+ */
+function replyButtons(item: AgendaItem, current: string | null, actions: DetailActions): HTMLElement {
+  const box = el("div", "reply");
+  const choices = el("div", "segmented");
+  choices.setAttribute("role", "group");
+  choices.setAttribute("aria-label", "Your reply");
+  const note = el("span", "reply-note");
+  const answers: [reply: "accepted" | "tentative" | "declined", label: string][] = [
+    ["accepted", "Yes"],
+    ["tentative", "Maybe"],
+    ["declined", "No"],
+  ];
+  const buttons = answers.map(([reply, label]) => {
+    const button = el("button", undefined, label);
+    button.type = "button";
+    button.setAttribute("aria-pressed", String(current === reply));
+    button.addEventListener("click", async () => {
+      if (button.getAttribute("aria-pressed") === "true") return;
+      let all = false;
+      if (inSeries(item)) {
+        const scope = await ask(`Reply to "${item.title}"?`, "It repeats. Which events is this for?", [
+          ["one", "This event", true],
+          ["all", "All events", false],
+        ]);
+        if (scope !== "one" && scope !== "all") return;
+        all = scope === "all";
+      }
+      note.textContent = "";
+      buttons.forEach((b) => (b.disabled = true));
+      try {
+        await respondToEvent(eventRef(item, all), reply);
+        buttons.forEach((b) => b.setAttribute("aria-pressed", String(b === button)));
+        note.textContent = "The organizer is told.";
+        actions.changed(item);
+      } catch (e) {
+        note.textContent = `Couldn't reply: ${errorMessage(e)}`;
+      } finally {
+        buttons.forEach((b) => (b.disabled = false));
+      }
+    });
+    return button;
+  });
+  choices.append(...buttons);
+  box.append(choices, note);
+  return box;
 }
 
 function guestList(attendees: Attendee[]): HTMLElement {

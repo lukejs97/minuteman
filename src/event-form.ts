@@ -29,6 +29,7 @@ import { EVENT_COLORS } from "./event-colors";
 import { enablePlaceSuggestions, findPlace, type PlaceSuggestion } from "./place-suggest";
 import { parseEvent, parseTask, REPEAT_RULES, type Repeat } from "./quick-parse";
 import { describeRecurrence, endAfter } from "./recurrence";
+import { RepeatEditor } from "./repeat-editor";
 import {
   addDays,
   floatingZone,
@@ -53,7 +54,7 @@ export interface Saved {
 const CALENDAR_STORAGE_KEY = "calendar.newEventCalendar";
 const PROJECT_STORAGE_KEY = "calendar.newTaskProject";
 
-const REPEAT_OPTIONS: [Repeat | "", string][] = [
+const REPEAT_OPTIONS: [Repeat | "" | "custom", string][] = [
   ["", "Doesn't repeat"],
   ["daily", "Every day"],
   ["weekdays", "Every weekday"],
@@ -61,6 +62,7 @@ const REPEAT_OPTIONS: [Repeat | "", string][] = [
   ["biweekly", "Every 2 weeks"],
   ["monthly", "Every month"],
   ["yearly", "Every year"],
+  ["custom", "Custom…"],
 ];
 
 const PRIORITY_OPTIONS: [string, string][] = [
@@ -188,6 +190,12 @@ class Form {
   private leaveFrom = input("text", "Set a default in Settings");
   private leaveHint = el("div", "form-notes", "Where you start from, if it isn't the address in Settings.");
   private repeat = select(REPEAT_OPTIONS);
+  /** Repeat → Custom…: every N days, weeks, months or years, on which days, until when. */
+  private customRepeat = new RepeatEditor(
+    () => this.touched.add("repeat"),
+    () => this.startValue(),
+    () => this.allDay.checked,
+  );
   /**
    * For one event in a repeating series: change just it, it and the ones
    * after it, or all of them. Asked when you save, as Google Calendar does.
@@ -376,7 +384,10 @@ class Form {
     this.row(grid, "Leave from", this.leaveFrom, this.leaveHint);
     enablePlaceSuggestions(this.location);
     enablePlaceSuggestions(this.leaveFrom);
-    this.row(grid, "Repeat", this.repeat);
+    const repeatRow = this.row(grid, "Repeat", this.repeat, this.customRepeat.root);
+    // At the top, beside the menu, when Custom… opens below it.
+    repeatRow.previousElementSibling?.classList.add("repeat-label");
+    this.repeat.addEventListener("change", () => void this.showCustomRepeat());
     const alertRow = this.row(grid, "Alert", this.alerts.root);
     alertRow.previousElementSibling?.classList.add("alert-label");
     this.row(grid, "Guests", this.guests);
@@ -407,6 +418,7 @@ class Form {
       previousStart = this.startValue();
     };
     this.startDate.addEventListener("change", keepLength);
+    this.startDate.addEventListener("change", () => this.customRepeat.refresh());
     this.startTime.addEventListener("change", keepLength);
     this.startDate.addEventListener("focus", () => (previousStart = this.startValue()));
     this.startTime.addEventListener("focus", () => (previousStart = this.startValue()));
@@ -619,6 +631,24 @@ class Form {
     this.notifyRow.hidden = !item.attendees.some((a) => !a.isSelf);
   }
 
+  /** Custom… chosen: the editor, starting from the series' own rule when editing one. */
+  private async showCustomRepeat(): Promise<void> {
+    if (this.repeat.value !== "custom") return this.customRepeat.hide();
+    this.customRepeat.show();
+    if (this.inSeries()) {
+      const before = this.customRepeat.rule();
+      const rules = await this.seriesRecurrence();
+      // Not over anything changed while they loaded.
+      if (rules && this.repeat.value === "custom" && this.customRepeat.rule() === before) this.customRepeat.setFromRules(rules);
+    }
+  }
+
+  /** The rule for a Repeat choice: "RRULE:…", or null for none (or "as now"). */
+  private ruleFor(repeat: string): string | null {
+    if (repeat === "custom") return this.customRepeat.rule();
+    return repeat in REPEAT_RULES ? REPEAT_RULES[repeat as Repeat] : null;
+  }
+
   /** Looks up a place named in the sentence once typing pauses, then fills in from the sentence again. */
   private lookUpPlace(place: string): void {
     window.clearTimeout(this.placeTimer);
@@ -657,7 +687,10 @@ class Form {
       }
       if (lookUp) this.lookUpPlace(lookUp);
       else window.clearTimeout(this.placeTimer);
-      if (!this.touched.has("repeat")) this.repeat.value = parsed.repeat ?? "";
+      if (!this.touched.has("repeat")) {
+        this.repeat.value = parsed.repeat ?? "";
+        void this.showCustomRepeat();
+      }
       if (!this.touched.has("alert")) this.alerts.setFromSentence(parsed.alert);
       if (!this.touched.has("guests")) this.guests.value = parsed.guests.join(", ");
     } else {
@@ -827,13 +860,14 @@ class Form {
     let recurrence: string[] | null = null;
     if (item?.recurring) {
       const repeat = this.repeat.value;
-      if (this.wholeSeries() && repeat in REPEAT_RULES) recurrence = [REPEAT_RULES[repeat as Repeat]];
+      const rule = this.ruleFor(repeat);
+      if (this.wholeSeries() && rule) recurrence = [rule];
       if (this.wholeSeries() && repeat === "end" && this.seriesRules) {
         recurrence = endAfter(this.seriesRules, this.savedInstant(itemStart(item)), item.allDay);
       }
     } else if (editing("repeat")) {
-      const repeat = this.repeat.value as Repeat | "";
-      recurrence = repeat ? [REPEAT_RULES[repeat]] : item ? [] : null;
+      const rule = this.ruleFor(this.repeat.value);
+      recurrence = rule ? [rule] : item ? [] : null;
     }
 
     let alerts: Alerts | null = null;
@@ -946,8 +980,8 @@ class Form {
       this.seriesChoice = "all";
       return false;
     }
-    const repeat = this.repeat.value;
-    const draft = { ...this.eventDraft(true), recurrence: repeat in REPEAT_RULES ? [REPEAT_RULES[repeat as Repeat]] : rules };
+    const rule = this.ruleFor(this.repeat.value);
+    const draft = { ...this.eventDraft(true), recurrence: rule ? [rule] : rules };
     const to = choice ?? { email: item.account!, calendarId: item.listId! };
     await createEvent(to.email, to.calendarId, draft);
     return true;

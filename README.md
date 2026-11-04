@@ -58,6 +58,15 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
   from this event). Its repeat shows in words ("Every Monday", "Monthly on
   the second Tuesday"), and you can change it or stop it after this one.
   Guests are emailed about changes if you tick the box.
+- **Undo:** after deleting, moving, or completing something, a bar at the
+  bottom offers **Undo** for a few seconds (or press ⌘Z / Ctrl+Z). A delete
+  is only sent once the bar goes away.
+- **Reply to invitations:** an event you're invited to shows **Going? Yes /
+  Maybe / No** in its details; for a repeating one, this event or all of
+  them. The organizer is told.
+- **Custom repeats:** Repeat → **Custom…**: every so many days, weeks,
+  months or years; which weekdays; the 12th, the second Tuesday or the last
+  Friday of the month; ending never, on a date, or after a number of times.
 - **Duplicate:** an event's or task's details (or its right-click menu) →
   **Duplicate** opens New filled in like it, to change (the day, say) and add.
 - **Event colors:** Google Calendar's eleven, or the calendar's own, in

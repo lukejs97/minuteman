@@ -886,8 +886,25 @@ main.loading > * {
   --dialog-room: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom));
 }
 
+/* The dimming around a dialog is drawn by the dialog itself, as a shadow
+   to the edges of the window, not by ::backdrop: the Mac app's web view
+   repainted ::backdrop as a dialog's contents changed (calendars loading
+   into New event, say), and it flickered. Only the top dialog dims, so one
+   opened over another (a question over a form, or one screen of Settings
+   replacing another) never doubles it. The backdrop still takes clicks
+   outside the dialog. */
 .dialog::backdrop {
-  background: rgb(0 0 0 / 0.35);
+  background: transparent;
+}
+
+.dialog[open] {
+  box-shadow:
+    0 12px 40px rgb(0 0 0 / 0.3),
+    0 0 0 200vmax rgb(0 0 0 / 0.35);
+}
+
+.dialog[open]:has(~ .dialog[open]) {
+  box-shadow: 0 12px 40px rgb(0 0 0 / 0.3);
 }
 
 .dialog h2 {
@@ -1016,7 +1033,8 @@ main.loading > * {
 }
 
 /* Notification rows, in the shape of Google Calendar's. */
-.form-label.alert-label {
+.form-label.alert-label,
+.form-label.repeat-label {
   align-self: start;
   padding-top: 8px;
 }
@@ -1149,6 +1167,112 @@ main.loading > * {
 
 .field-label + .text-input {
   margin-bottom: 12px;
+}
+
+/* "Deleted 'Lunch' · Undo" at the bottom, for a few seconds (undo.ts).
+   Above the phone's floating buttons. */
+.undo-bar {
+  position: fixed;
+  left: 50%;
+  bottom: calc(16px + var(--dock-space, 0px) + env(safe-area-inset-bottom));
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  max-width: calc(100vw - 32px);
+  padding: 10px 12px 10px 16px;
+  border-radius: 10px;
+  background: var(--chrome);
+  color: #f6efe0;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.25);
+  font-size: 14px;
+  transform: translateX(-50%);
+}
+
+.undo-message {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.undo-button {
+  flex: none;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--gold, #d4ab4f);
+  font-weight: 600;
+}
+
+/* Repeat → Custom… (repeat-editor.ts). */
+.repeat-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  margin-top: 8px;
+}
+
+.repeat-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.repeat-interval,
+.repeat-count {
+  width: 64px;
+}
+
+.repeat-unit,
+.repeat-ends {
+  width: auto;
+}
+
+.repeat-until {
+  width: auto;
+}
+
+.repeat-weekdays {
+  display: flex;
+  gap: 4px;
+}
+
+.repeat-day {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.repeat-day[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+[hidden].repeat-weekdays,
+.repeat-editor [hidden] {
+  display: none;
+}
+
+/* An invitation's details: Yes / Maybe / No. */
+.reply {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+}
+
+.reply-note {
+  font-size: 12px;
+  color: var(--muted);
 }
 
 /* New or Edit event: Google Calendar's event colors, the first being the calendar's. */

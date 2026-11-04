@@ -230,6 +230,28 @@ less the occurrences before this one, counted with Google's `instances`,
 cancelled ones included as they count too). For the series' first event,
 nothing comes before it, so it's all events instead.
 
+**Undo** (`undo.ts`): `offerUndo` shows the bar (7 s, ⌘Z / Ctrl+Z). A
+delete (`deleteWithUndo`) hides what it matches (`isHidden`, which the
+views leave out) and is sent only when the bar goes away, or at once on
+`pagehide` or when the window is put away; if it fails, the items come back.
+Moves (dragging: put back with the same series choice, not after "this and
+following") and completing a task are saved at once and undone by doing the
+opposite. Edits in the form aren't undone.
+
+**Replies to invitations** (`respond_to_event`, `respond` in calendar.rs,
+`respondToEvent` on the Worker): read the event's attendees, change only
+your own `responseStatus`, PATCH them back with `sendUpdates=all`. For a
+repeating event, the occurrence or its series.
+
+**Custom repeats** (`repeat-editor.ts`): Repeat → Custom… builds the RRULE
+(FREQ, INTERVAL, BYDAY, BYMONTHDAY or an ordinal BYDAY, COUNT or UNTIL: the
+date all day, else the end of that day here in UTC) and reads a series' own
+rule back when editing one.
+
+**Dialogs** dim the page with a box-shadow to the window's edges, not
+`::backdrop`, which the Mac's web view repainted (a flicker) as a dialog's
+contents changed. Only the top dialog dims (`:has(~ .dialog[open])`).
+
 **Event colors** (`event-colors.ts`, `EVENT_COLORS` in calendar.rs): an
 event's `colorId` ("1" to "11", Google's names and the colors its apps show)
 becomes `AgendaItem.color` (else the calendar's) and `colorId`.

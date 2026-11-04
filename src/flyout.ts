@@ -20,6 +20,7 @@ import {
 import { openDetails, showItemMenu } from "./details";
 import { el, setItemMenu } from "./dom";
 import { openDuplicate, openEdit, openNew } from "./event-form";
+import { isHidden, onHiddenChange } from "./undo";
 import { announceChange, onChangeElsewhere } from "./sync";
 import { refreshWeather } from "./weather";
 import {
@@ -94,7 +95,7 @@ function show(loaded: Agenda): void {
 
 function draw(): void {
   const today = startOfDay(new Date());
-  const items = agenda?.items ?? [];
+  const items = (agenda?.items ?? []).filter((item) => !isHidden(item));
   root.replaceChildren(header(today), miniMonth(items, today), list(items));
 }
 
@@ -240,6 +241,7 @@ const itemActions = {
   edit: (it: AgendaItem) => openEdit(it, changed),
   duplicate: (it: AgendaItem) => openDuplicate(it, changed),
   deleted: changed,
+  changed,
   open: (it: AgendaItem) => showDetails(it),
 };
 
@@ -267,6 +269,7 @@ function showSignedOut(): void {
 
 export async function startFlyout(): Promise<void> {
   document.body.classList.add("flyout");
+  onHiddenChange(draw);
   // Right-click (or press and hold) an event or task: quick actions.
   setItemMenu((item, x, y) => showItemMenu(item, x, y, itemActions));
   // Its own header replaces the main window's.

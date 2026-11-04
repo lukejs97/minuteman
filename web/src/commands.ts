@@ -164,6 +164,12 @@ export const commands: Record<string, Command> = {
     const token = await tokenFor(ctx, target.email);
     return google.endSeriesBefore(token, ctx.zone, target.calendarId, target.eventId, value<string>(args, "before"), flag(args, "allDay"));
   },
+  async respond_to_event(ctx, args) {
+    const target = value<EventRef>(args, "target");
+    const token = await tokenFor(ctx, target.email);
+    await google.respondToEvent(token, target.calendarId, target.eventId, text(args, "response"));
+    return null;
+  },
   async set_event_times(ctx, args) {
     const target = value<EventRef>(args, "target");
     const token = await tokenFor(ctx, target.email);

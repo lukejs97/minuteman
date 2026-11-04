@@ -738,6 +738,7 @@ function showEvent(item: AgendaItem): void {
     edit: (it) => openEdit(it, changed),
     duplicate: (it) => openDuplicate(it, changed),
     deleted: changed,
+    changed,
   });
 }
 
