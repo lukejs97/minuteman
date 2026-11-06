@@ -696,10 +696,26 @@ export async function updateEvent(
 ): Promise<void> {
   const body = draftJson(draft);
   await mergePrivate(token, calendarId, eventId, body);
+  clearOtherKindOfTime(body);
   await google(token, eventsUrl(calendarId, eventId, notifyGuests), {
     method: "PATCH",
     body: JSON.stringify(body),
   });
+}
+
+/**
+ * For a PATCH: Google merges `start` and `end` into what it has, so an
+ * all-day event made timed would keep its `date` beside the new `dateTime`
+ * ("Invalid start time"), and the other way round. Clears the kind not
+ * sent. As `clear_other_kind_of_time` in calendar.rs.
+ */
+function clearOtherKindOfTime(body: Record<string, unknown>): void {
+  for (const key of ["start", "end"]) {
+    const time = body[key] as Record<string, unknown> | undefined;
+    if (!time || typeof time !== "object") continue;
+    if ("dateTime" in time) time.date = null;
+    else if ("date" in time) Object.assign(time, { dateTime: null, timeZone: null });
+  }
 }
 
 /**
@@ -731,6 +747,7 @@ export async function updateSeries(
     Object.assign(body, timesJson(shiftSeries(firstDay, occurrence, draft, zone)));
   }
   await mergePrivate(token, calendarId, seriesId, body);
+  clearOtherKindOfTime(body);
   await google(token, eventsUrl(calendarId, seriesId, notifyGuests), { method: "PATCH", body: JSON.stringify(body) });
 }
 
@@ -911,9 +928,11 @@ export async function setEventTimes(
   times: EventTimes,
   notifyGuests: boolean,
 ): Promise<void> {
+  const body: Record<string, unknown> = timesJson(times);
+  clearOtherKindOfTime(body);
   await google(token, eventsUrl(calendarId, eventId, notifyGuests), {
     method: "PATCH",
-    body: JSON.stringify(timesJson(times)),
+    body: JSON.stringify(body),
   });
 }
 

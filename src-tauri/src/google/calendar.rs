@@ -963,6 +963,7 @@ pub async fn update_event(
     let url = events_url(calendar_id, Some(event_id), notify_guests);
     let mut body = draft.to_json()?;
     merge_private(http, token, calendar_id, event_id, &mut body).await?;
+    clear_other_kind_of_time(&mut body);
     let _updated: Value = send(http.patch(url).bearer_auth(token).json(&body)).await?;
     Ok(())
 }
@@ -992,8 +993,25 @@ pub async fn update_series(
     }
     let url = events_url(calendar_id, Some(series_id), notify_guests);
     merge_private(http, token, calendar_id, series_id, &mut body).await?;
+    clear_other_kind_of_time(&mut body);
     let _updated: Value = send(http.patch(url).bearer_auth(token).json(&body)).await?;
     Ok(())
+}
+
+/// For a PATCH: an update merges `start` and `end` into what Google has, so
+/// an all-day event made timed would keep its `date` beside the new
+/// `dateTime` ("Invalid start time"), and the other way round. Clears the
+/// kind not sent.
+fn clear_other_kind_of_time(body: &mut Value) {
+    for key in ["start", "end"] {
+        let Some(time) = body.get_mut(key).and_then(Value::as_object_mut) else { continue };
+        if time.contains_key("dateTime") {
+            time.insert("date".into(), Value::Null);
+        } else if time.contains_key("date") {
+            time.insert("dateTime".into(), Value::Null);
+            time.insert("timeZone".into(), Value::Null);
+        }
+    }
 }
 
 /// A new event has nothing to clear: drop private keys whose value is empty
@@ -1140,7 +1158,9 @@ pub async fn set_event_times(
 ) -> Result<()> {
     let (start, end) = times.to_json()?;
     let url = events_url(calendar_id, Some(event_id), notify_guests);
-    let _updated: Value = send(http.patch(url).bearer_auth(token).json(&json!({ "start": start, "end": end }))).await?;
+    let mut body = json!({ "start": start, "end": end });
+    clear_other_kind_of_time(&mut body);
+    let _updated: Value = send(http.patch(url).bearer_auth(token).json(&body)).await?;
     Ok(())
 }
 
@@ -1399,6 +1419,23 @@ fn find_meeting_link(text: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_update_clears_the_other_kind_of_time() {
+        let mut timed = json!({ "start": { "dateTime": "2026-11-06T17:00:00-05:00", "timeZone": "America/New_York" }, "end": { "dateTime": "2026-11-08T17:00:00-05:00" } });
+        clear_other_kind_of_time(&mut timed);
+        assert_eq!(timed["start"]["date"], Value::Null);
+        assert!(timed["start"].as_object().unwrap().contains_key("date"));
+        assert_eq!(timed["start"]["dateTime"], "2026-11-06T17:00:00-05:00");
+        let mut all_day = json!({ "start": { "date": "2026-11-06" }, "end": { "date": "2026-11-08" } });
+        clear_other_kind_of_time(&mut all_day);
+        assert!(all_day["start"].as_object().unwrap().contains_key("dateTime"));
+        assert!(all_day["end"].as_object().unwrap().contains_key("timeZone"));
+        // Nothing about times: nothing added.
+        let mut title = json!({ "summary": "Muster" });
+        clear_other_kind_of_time(&mut title);
+        assert_eq!(title, json!({ "summary": "Muster" }));
+    }
 
     #[test]
     fn a_reply_changes_only_your_own_entry() {
