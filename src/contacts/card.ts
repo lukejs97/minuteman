@@ -9,6 +9,7 @@ import { describeTimes, itemEnd, itemStart } from "../time";
 import { describeLatest, KIND_WORDS, latestByContact, relativeTime } from "./history";
 import type { Action } from "./parse";
 import {
+  age,
   daysUntilBirthday,
   describeBirthday,
   dialable,
@@ -37,6 +38,14 @@ export interface CardActions {
   logManually(contact: Contact, anchor: HTMLElement): void;
   /** Narrow windows: back to the list. */
   back(): void;
+  /** Shows someone they're related to, by name (their card, or a search for them). */
+  showPerson(name: string): void;
+  /** Share…: a menu of ways to send their card. */
+  share(contact: Contact, anchor: HTMLElement): void;
+  /** Others in the same account who look like the same person. */
+  duplicatesOf(contact: Contact): Contact[];
+  /** Opens the review of `contact`'s duplicates, to merge them. */
+  reviewDuplicates(contact: Contact): void;
 }
 
 export const isMac = () => /Macintosh|Mac OS X/.test(navigator.userAgent) && !/iPhone|iPad/.test(navigator.userAgent);
@@ -180,10 +189,13 @@ export function renderCard(contact: Contact, actions: CardActions, accounts: num
   if (contact.birthday) {
     const today = new Date();
     const days = daysUntilBirthday(contact.birthday, today);
-    const age = turning(contact.birthday, today);
-    const soon = days < 30 ? ` · ${whenBirthday(contact.birthday, today)}${age ? `, turning ${age}` : ""}` : "";
+    const next = turning(contact.birthday, today);
+    const now = age(contact.birthday, today);
+    const soon = days < 30 ? ` · ${whenBirthday(contact.birthday, today)}${next ? `, turning ${next}` : ""}` : "";
+    // Their age, as Cardhop shows it: "March 4, 1990 (age 36)".
+    const years = now !== null && days !== 0 ? ` (age ${now})` : "";
     // Clicking it shows their next birthday in the calendar.
-    const value = linkish(`${describeBirthday(contact.birthday)}${soon}`, () =>
+    const value = linkish(`${describeBirthday(contact.birthday)}${years}${soon}`, () =>
       actions.showDay(nextBirthday(contact.birthday!, today)),
     );
     value.classList.add("card-birthday");
@@ -191,12 +203,30 @@ export function renderCard(contact: Contact, actions: CardActions, accounts: num
     value.title = "Show in the calendar";
     fields.append(field("Birthday", value));
   }
+  for (const relation of contact.relations ?? []) {
+    const value = linkish(relation.value, () => actions.showPerson(relation.value));
+    value.title = `Show ${relation.value}`;
+    fields.append(field(labelText(relation.label, "Related"), value));
+  }
   if (contact.phones.length + contact.emails.length + contact.addresses.length + contact.urls.length === 0 && !contact.birthday) {
     fields.append(el("p", "card-empty", "No phone, email or address yet. Edit to add them."));
   }
 
   const notes = notesSection(contact, actions);
-  card.append(back, head, quick, fields, notes, historySection(contact, actions, history), footer(contact, actions));
+  const parts: HTMLElement[] = [back, head, quick];
+  const duplicates = actions.duplicatesOf(contact);
+  if (duplicates.length) {
+    // "Also listed as Sam Adams · Review…", as Cardhop and Google Contacts point them out.
+    const notice = el("div", "card-duplicate");
+    const names = [...new Set(duplicates.map(displayName))].join(", ");
+    notice.append(el("span", undefined, `Looks like the same person as ${names}.`));
+    const review = el("button", "link-button card-mini", "Merge…");
+    review.type = "button";
+    review.addEventListener("click", () => actions.reviewDuplicates(contact));
+    notice.append(review);
+    parts.push(notice);
+  }
+  card.append(...parts, fields, notes, historySection(contact, actions, history), footer(contact, actions));
   return card;
 }
 
@@ -399,8 +429,11 @@ function footer(contact: Contact, actions: CardActions): HTMLElement {
   google.addEventListener("click", () =>
     openUrl(`https://contacts.google.com/person/${encodeURIComponent(id)}?authuser=${encodeURIComponent(contact.account)}`),
   );
+  const share = el("button", "text-button", "Share…");
+  share.title = "Send their contact card, or copy it";
+  share.addEventListener("click", () => actions.share(contact, share));
   const edit = el("button", "primary-button", "Edit");
   edit.addEventListener("click", () => actions.edit(contact));
-  buttons.append(remove, google, edit);
+  buttons.append(remove, google, share, edit);
   return buttons;
 }

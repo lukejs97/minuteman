@@ -306,6 +306,8 @@ export interface Contact {
   photo: string | null;
   /** In Favorites. */
   starred: boolean;
+  /** People they're related to: `value` a name, `label` how ("spouse", "child"…, or your own word). */
+  relations: Labeled[];
 }
 
 /**
@@ -326,6 +328,7 @@ export interface ContactDraft {
   /** Empty clears the birthday. */
   birthdays?: Birthday[];
   notes?: string;
+  relations?: Labeled[];
 }
 
 /** Mirrors `ContactList` in src-tauri/src/contacts.rs. */
@@ -541,6 +544,20 @@ export const deleteContact = (target: ContactRef) => invoke<void>("delete_contac
 /** Adds a contact to Favorites, or takes it out; resolves to it as saved. */
 export const setContactStarred = (target: ContactRef, starred: boolean) =>
   invoke<Contact>("set_contact_starred", { target, starred });
+/** Sets a contact's photo (`data`: a JPEG or PNG, base64); resolves to them as saved. */
+export const setContactPhoto = (target: ContactRef, data: string) => invoke<Contact>("set_contact_photo", { target, data });
+/** Takes a contact's photo off; resolves to them as saved. */
+export const removeContactPhoto = (target: ContactRef) => invoke<Contact>("remove_contact_photo", { target });
+/**
+ * Merges duplicates into `keep`: it gets `contact` (everything of theirs
+ * together), `photo` (another's photo address, when it has none) and
+ * Favorites if `starred`; the `others` are deleted and their history moves to
+ * it. Resolves to the one kept, as saved.
+ */
+export const mergeContacts = (keep: ContactRef, others: ContactRef[], contact: ContactDraft, photo: string | null, starred: boolean) =>
+  invoke<Contact>("merge_contacts", { keep, others, contact, photo, starred });
+/** Desktop: saves a contact card (vCard text) in Downloads and shows it; resolves to where. */
+export const saveContactCard = (name: string, text: string) => invoke<string>("save_contact_card", { name, text });
 /** Your history with people in Contacts, oldest first. */
 export const getInteractions = () => invoke<Interaction[]>("interactions");
 /** Logs a call, message, note… with someone, now; resolves to it as kept. */

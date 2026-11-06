@@ -92,6 +92,19 @@ impl Interactions {
         self.retain(|e| e.contact_id != contact_id);
     }
 
+    /// Gives what's logged with contacts merged into another to that one.
+    pub fn move_contacts(&self, from: &[String], to: &str) {
+        let mut entries = self.entries.lock().expect("not poisoned");
+        let mut moved = false;
+        for entry in entries.iter_mut().filter(|e| from.contains(&e.contact_id)) {
+            entry.contact_id = to.to_string();
+            moved = true;
+        }
+        if moved {
+            self.write(&entries);
+        }
+    }
+
     /// Forgets the history with a removed account's contacts.
     pub fn forget_account(&self, account: &str) {
         let prefix = format!("{account}/");

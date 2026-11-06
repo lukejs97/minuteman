@@ -232,6 +232,29 @@ export const commands: Record<string, Command> = {
   async set_contact_starred(ctx, args) {
     return contacts.setStarred(ctx.env, value<ContactRef>(args, "target"), flag(args, "starred"));
   },
+  async set_contact_photo(ctx, args) {
+    return contacts.setPhoto(ctx.env, value<ContactRef>(args, "target"), text(args, "data"));
+  },
+  async remove_contact_photo(ctx, args) {
+    return contacts.removePhoto(ctx.env, value<ContactRef>(args, "target"));
+  },
+  /** Duplicates into one; what's logged with the others moves to it. */
+  async merge_contacts(ctx, args) {
+    const keep = value<ContactRef>(args, "keep");
+    const others = value<ContactRef[]>(args, "others");
+    if (!Array.isArray(others)) throw invalidInput("others must be a list");
+    const photo = typeof args.photo === "string" ? args.photo : null;
+    const saved = await contacts.mergeContacts(ctx.env, keep, others, value<ContactDraft>(args, "contact"), photo, flag(args, "starred"));
+    const moved = new Set(others.map((o) => `${o.email}/${o.resourceName}`));
+    const entries = await readInteractions(ctx.env);
+    if (entries.some((e) => moved.has(e.contactId))) {
+      await writeInteractions(
+        ctx.env,
+        entries.map((e) => (moved.has(e.contactId) ? { ...e, contactId: saved.id } : e)),
+      );
+    }
+    return saved;
+  },
 
   // Todoist
   async todoist_status(ctx) {

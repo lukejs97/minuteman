@@ -114,12 +114,23 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
 
   Each card has buttons to message, call, email, FaceTime, meet or map them,
   their details (click a number to call it, an address to map it), birthdays
-  (with age; click one to see that day in the calendar), notes, upcoming
-  events with them, and their **History**: calls, messages, emails and
+  with their age ("November 16, 1745 (age 280)"; click one to see that day
+  in the calendar), the people they're related to (Spouse, Child, Friend…;
+  click one to see their card), notes, upcoming events with them, and their **History**: calls, messages, emails and
   FaceTimes started here, meetings set up, notes, what you log (the card's
   **Log…**, or the box), and past events with them, latest first. **Recent**
   (who you were last in touch with), upcoming birthdays and Favorites sit at
-  the top of the list. Settings opens from here too. In an event's details, click a
+  the top of the list. Settings opens from here too.
+  - **Photos:** Edit → Photo → **Choose…** (a square from the middle of the
+    picture is saved to Google Contacts), **Change…** or **Remove**.
+  - **Duplicates:** people listed twice in one account (the same email,
+    phone number or whole name) are pointed out at the top of the list and
+    on their cards; **Review…** shows what merging makes of them, then
+    **Merge** keeps one contact with everything from all of them (and their
+    History) and deletes the others, or **Not the same person** stops asking.
+  - **Share…** on a card: send their contact card (.vcf) from a phone's share
+    sheet, copy their details as text, or save the contact card (Downloads in
+    the desktop apps). In an event's details, click a
   guest's name to see them in Contacts (or add them). Contacts need the
   People API and one more permission
   ([docs/google-cloud-setup.md](docs/google-cloud-setup.md)); accounts added

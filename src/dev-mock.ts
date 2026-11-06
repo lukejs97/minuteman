@@ -232,6 +232,7 @@ function sampleContacts(): Contact[] {
       notes: null,
       photo: null,
       starred: false,
+      relations: [],
       ...more,
     };
   };
@@ -268,7 +269,22 @@ function sampleContacts(): Contact[] {
     person("Dr. Joseph", "Warren", { organization: "Boston", jobTitle: "Physician", phones: [{ value: "555 0162", label: "work" }] }),
     person("Mercy Otis", "Warren", { organization: "Plymouth", jobTitle: "Playwright", birthday: { year: 1728, month: 9, day: 14 } }),
     person("Haym", "Salomon", { emails: [{ value: "haym@example.com", label: "home" }] }),
-    person("Rachel", "Revere", { phones: [{ value: "+1 617 555 0110", label: "mobile" }], starred: true, birthday: inDays(10, 1745) }),
+    person("Rachel", "Revere", {
+      phones: [{ value: "+1 617 555 0110", label: "mobile" }],
+      starred: true,
+      birthday: inDays(10, 1745),
+      relations: [
+        { value: "Paul Revere", label: "spouse" },
+        { value: "Joseph Warren Revere", label: "child" },
+      ],
+    }),
+    // Samuel Adams again, added from a letter: a duplicate to merge.
+    person("Sam", "Adams", {
+      emails: [{ value: "sam.adams@example.com", label: "work" }],
+      phones: [{ value: "(617) 555-0123", label: "work" }],
+      organization: "Massachusetts Provincial Congress",
+      notes: "Met at the Old South Meeting House.",
+    }),
     person("Phillis", "Wheatley", { emails: [{ value: "phillis@example.com", label: null }] }),
     person("", "", { name: "", givenName: null, organization: "Green Dragon Tavern", phones: [{ value: "+1 617 555 0177", label: "main" }], addresses: [{ value: "Union Street, Boston, MA 02108", label: "work" }] }),
   ];
@@ -285,7 +301,7 @@ function contactFrom(base: Contact, draft: ContactDraft): Contact {
   if (draft.nickname !== undefined) c.nickname = draft.nickname || null;
   if (draft.organization !== undefined) c.organization = draft.organization || null;
   if (draft.jobTitle !== undefined) c.jobTitle = draft.jobTitle || null;
-  for (const kind of ["emails", "phones", "addresses", "urls"] as const) if (draft[kind]) c[kind] = draft[kind]!;
+  for (const kind of ["emails", "phones", "addresses", "urls", "relations"] as const) if (draft[kind]) c[kind] = draft[kind]!;
   if (draft.birthdays) c.birthday = draft.birthdays[0] ?? null;
   if (draft.notes !== undefined) c.notes = draft.notes || null;
   c.etag = `%${Date.now()}`;
@@ -307,7 +323,8 @@ function sampleInteractions(): Interaction[] {
 
 /**
  * Commands the desktop app's Demo mode still sends to the real app: windows,
- * the Mac's location, open at login. Everything else is sample data.
+ * the Mac's location, open at login, saving a contact card. Everything else
+ * is sample data.
  */
 const DESKTOP_COMMANDS = new Set([
   "show_contacts",
@@ -319,6 +336,8 @@ const DESKTOP_COMMANDS = new Set([
   "set_open_at_login",
   // The menu bar and alerts, told Demo mode is on (demo.ts).
   "set_demo",
+  // A made-up person's contact card, saved for real (to try sharing).
+  "save_contact_card",
 ]);
 
 /**
@@ -761,7 +780,7 @@ export function install(inApp = false): void {
         const { email, contact } = args as { email: string; contact: ContactDraft };
         const id = `people/c${Date.now()}`;
         const blank = { ...sampleContacts()[0], id: `${email}/${id}`, account: email, resourceName: id, starred: false };
-        const empty = { name: "", givenName: null, familyName: null, organization: null, jobTitle: null, emails: [], phones: [], urls: [], addresses: [], birthday: null, notes: null, nickname: null };
+        const empty = { name: "", givenName: null, familyName: null, organization: null, jobTitle: null, emails: [], phones: [], urls: [], addresses: [], birthday: null, notes: null, nickname: null, photo: null, relations: [] };
         const saved = contactFrom({ ...blank, ...empty }, contact);
         contacts.push(saved);
         return saved;
@@ -791,6 +810,37 @@ export function install(inApp = false): void {
         const { target, starred } = args as { target: { resourceName: string }; starred: boolean };
         contacts = contacts.map((c) => (c.resourceName === target.resourceName ? { ...c, starred, etag: `%${Date.now()}` } : c));
         return contacts.find((c) => c.resourceName === target.resourceName);
+      }
+      case "set_contact_photo": {
+        const { target, data } = args as { target: { resourceName: string }; data: string };
+        contacts = contacts.map((c) => (c.resourceName === target.resourceName ? { ...c, photo: `data:image/jpeg;base64,${data}`, etag: `%${Date.now()}` } : c));
+        return contacts.find((c) => c.resourceName === target.resourceName);
+      }
+      case "remove_contact_photo": {
+        const { target } = args as { target: { resourceName: string } };
+        contacts = contacts.map((c) => (c.resourceName === target.resourceName ? { ...c, photo: null, etag: `%${Date.now()}` } : c));
+        return contacts.find((c) => c.resourceName === target.resourceName);
+      }
+      case "merge_contacts": {
+        const { keep, others, contact, photo, starred } = args as {
+          keep: { email: string; resourceName: string };
+          others: { email: string; resourceName: string }[];
+          contact: ContactDraft;
+          photo: string | null;
+          starred: boolean;
+        };
+        const existing = contacts.find((c) => c.resourceName === keep.resourceName);
+        if (!existing) throw { kind: "api", message: "Google API error (404): Not found" };
+        const saved = { ...contactFrom(existing, contact), photo: existing.photo ?? photo, starred: existing.starred || starred };
+        const gone = new Set(others.map((o) => o.resourceName));
+        contacts = contacts.filter((c) => !gone.has(c.resourceName)).map((c) => (c === existing ? saved : c));
+        const goneIds = new Set(others.map((o) => `${o.email}/${o.resourceName}`));
+        for (const entry of interactions) if (goneIds.has(entry.contactId)) entry.contactId = saved.id;
+        return saved;
+      }
+      case "save_contact_card": {
+        const { name } = args as { name: string };
+        return `/Users/paul/Downloads/${name}.vcf`;
       }
       case "plugin:opener|open_url": {
         // As the website does (web-bridge.ts `openLink`).

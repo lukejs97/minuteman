@@ -1,9 +1,12 @@
-// The New and Edit contact window: names, work, phones, emails, addresses,
-// websites, birthday and notes. Editing saves only what changed.
+// The New and Edit contact window: photo, names, work, phones, emails,
+// addresses, websites, birthday, the people they're related to, and notes.
+// Editing saves only what changed.
 import {
   createContact,
   contactRef,
   errorMessage,
+  removeContactPhoto,
+  setContactPhoto,
   updateContact,
   type Birthday,
   type Contact,
@@ -15,7 +18,7 @@ import { labelText } from "./model";
 import type { ParsedContact } from "./parse";
 import { enablePlaceSuggestions } from "../place-suggest";
 
-type ListKind = "phones" | "emails" | "addresses" | "urls";
+type ListKind = "phones" | "emails" | "addresses" | "urls" | "relations";
 
 /** The labels offered for each kind of value (Google's own types). */
 const LABEL_CHOICES: Record<ListKind, string[]> = {
@@ -23,6 +26,22 @@ const LABEL_CHOICES: Record<ListKind, string[]> = {
   emails: ["home", "work", "other"],
   addresses: ["home", "work", "other"],
   urls: ["homePage", "work", "blog", "profile", "other"],
+  relations: [
+    "spouse",
+    "partner",
+    "child",
+    "mother",
+    "father",
+    "parent",
+    "brother",
+    "sister",
+    "friend",
+    "relative",
+    "manager",
+    "assistant",
+    "referredBy",
+    "domesticPartner",
+  ],
 };
 
 const LIST_NAMES: Record<ListKind, [string, string]> = {
@@ -30,6 +49,7 @@ const LIST_NAMES: Record<ListKind, [string, string]> = {
   emails: ["Email", "Add email"],
   addresses: ["Address", "Add address"],
   urls: ["Website", "Add website"],
+  relations: ["Related", "Add related person"],
 };
 
 const PLACEHOLDERS: Record<ListKind, string> = {
@@ -37,18 +57,22 @@ const PLACEHOLDERS: Record<ListKind, string> = {
   emails: "Email address",
   addresses: "Street, town, postcode",
   urls: "Web address",
+  relations: "Their name",
 };
 
 /**
  * Opens the form. `contact`: the one to edit, or null for a new one, which
  * starts with `start` (e.g. from the sentence box). `accounts`: the Google
- * accounts a new one can go in, the usual one first.
+ * accounts a new one can go in, the usual one first. `names`: everyone's
+ * names, suggested for the people they're related to. `onSaved` gets a
+ * warning when they were saved but their photo wasn't.
  */
 export function openContactForm(
   contact: Contact | null,
   start: ParsedContact | null,
   accounts: string[],
-  onSaved: (saved: Contact) => void,
+  onSaved: (saved: Contact, warning?: string) => void,
+  names: string[] = [],
 ): void {
   const dialog = el("dialog", "dialog event-form contact-form");
   dialog.setAttribute("aria-labelledby", "contact-form-title");
@@ -79,6 +103,8 @@ export function openContactForm(
     grid.append(el("span", "form-label", label), box);
     return box;
   };
+  const photo = new PhotoField(contact?.photo ?? null);
+  grid.append(el("span", "form-label", "Photo"), photo.node);
   row("Name", given, family);
   row("Nickname", nickname);
   row("Work", jobTitle, organization);
@@ -91,6 +117,12 @@ export function openContactForm(
 
   const birthday = new BirthdayField(source?.birthday ?? null);
   row("Birthday", ...birthday.controls);
+  // Everyone's names, offered as you type someone they're related to.
+  const people = el("datalist");
+  people.id = `contact-names-${Date.now()}`;
+  people.append(...[...new Set(names.filter(Boolean))].map((n) => new Option(n)));
+  lists.relations = new LabeledList("relations", contact?.relations ?? [], people.id);
+  grid.append(el("span", "form-label", "Related"), lists.relations.node);
   const notes = el("textarea", "text-input");
   notes.rows = 3;
   notes.value = source?.notes ?? "";
@@ -123,6 +155,7 @@ export function openContactForm(
       urls: lists.urls.values(),
       birthdays: birthday.value() ? [birthday.value()!] : [],
       notes: notes.value.trim(),
+      relations: lists.relations.values(),
     };
     if (birthday.invalid()) {
       error.textContent = "That birthday isn't a real date.";
@@ -133,22 +166,33 @@ export function openContactForm(
       error.textContent = "Fill in at least a name, phone or email.";
       return;
     }
-    if (contact && Object.keys(draft).length === 0) {
+    if (contact && Object.keys(draft).length === 0 && !photo.changed()) {
       dialog.close();
       return;
     }
     save.disabled = true;
     error.textContent = "";
+    let saved: Contact;
     try {
-      const saved = contact ? await updateContact(contactRef(contact), draft) : await createContact(account.value, draft);
-      dialog.close();
-      onSaved(saved);
+      if (!contact) saved = await createContact(account.value, draft);
+      else saved = Object.keys(draft).length ? await updateContact(contactRef(contact), draft) : contact;
     } catch (err) {
       error.textContent = `Couldn't save: ${errorMessage(err)}`;
       save.disabled = false;
+      return;
     }
+    // The photo goes on once they're saved (a new contact needs to exist first).
+    let warning: string | undefined;
+    try {
+      if (photo.chosen) saved = await setContactPhoto(contactRef(saved), photo.chosen);
+      else if (photo.removed && saved.photo) saved = await removeContactPhoto(contactRef(saved));
+    } catch (err) {
+      warning = `Saved, but the photo couldn't be changed: ${errorMessage(err)}`;
+    }
+    dialog.close();
+    onSaved(saved, warning);
   });
-  form.append(grid, error, buttons);
+  form.append(grid, people, error, buttons);
   dialog.append(title, form);
   dialog.showModal();
   given.focus();
@@ -170,8 +214,8 @@ function changes(contact: Contact, values: Required<ContactDraft>): ContactDraft
     draft.organization = values.organization;
     draft.jobTitle = values.jobTitle;
   }
-  for (const kind of ["phones", "emails", "addresses", "urls"] as const) {
-    if (!sameList(contact[kind], values[kind])) draft[kind] = values[kind];
+  for (const kind of ["phones", "emails", "addresses", "urls", "relations"] as const) {
+    if (!sameList(contact[kind] ?? [], values[kind])) draft[kind] = values[kind];
   }
   const b = contact.birthday;
   const next = values.birthdays[0];
@@ -199,6 +243,8 @@ class LabeledList {
   constructor(
     private kind: ListKind,
     values: Labeled[],
+    /** A <datalist> of suggestions for the values. */
+    private suggestions?: string,
   ) {
     this.add = el("button", "link-button", LIST_NAMES[kind][1]);
     this.add.type = "button";
@@ -219,6 +265,7 @@ class LabeledList {
       this.kind === "addresses" ? el("textarea", "text-input labeled-value") : el("input", "text-input labeled-value");
     if (input instanceof HTMLInputElement) {
       input.type = this.kind === "emails" ? "email" : this.kind === "phones" ? "tel" : this.kind === "urls" ? "url" : "text";
+      if (this.suggestions) input.setAttribute("list", this.suggestions);
     } else {
       input.rows = 2;
       // Places only: not other people's addresses.
@@ -249,6 +296,89 @@ class LabeledList {
   }
 }
 
+/** The side of a contact's photo, in pixels: a square, as Google shows it. */
+const PHOTO_SIZE = 512;
+
+/** Their photo: Choose… (or Change…) and Remove. */
+class PhotoField {
+  node = el("div", "form-controls photo-field");
+  /** A new photo to put on, as base64 JPEG. */
+  chosen: string | null = null;
+  /** The one they had is to come off. */
+  removed = false;
+  private preview = el("span", "avatar avatar-large photo-preview");
+  private choose = el("button", "link-button");
+  private remove = el("button", "link-button", "Remove");
+  private picker = el("input");
+  private note = el("span", "form-notes");
+
+  constructor(private current: string | null) {
+    this.picker.type = "file";
+    this.picker.accept = "image/*";
+    this.picker.hidden = true;
+    this.choose.type = "button";
+    this.remove.type = "button";
+    this.choose.addEventListener("click", () => this.picker.click());
+    this.remove.addEventListener("click", () => {
+      this.chosen = null;
+      this.removed = true;
+      this.draw(null);
+    });
+    this.picker.addEventListener("change", async () => {
+      const file = this.picker.files?.[0];
+      this.picker.value = "";
+      if (!file) return;
+      this.note.textContent = "";
+      try {
+        this.chosen = await squarePhoto(file);
+        this.removed = false;
+        this.draw(`data:image/jpeg;base64,${this.chosen}`);
+      } catch {
+        this.note.textContent = "That picture couldn't be opened. Try a JPEG or PNG.";
+      }
+    });
+    this.preview.setAttribute("aria-hidden", "true");
+    this.node.append(this.preview, this.choose, this.remove, this.picker, this.note);
+    this.draw(current);
+  }
+
+  changed(): boolean {
+    return this.chosen !== null || (this.removed && this.current !== null);
+  }
+
+  private draw(src: string | null): void {
+    if (src) {
+      const img = el("img");
+      img.alt = "";
+      img.referrerPolicy = "no-referrer";
+      img.src = src;
+      this.preview.replaceChildren(img);
+    } else this.preview.replaceChildren(el("span", "avatar-initials", "—"));
+    this.choose.textContent = src ? "Change…" : "Choose…";
+    this.remove.hidden = !src;
+  }
+}
+
+/** `file` as a square photo (the middle of it), at most PHOTO_SIZE across, as base64 JPEG. */
+async function squarePhoto(file: File): Promise<string> {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    const side = Math.min(img.naturalWidth, img.naturalHeight);
+    if (!side) throw new Error("no picture");
+    const size = Math.min(PHOTO_SIZE, side);
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = size;
+    const context = canvas.getContext("2d")!;
+    context.drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, size, size);
+    return canvas.toDataURL("image/jpeg", 0.88).split(",")[1];
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 /** Month, day and (optional) year: Google keeps birthdays without a year. */
 class BirthdayField {
   private month = el("select", "text-input");
@@ -262,7 +392,7 @@ class BirthdayField {
     this.day.append(new Option("Day", ""), ...Array.from({ length: 31 }, (_, i) => new Option(String(i + 1), String(i + 1))));
     this.year.type = "number";
     this.year.placeholder = "Year";
-    this.year.min = "1900";
+    this.year.min = "1"; // any year (Demo mode's people were born in the 1700s)
     this.year.max = String(new Date().getFullYear());
     this.month.setAttribute("aria-label", "Birthday month");
     this.day.setAttribute("aria-label", "Birthday day");

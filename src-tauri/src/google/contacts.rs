@@ -1,5 +1,5 @@
 //! Google People API v1: the contacts in an account (what Google Contacts
-//! shows), and adding, changing, starring and deleting them.
+//! shows), and adding, changing, starring and deleting them, and their photos.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
@@ -12,7 +12,7 @@ const API: &str = "https://people.googleapis.com/v1";
 
 /// The parts of a contact the app shows and edits.
 const PERSON_FIELDS: &str = "names,nicknames,emailAddresses,phoneNumbers,addresses,organizations,birthdays,\
-                             biographies,urls,photos,memberships,metadata";
+                             biographies,urls,photos,memberships,metadata,relations";
 
 /// The group Google Contacts calls "Favorites".
 const STARRED: &str = "contactGroups/starred";
@@ -42,6 +42,23 @@ struct Person {
     urls: Vec<Field>,
     photos: Vec<Photo>,
     memberships: Vec<Membership>,
+    relations: Vec<Relation>,
+}
+
+/// Someone they're related to: a name, and how ("spouse", "child"…, or your own word).
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct Relation {
+    person: Option<String>,
+    #[serde(rename = "type")]
+    kind: Option<String>,
+}
+
+/// What Google sends back after a photo is changed.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct PhotoResponse {
+    person: Option<Person>,
 }
 
 #[derive(Deserialize, Default)]
@@ -163,6 +180,9 @@ pub struct Contact {
     pub photo: Option<String>,
     /// In Favorites.
     pub starred: bool,
+    /// People they're related to: `value` a name, `label` how ("spouse", "child"…).
+    #[serde(default)]
+    pub relations: Vec<Labeled>,
 }
 
 /// A new contact, or changes to one. For changes, a field left out (null)
@@ -184,6 +204,7 @@ pub struct ContactDraft {
     /// Empty clears the birthday.
     pub birthdays: Option<Vec<Birthday>>,
     pub notes: Option<String>,
+    pub relations: Option<Vec<Labeled>>,
 }
 
 impl ContactDraft {
@@ -246,7 +267,15 @@ impl ContactDraft {
                 if notes.is_empty() { json!([]) } else { json!([{ "value": notes, "contentType": "TEXT_PLAIN" }]) };
             put("biographies", biographies);
         }
+        if let Some(relations) = &self.relations {
+            put("relations", labeled_json(relations, "person"));
+        }
         (Value::Object(person), fields)
+    }
+
+    /// Whether it changes anything.
+    pub fn is_empty(&self) -> bool {
+        self.to_json().1.is_empty()
     }
 }
 
@@ -355,6 +384,81 @@ pub async fn set_starred(
     to_contact(account, saved).ok_or_else(|| AppError::Api { status: 404, message: "the contact was deleted".into() })
 }
 
+/// Most a contact's photo can be (Google's limit is larger; the app sends a small square).
+pub const MAX_PHOTO_BYTES: usize = 5 * 1024 * 1024;
+
+/// Sets a contact's photo (`photo`: a JPEG or PNG); returns them as they are now.
+pub async fn set_photo(
+    http: &reqwest::Client,
+    token: &str,
+    account: &str,
+    resource_name: &str,
+    photo: &[u8],
+) -> Result<Contact> {
+    use base64::Engine as _;
+    if photo.is_empty() || photo.len() > MAX_PHOTO_BYTES {
+        return Err(AppError::InvalidInput("a photo can be up to 5 MB".into()));
+    }
+    let url = person_url(resource_name, "updateContactPhoto")?;
+    let body = json!({
+        "photoBytes": base64::engine::general_purpose::STANDARD.encode(photo),
+        "personFields": PERSON_FIELDS,
+    });
+    let saved: PhotoResponse = send(http.patch(url).bearer_auth(token).json(&body)).await?;
+    photo_result(http, token, account, resource_name, saved).await
+}
+
+/// Takes a contact's photo off; returns them as they are now.
+pub async fn remove_photo(http: &reqwest::Client, token: &str, account: &str, resource_name: &str) -> Result<Contact> {
+    let mut url = person_url(resource_name, "deleteContactPhoto")?;
+    url.query_pairs_mut().append_pair("personFields", PERSON_FIELDS);
+    let saved: PhotoResponse = send(http.delete(url).bearer_auth(token)).await?;
+    photo_result(http, token, account, resource_name, saved).await
+}
+
+/// The person Google sent back, or (if it didn't) them as they are now.
+async fn photo_result(
+    http: &reqwest::Client,
+    token: &str,
+    account: &str,
+    resource_name: &str,
+    saved: PhotoResponse,
+) -> Result<Contact> {
+    let person = match saved.person {
+        Some(person) => person,
+        None => {
+            let mut url = person_url(resource_name, "")?;
+            url.query_pairs_mut().append_pair("personFields", PERSON_FIELDS);
+            send(http.get(url).bearer_auth(token)).await?
+        }
+    };
+    to_contact(account, person).ok_or_else(|| AppError::Api { status: 404, message: "the contact was deleted".into() })
+}
+
+/// A contact's photo, from where Google keeps it (to give it to another
+/// contact when two are merged). Only Google's own photo addresses.
+pub async fn photo_bytes(http: &reqwest::Client, photo_url: &str) -> Result<Vec<u8>> {
+    let response = http.get(google_photo(photo_url)?).send().await?;
+    if !response.status().is_success() {
+        return Err(AppError::Api { status: response.status().as_u16(), message: "couldn't get the photo".into() });
+    }
+    let bytes = response.bytes().await?;
+    if bytes.len() > MAX_PHOTO_BYTES {
+        return Err(AppError::InvalidInput("the photo is too big".into()));
+    }
+    Ok(bytes.to_vec())
+}
+
+/// `photo_url`, if it's one of Google's photos (https, on googleusercontent.com).
+fn google_photo(photo_url: &str) -> Result<Url> {
+    let url = Url::parse(photo_url).map_err(|_| AppError::InvalidInput("not a photo address".into()))?;
+    let google = url.host_str().is_some_and(|h| h == "googleusercontent.com" || h.ends_with(".googleusercontent.com"));
+    if url.scheme() != "https" || !google {
+        return Err(AppError::InvalidInput("not one of Google's photos".into()));
+    }
+    Ok(url)
+}
+
 fn api_url(segments: &[&str]) -> Url {
     let mut url = Url::parse(API).expect("valid URL");
     url.path_segments_mut().expect("base URL").extend(segments);
@@ -407,6 +511,11 @@ fn to_contact(account: &str, person: Person) -> Option<Contact> {
         starred: person.memberships.iter().any(|m| {
             m.contact_group_membership.as_ref().and_then(|g| g.contact_group_resource_name.as_deref()) == Some(STARRED)
         }),
+        relations: person
+            .relations
+            .into_iter()
+            .filter_map(|r| Some(Labeled { value: r.person.filter(|v| !v.trim().is_empty())?, label: r.kind }))
+            .collect(),
         etag: person.etag,
         resource_name: person.resource_name,
     })
@@ -439,6 +548,37 @@ mod tests {
         assert!(contact.birthday.as_ref().is_some_and(|b| b.year.is_none() && b.month == 3));
         assert!(contact.photo.is_none(), "Google's letter picture isn't a photo");
         assert!(contact.starred);
+    }
+
+    #[test]
+    fn reads_and_sends_relations() {
+        let person: Person = serde_json::from_value(json!({
+            "resourceName": "people/c7",
+            "relations": [{ "person": "Rachel Revere", "type": "spouse" }, { "person": " " }]
+        }))
+        .unwrap();
+        let contact = to_contact("me@example.com", person).unwrap();
+        assert_eq!(contact.relations.len(), 1);
+        assert_eq!(contact.relations[0].value, "Rachel Revere");
+        assert_eq!(contact.relations[0].label.as_deref(), Some("spouse"));
+
+        let draft = ContactDraft {
+            relations: Some(vec![Labeled { value: "Paul Revere Jr.".into(), label: Some("child".into()) }]),
+            ..Default::default()
+        };
+        let (json, fields) = draft.to_json();
+        assert_eq!(fields, ["relations"]);
+        assert_eq!(json["relations"], json!([{ "person": "Paul Revere Jr.", "type": "child" }]));
+        assert!(!draft.is_empty());
+        assert!(ContactDraft::default().is_empty());
+    }
+
+    #[test]
+    fn copies_only_googles_photos() {
+        assert!(google_photo("https://lh3.googleusercontent.com/a/xyz=s100").is_ok());
+        for url in ["http://lh3.googleusercontent.com/a", "https://example.com/a.jpg", "https://googleusercontent.com.evil.test/a"] {
+            assert!(google_photo(url).is_err(), "{url}");
+        }
     }
 
     #[test]

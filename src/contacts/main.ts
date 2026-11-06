@@ -22,6 +22,8 @@ import {
   getSavedContacts,
   isNotSignedIn,
   logInteraction,
+  mergeContacts,
+  saveContactCard,
   setContactStarred,
   signIn,
   updateContact,
@@ -46,7 +48,23 @@ import { avatar, isMac, renderCard, type CardActions } from "./card";
 import { openContactForm } from "./form";
 import { openCalendar } from "./open";
 import { describeLatest, historyOf, KIND_WORDS, latestByContact, recentContacts } from "./history";
-import { dialable, displayName, indexLetter, labelText, newValues, upcomingBirthdays, whenBirthday, workLine } from "./model";
+import {
+  bestToKeep,
+  cardText,
+  dialable,
+  displayName,
+  findDuplicates,
+  groupKey,
+  indexLetter,
+  labelText,
+  mergeOf,
+  newValues,
+  toVCard,
+  turning,
+  upcomingBirthdays,
+  whenBirthday,
+  workLine,
+} from "./model";
 import { eventSentence, interpret, type Action, type Intent, type ParsedContact } from "./parse";
 
 /** How often to fetch contacts again while the window's in view. */
@@ -55,6 +73,8 @@ const SYNC_EVERY_MS = 5 * 60 * 1000;
 const BIRTHDAY_DAYS = 14;
 /** The account new contacts go in, as last chosen. */
 const ACCOUNT_STORAGE_KEY = "contacts.account";
+/** Groups of possible duplicates you said aren't the same person (`groupKey`s, JSON). */
+const NOT_DUPLICATES_KEY = "contacts.notDuplicates";
 
 const input = document.querySelector<HTMLInputElement>("#ask")!;
 const hint = document.querySelector<HTMLElement>("#hint")!;
@@ -78,6 +98,28 @@ let lastSync = 0;
 let latestRequest = 0;
 
 const contacts = () => list?.contacts ?? [];
+
+/** Possible duplicates (same account), worked out again when the list changes. */
+let duplicateGroups: Contact[][] = [];
+let duplicatesOfList: ContactList | undefined;
+
+function notDuplicates(): Set<string> {
+  try {
+    return new Set(JSON.parse(readSaved(NOT_DUPLICATES_KEY) ?? "[]") as string[]);
+  } catch {
+    return new Set();
+  }
+}
+
+function duplicates(): Contact[][] {
+  if (duplicatesOfList !== list) {
+    duplicateGroups = findDuplicates(contacts(), notDuplicates());
+    duplicatesOfList = list;
+  }
+  return duplicateGroups;
+}
+
+const groupOf = (contact: Contact) => duplicates().find((g) => g.some((c) => c.id === contact.id)) ?? null;
 const selected = () => contacts().find((c) => c.id === selectedId) ?? null;
 
 /** Accounts that allow contacts, the one last used for new contacts first. */
@@ -357,6 +399,15 @@ function drawList(): void {
   if (!typed) {
     people = [];
     const today = new Date();
+    const groups = duplicates();
+    if (groups.length) {
+      // As Google Contacts' "Merge & fix": a line to review them.
+      const notice = el("button", "duplicates-notice");
+      notice.type = "button";
+      notice.textContent = groups.length === 1 ? "1 possible duplicate · Review…" : `${groups.length} possible duplicates · Review…`;
+      notice.addEventListener("click", () => reviewDuplicates(groups));
+      sections.push(notice);
+    }
     const recent = recentContacts(all, log);
     if (recent.length) {
       const latest = latestByContact(log);
@@ -367,7 +418,10 @@ function drawList(): void {
     const birthdays = upcomingBirthdays(all, today, BIRTHDAY_DAYS);
     if (birthdays.length) {
       sections.push(heading("Birthdays"));
-      for (const c of birthdays) sections.push(row(c, `${whenBirthday(c.birthday!, today)} 🎂`));
+      for (const c of birthdays) {
+        const age = turning(c.birthday!, today);
+        sections.push(row(c, `${whenBirthday(c.birthday!, today)}${age ? `, turning ${age}` : ""} 🎂`));
+      }
       people.push(...birthdays);
     }
     const favorites = all.filter((c) => c.starred);
@@ -669,7 +723,8 @@ async function addNote(contact: Contact, text: string): Promise<void> {
 }
 
 /** Puts a just-saved contact in the list (Google can take a moment to list it) and shows them. */
-function saved(contact: Contact): void {
+function saved(contact: Contact, warning?: string): void {
+  if (warning) banner.replaceChildren(el("p", "warning", warning));
   if (!list) return;
   const others = list.contacts.filter((c) => c.id !== contact.id);
   list = { ...list, contacts: [...others, contact].sort(byName) };
@@ -683,7 +738,7 @@ const byName = (a: Contact, b: Contact) =>
 
 const cardActions: CardActions = {
   perform: (action, contact, anchor) => act(action, contact, anchor),
-  edit: (contact) => openContactForm(contact, null, usableAccounts(), saved),
+  edit: (contact) => openContactForm(contact, null, usableAccounts(), saved, contacts().map(displayName)),
   async remove(contact) {
     const answer = await ask(`Delete ${displayName(contact)}?`, `They're deleted from ${contact.account}'s Google Contacts too.`, [
       ["delete", "Delete contact", true],
@@ -724,7 +779,178 @@ const cardActions: CardActions = {
     body.classList.remove("card-open");
     input.focus();
   },
+  showPerson(name) {
+    const wanted = name.trim().toLowerCase();
+    const match = contacts().find((c) => displayName(c).toLowerCase() === wanted);
+    if (match) return select(match, true);
+    // Not in Contacts by that name: find them as typed.
+    input.value = name;
+    body.classList.remove("card-open");
+    update();
+    input.focus();
+  },
+  share: (contact, anchor) => shareMenu(contact, anchor),
+  duplicatesOf: (contact) => groupOf(contact)?.filter((c) => c.id !== contact.id) ?? [],
+  reviewDuplicates(contact) {
+    const group = groupOf(contact);
+    if (group) reviewDuplicates([group]);
+  },
 };
+
+// ---------- Sharing ----------
+
+/** Share…: the share sheet (phones), copy as text, or save the contact card (.vcf). */
+function shareMenu(contact: Contact, anchor: HTMLElement): void {
+  const name = displayName(contact);
+  const vcard = toVCard(contact);
+  const file = new File([vcard], `${name.replace(/[/\\:*?"<>|]+/g, " ").trim() || "Contact"}.vcf`, { type: "text/vcard" });
+  const done = (text: string, kind = "notice") => {
+    const line = el("p", kind, text);
+    banner.replaceChildren(line);
+    // A note that it worked goes after a moment; an error stays.
+    if (kind === "notice") window.setTimeout(() => line.remove(), 5000);
+  };
+  const items: [string, () => void][] = [];
+  if (navigator.canShare?.({ files: [file] })) {
+    items.push([
+      "Share…",
+      () =>
+        void navigator.share({ files: [file], title: name }).catch((e: unknown) => {
+          if ((e as Error).name !== "AbortError") done(`Couldn't share: ${errorMessage(e)}`, "error");
+        }),
+    ]);
+  }
+  items.push([
+    "Copy as text",
+    () =>
+      void navigator.clipboard.writeText(cardText(contact)).then(
+        () => done(`Copied ${name}'s details.`),
+        (e: unknown) => done(`Couldn't copy: ${errorMessage(e)}`, "error"),
+      ),
+  ]);
+  if (isTauri()) {
+    items.push([
+      "Save contact card",
+      () =>
+        void saveContactCard(name, vcard).then(
+          (path) => done(`Saved ${path}`),
+          (e: unknown) => done(`Couldn't save it: ${errorMessage(e)}`, "error"),
+        ),
+    ]);
+  } else {
+    items.push([
+      "Download contact card (.vcf)",
+      () => {
+        const link = el("a");
+        link.href = URL.createObjectURL(file);
+        link.download = file.name;
+        link.click();
+        window.setTimeout(() => URL.revokeObjectURL(link.href), 10_000);
+      },
+    ]);
+  }
+  const rect = anchor.getBoundingClientRect();
+  showMenu(rect.left, rect.bottom + 4, items);
+}
+
+// ---------- Duplicates ----------
+
+/** "2 phones · 3 emails · birthday · photo": what someone has, in short. */
+function holdings(contact: Contact): string {
+  const count = (n: number, one: string) => (n ? `${n} ${one}${n === 1 ? "" : "s"}` : "");
+  return [
+    count(contact.phones.length, "phone"),
+    count(contact.emails.length, "email"),
+    count(contact.addresses.length, "address"),
+    contact.birthday ? "birthday" : "",
+    contact.notes ? "notes" : "",
+    contact.photo ? "photo" : "",
+  ]
+    .filter(Boolean)
+    .join(" · ")
+    .replace("addresss", "addresses");
+}
+
+/**
+ * The review of possible duplicates, as Google Contacts' "Merge & fix" and
+ * Cardhop do: each group, what merging makes of it, and Merge or Not the
+ * same person.
+ */
+function reviewDuplicates(groups: Contact[][]): void {
+  const dialog = el("dialog", "dialog duplicates-dialog");
+  dialog.setAttribute("aria-labelledby", "duplicates-title");
+  document.body.append(dialog);
+  dialog.addEventListener("close", () => dialog.remove());
+  const title = el("h2", undefined, groups.length === 1 ? "Possible duplicate" : "Possible duplicates");
+  title.id = "duplicates-title";
+  const intro = el(
+    "p",
+    "form-notes",
+    "These look like the same person, listed more than once in one account (the same email, phone number or name). Merge keeps one contact with everything from all of them, and deletes the others from Google Contacts.",
+  );
+  const box = el("div", "duplicate-groups");
+  for (const group of groups) box.append(duplicateGroup(group, dialog));
+  const close = el("button", "primary-button", "Done");
+  close.type = "button";
+  close.addEventListener("click", () => dialog.close());
+  const buttons = el("div", "dialog-buttons");
+  buttons.append(close);
+  dialog.append(title, intro, box, buttons);
+  dialog.showModal();
+  close.focus();
+}
+
+function duplicateGroup(group: Contact[], dialog: HTMLDialogElement): HTMLElement {
+  const section = el("section", "duplicate-group");
+  const keep = bestToKeep(group);
+  const others = group.filter((c) => c !== keep);
+  const merge = mergeOf(keep, others);
+  for (const contact of group) {
+    const line = el("div", "duplicate-person");
+    const text = el("span", "contact-row-text");
+    text.append(el("span", "contact-row-name", displayName(contact)));
+    const detail = [contact.emails[0]?.value, contact.phones[0]?.value, holdings(contact)].filter(Boolean).join(" · ");
+    if (detail) text.append(el("span", "contact-row-detail", detail));
+    line.append(avatar(contact, "small"), text);
+    section.append(line);
+  }
+  const accounts = new Set((list?.accounts ?? []).map((a) => a.email));
+  const where = accounts.size > 1 ? ` in ${keep.account}` : "";
+  section.append(el("p", "duplicate-result", `Merged: ${displayName(merge.result)}${where} · ${holdings(merge.result) || "no details"}`));
+  const error = el("p", "error");
+  const separate = el("button", "text-button", "Not the same person");
+  separate.type = "button";
+  separate.addEventListener("click", () => {
+    const kept = notDuplicates();
+    kept.add(groupKey(group));
+    save(NOT_DUPLICATES_KEY, JSON.stringify([...kept]));
+    duplicatesOfList = undefined;
+    section.replaceChildren(el("p", "duplicate-result", "Kept apart."));
+    update();
+  });
+  const mergeButton = el("button", "primary-button", "Merge");
+  mergeButton.type = "button";
+  mergeButton.addEventListener("click", async () => {
+    mergeButton.disabled = separate.disabled = true;
+    error.textContent = "";
+    try {
+      const result = await mergeContacts(contactRef(keep), others.map(contactRef), merge.draft, merge.photo, merge.starred);
+      const gone = new Set(others.map((c) => c.id));
+      log = log.map((e) => (gone.has(e.contactId) ? { ...e, contactId: result.id } : e));
+      if (list) list = { ...list, contacts: list.contacts.filter((c) => !gone.has(c.id)) };
+      saved(result);
+      section.replaceChildren(el("p", "duplicate-result", `Merged into ${displayName(result)}.`));
+      if (!dialog.querySelector(".duplicate-group button")) dialog.querySelector<HTMLButtonElement>(".primary-button")?.focus();
+    } catch (e) {
+      error.textContent = `Couldn't merge them: ${errorMessage(e)}`;
+      mergeButton.disabled = separate.disabled = false;
+    }
+  });
+  const buttons = el("div", "duplicate-buttons");
+  buttons.append(separate, mergeButton);
+  section.append(error, buttons);
+  return section;
+}
 
 /** An event with someone: its details, editable as in the calendar. */
 function showEvent(item: AgendaItem): void {
@@ -758,6 +984,7 @@ function setUp(): void {
   placeholder();
   setUpDockMenu(document.querySelector("#menu-button")!, document.querySelector("#menu")!, (line) => [
     line("Refresh", () => void load()),
+    line("Find duplicates…", () => (duplicates().length ? reviewDuplicates(duplicates()) : banner.replaceChildren(el("p", "notice", "No duplicates found.")))),
     el("hr", "menu-line"),
     line("Settings…", showSettings),
   ]);
@@ -866,11 +1093,17 @@ function keepBoxAboveKeyboard(): void {
 function newContact(): void {
   if (!list) return;
   const start = intent.kind === "add" ? intent.details : intent.kind === "search" ? intent.add : null;
-  openContactForm(null, start, usableAccounts(), (contact) => {
-    input.value = "";
-    saved(contact);
-    record(contact, "added");
-  });
+  openContactForm(
+    null,
+    start,
+    usableAccounts(),
+    (contact, warning) => {
+      input.value = "";
+      saved(contact, warning);
+      record(contact, "added");
+    },
+    contacts().map(displayName),
+  );
 }
 
 /** Shows `query` in the box (from the calendar: a guest's address, say). */

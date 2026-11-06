@@ -10,7 +10,7 @@ const API = "https://people.googleapis.com/v1";
 
 /** The parts of a contact the app shows and edits. */
 const PERSON_FIELDS =
-  "names,nicknames,emailAddresses,phoneNumbers,addresses,organizations,birthdays,biographies,urls,photos,memberships,metadata";
+  "names,nicknames,emailAddresses,phoneNumbers,addresses,organizations,birthdays,biographies,urls,photos,memberships,metadata,relations";
 
 /** The group Google Contacts calls "Favorites". */
 const STARRED = "contactGroups/starred";
@@ -36,6 +36,7 @@ interface Person {
   urls?: Field[];
   photos?: { url?: string; default?: boolean }[];
   memberships?: { contactGroupMembership?: { contactGroupResourceName?: string } }[];
+  relations?: { person?: string; type?: string }[];
 }
 
 /** Every account's contacts, sorted by name. */
@@ -128,6 +129,91 @@ export async function setStarred(env: Env, target: ContactRef, starred: boolean)
   return savedContact(target.email, await google<Person>(token, person.toString()));
 }
 
+/** Most a contact's photo can be (the page sends a small square). */
+const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
+
+/** Sets a contact's photo (`data`: a JPEG or PNG, base64); returns them as they are now. */
+export async function setPhoto(env: Env, target: ContactRef, data: string): Promise<Contact> {
+  const token = await accessToken(env, await findAccount(env, target.email));
+  return setPhotoWith(token, target, data);
+}
+
+async function setPhotoWith(token: string, target: ContactRef, data: string): Promise<Contact> {
+  const photoBytes = data.trim();
+  if (!/^[A-Za-z0-9+/]+=*$/.test(photoBytes) || photoBytes.length > (MAX_PHOTO_BYTES * 4) / 3 + 4) {
+    throw invalidInput("a photo can be up to 5 MB");
+  }
+  const saved = await google<{ person?: Person }>(token, personUrl(target.resourceName, "updateContactPhoto"), {
+    method: "PATCH",
+    body: JSON.stringify({ photoBytes, personFields: PERSON_FIELDS }),
+  });
+  return saved.person ? savedContact(target.email, saved.person) : getContact(token, target.email, target.resourceName);
+}
+
+/** Takes a contact's photo off; returns them as they are now. */
+export async function removePhoto(env: Env, target: ContactRef): Promise<Contact> {
+  const token = await accessToken(env, await findAccount(env, target.email));
+  const url = new URL(personUrl(target.resourceName, "deleteContactPhoto"));
+  url.searchParams.set("personFields", PERSON_FIELDS);
+  const saved = await google<{ person?: Person } | undefined>(token, url.toString(), { method: "DELETE" });
+  return saved?.person ? savedContact(target.email, saved.person) : getContact(token, target.email, target.resourceName);
+}
+
+async function getContact(token: string, account: string, resourceName: string): Promise<Contact> {
+  const url = new URL(personUrl(resourceName, ""));
+  url.searchParams.set("personFields", PERSON_FIELDS);
+  return savedContact(account, await google<Person>(token, url.toString()));
+}
+
+/** A photo's bytes as base64, if it's one of Google's photos (to give to another contact on a merge). */
+async function googlePhoto(photoUrl: string): Promise<string | null> {
+  let url: URL;
+  try {
+    url = new URL(photoUrl);
+  } catch {
+    return null;
+  }
+  const host = url.hostname;
+  if (url.protocol !== "https:" || !(host === "googleusercontent.com" || host.endsWith(".googleusercontent.com"))) return null;
+  const response = await fetch(url.toString()).catch(() => null);
+  if (!response?.ok) return null;
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (bytes.length > MAX_PHOTO_BYTES) return null;
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(binary);
+}
+
+/**
+ * Merges duplicates into `keep`, as Google Contacts' Merge does: it gets
+ * `draft` (everything of theirs together, worked out by the page), `photo`
+ * (another's, when it has none) and Favorites if any was; the others are
+ * deleted. All in the same account. Returns the one kept, as saved.
+ */
+export async function mergeContacts(
+  env: Env,
+  keep: ContactRef,
+  others: ContactRef[],
+  draft: ContactDraft,
+  photo: string | null,
+  starred: boolean,
+): Promise<Contact> {
+  if (!others.length || others.some((o) => o.email !== keep.email || o.resourceName === keep.resourceName)) {
+    throw invalidInput("only other contacts in the same account can be merged");
+  }
+  const token = await accessToken(env, await findAccount(env, keep.email));
+  let saved: Contact | null = null;
+  if (personJson(draft).fields.length) saved = await updateContact(env, keep, draft);
+  if (photo) {
+    // A photo that can't be copied isn't worth stopping the merge for.
+    const data = await googlePhoto(photo);
+    if (data) saved = (await setPhotoWith(token, keep, data).catch(() => null)) ?? saved;
+  }
+  if (starred && !saved?.starred) saved = await setStarred(env, keep, true);
+  for (const other of others) await deleteContact(env, other);
+  return saved ?? getContact(token, keep.email, keep.resourceName);
+}
+
 /** ".../people/c123:<method>". The name comes from the page, so it's checked to be a person's ID. */
 function personUrl(resourceName: string, method: string): string {
   const id = /^people\/([A-Za-z0-9_-]+)$/.exec(resourceName)?.[1];
@@ -178,6 +264,7 @@ function personJson(draft: ContactDraft): { person: Record<string, unknown>; fie
   if (draft.notes !== undefined) {
     put("biographies", text(draft.notes) ? [{ value: text(draft.notes), contentType: "TEXT_PLAIN" }] : []);
   }
+  if (draft.relations) put("relations", labeled(draft.relations, "person"));
   return { person, fields };
 }
 
@@ -209,5 +296,8 @@ function toContact(account: string, person: Person): Contact | null {
     notes: person.biographies?.find((b) => b.value?.trim())?.value ?? null,
     photo: person.photos?.find((p) => !p.default)?.url ?? null,
     starred: (person.memberships ?? []).some((m) => m.contactGroupMembership?.contactGroupResourceName === STARRED),
+    relations: (person.relations ?? [])
+      .filter((r) => r.person?.trim())
+      .map((r) => ({ value: r.person!, label: r.type ?? null })),
   };
 }

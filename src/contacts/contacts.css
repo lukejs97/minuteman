@@ -676,3 +676,107 @@ main.contacts-main {
     padding-bottom: calc(24px + 50px + 12px + 46px + 16px + env(safe-area-inset-bottom));
   }
 }
+
+/* ---------- Photos, duplicates and sharing ---------- */
+
+/* A message that something worked ("Copied Sam's details."). */
+.notice {
+  margin: 16px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  background: var(--surface);
+}
+
+/* The form's Photo row: the picture, Choose… / Change…, Remove. */
+.photo-field {
+  align-items: center;
+  gap: 12px;
+}
+
+.photo-preview {
+  width: 56px;
+  height: 56px;
+  font-size: 18px;
+}
+
+.photo-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* "Looks like the same person as Sam Adams. Merge…" on a card. */
+.card-duplicate {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  margin: 12px 0 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  background: var(--warning-bg);
+}
+
+/* "2 possible duplicates · Review…" at the top of the list. */
+.duplicates-notice {
+  display: block;
+  width: calc(100% - 16px);
+  margin: 6px 8px 4px;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  text-align: left;
+  color: var(--text);
+  background: var(--warning-bg);
+}
+
+.duplicates-notice:hover {
+  filter: brightness(0.97);
+}
+
+.duplicates-dialog {
+  width: min(560px, calc(100vw - 32px));
+}
+
+.duplicate-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: min(60vh, 520px);
+  margin: 12px 0;
+  overflow-y: auto;
+}
+
+.duplicate-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.duplicate-person {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.duplicate-result {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.duplicate-group .error:empty {
+  display: none;
+}
+
+.duplicate-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}

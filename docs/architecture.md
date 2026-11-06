@@ -327,8 +327,23 @@ Minuteman's Cardhop: a second page, `contacts.html` (Vite builds both pages,
   People API: `people/me/connections` (all pages), `people:createContact`,
   `people/{id}:updateContact` with `updatePersonFields` listing only the
   fields in the `ContactDraft` (left out = unchanged, empty = cleared) and the
-  `etag` it was read at, `:deleteContact`, and `contactGroups/starred/members:modify`
-  for Favorites. Resource names from the page are checked to be `people/<id>`.
+  `etag` it was read at, `:deleteContact`, `contactGroups/starred/members:modify`
+  for Favorites, and `:updateContactPhoto` / `:deleteContactPhoto` (the page
+  sends a square JPEG at most 512 pixels across). `relations` are read and
+  written like the other labeled lists. Resource names from the page are
+  checked to be `people/<id>`.
+- **Duplicates** (`findDuplicates`, `mergeOf` in contacts/model.ts): people in
+  the same account sharing an email, a phone number (last ten digits) or a
+  whole name. The page works out the merged contact; `merge_contacts` saves
+  it on the one kept, copies another's photo when it has none (only from
+  googleusercontent.com), adds it to Favorites if any was, deletes the
+  others and moves their History to it. Groups marked "Not the same person"
+  are remembered per device (`contacts.notDuplicates` in localStorage).
+- **Sharing** (`toVCard`, `cardText`): a vCard 3.0, with Apple's
+  `X-ABRELATEDNAMES` for relations and `X-APPLE-OMIT-YEAR` for a birthday
+  without a year; the share sheet where the browser can share files,
+  otherwise copy as text or save it (`save_contact_card` writes it to
+  Downloads and shows it; the website downloads it).
   Addresses are read and written as Google's `formattedValue`, so an address
   is only sent back when it was edited. Accounts without the scope come back
   with `canUse: false`, and the page offers **Allow…** (`sign_in` again).

@@ -601,6 +601,136 @@ async fn set_contact_starred(
     Ok(saved)
 }
 
+/// Sets a contact's photo (`data`: a JPEG or PNG, base64); returns them as saved.
+#[tauri::command]
+async fn set_contact_photo(
+    state: State<'_, AppState>,
+    cache: State<'_, ContactsCache>,
+    target: ContactRef,
+    data: String,
+) -> Result<Contact> {
+    use base64::Engine as _;
+    let photo = base64::engine::general_purpose::STANDARD
+        .decode(data.trim())
+        .map_err(|_| AppError::InvalidInput("that isn't a picture".into()))?;
+    let token = state.google_auth.access_token(&target.email).await?;
+    let saved =
+        google::contacts::set_photo(&state.http, &token, &target.email, &target.resource_name, &photo).await?;
+    cache.put(&saved);
+    Ok(saved)
+}
+
+/// Takes a contact's photo off; returns them as saved.
+#[tauri::command]
+async fn remove_contact_photo(
+    state: State<'_, AppState>,
+    cache: State<'_, ContactsCache>,
+    target: ContactRef,
+) -> Result<Contact> {
+    let token = state.google_auth.access_token(&target.email).await?;
+    let saved = google::contacts::remove_photo(&state.http, &token, &target.email, &target.resource_name).await?;
+    cache.put(&saved);
+    Ok(saved)
+}
+
+/// Merges duplicates into one, as Google Contacts' Merge does: `keep` gets
+/// `contact` (everything of theirs together, worked out by the page),
+/// `photo` (another's, when it has none) and Favorites if any was; the
+/// others are deleted, and what's logged with them moves to it. All in the
+/// same account. Returns the one kept, as saved.
+// A Tauri command's arguments are what the page sends.
+#[allow(clippy::too_many_arguments)]
+#[tauri::command]
+async fn merge_contacts(
+    state: State<'_, AppState>,
+    cache: State<'_, ContactsCache>,
+    interactions: State<'_, Interactions>,
+    keep: ContactRef,
+    others: Vec<ContactRef>,
+    contact: ContactDraft,
+    photo: Option<String>,
+    starred: bool,
+) -> Result<Contact> {
+    if others.is_empty() || others.iter().any(|o| o.email != keep.email || o.resource_name == keep.resource_name) {
+        return Err(AppError::InvalidInput("only other contacts in the same account can be merged".into()));
+    }
+    let (http, email, name) = (&state.http, &keep.email, &keep.resource_name);
+    let token = state.google_auth.access_token(email).await?;
+    let mut saved = if contact.is_empty() {
+        None
+    } else {
+        Some(google::contacts::update_contact(http, &token, email, name, keep.etag.as_deref(), &contact).await?)
+    };
+    if let Some(url) = photo {
+        // A photo that can't be copied isn't worth stopping the merge for.
+        if let Ok(bytes) = google::contacts::photo_bytes(http, &url).await {
+            saved = google::contacts::set_photo(http, &token, email, name, &bytes).await.ok().or(saved);
+        }
+    }
+    if starred && !saved.as_ref().is_some_and(|c| c.starred) {
+        saved = Some(google::contacts::set_starred(http, &token, email, name, true).await?);
+    }
+    let mut moved = Vec::new();
+    for other in &others {
+        google::contacts::delete_contact(http, &token, &other.resource_name).await?;
+        let id = format!("{}/{}", other.email, other.resource_name);
+        cache.remove(&id);
+        moved.push(id);
+    }
+    interactions.move_contacts(&moved, &format!("{email}/{name}"));
+    let saved = match saved {
+        Some(saved) => saved,
+        // Nothing of theirs changed: them as they are, for the latest version.
+        None => google::contacts::set_starred(http, &token, email, name, starred).await?,
+    };
+    cache.put(&saved);
+    Ok(saved)
+}
+
+/// Saves a contact card (`text`, a vCard) as "<name>.vcf" in Downloads and
+/// shows it in Finder or File Explorer; returns where.
+#[tauri::command]
+async fn save_contact_card(app: AppHandle, name: String, text: String) -> Result<String> {
+    let folder = app.path().download_dir().map_err(|e| AppError::InvalidInput(format!("no Downloads folder: {e}")))?;
+    if text.len() > 1024 * 1024 || !text.trim_start().starts_with("BEGIN:VCARD") {
+        return Err(AppError::InvalidInput("that isn't a contact card".into()));
+    }
+    let path = free_path(&folder, &card_file_name(&name));
+    tokio::fs::write(&path, text).await.map_err(|e| AppError::InvalidInput(format!("couldn't save it: {e}")))?;
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    {
+        use tauri_plugin_opener::OpenerExt;
+        let _ = app.opener().reveal_item_in_dir(&path);
+    }
+    Ok(path.display().to_string())
+}
+
+/// "Paul Revere.vcf": the name without characters a file name can't have.
+fn card_file_name(name: &str) -> String {
+    let clean: String = name
+        .chars()
+        .map(|c| if c.is_control() || "/\\:*?\"<>|".contains(c) { ' ' } else { c })
+        .collect::<String>()
+        .split_whitespace()
+        .filter(|word| !word.chars().all(|c| c == '.'))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let clean = clean.trim_matches('.').trim().chars().take(80).collect::<String>();
+    format!("{}.vcf", if clean.is_empty() { "Contact" } else { &clean })
+}
+
+/// `name` in `folder`, or "name 2.vcf", "name 3.vcf"… if it's taken.
+fn free_path(folder: &std::path::Path, name: &str) -> std::path::PathBuf {
+    let (stem, extension) = name.rsplit_once('.').unwrap_or((name, "vcf"));
+    let mut path = folder.join(name);
+    let mut n = 2;
+    while path.exists() {
+        path = folder.join(format!("{stem} {n}.{extension}"));
+        n += 1;
+    }
+    path
+}
+
 /// Events were added, changed or removed here: reload before checking alerts.
 fn events_changed() {
     #[cfg(desktop)]
@@ -1076,6 +1206,10 @@ pub fn run() {
             update_contact,
             delete_contact,
             set_contact_starred,
+            set_contact_photo,
+            remove_contact_photo,
+            merge_contacts,
+            save_contact_card,
             interactions,
             log_interaction,
             show_contacts,
@@ -1141,6 +1275,19 @@ mod tests {
         assert_eq!(attachment_bytes("text/plain\r\nX-Evil: 1", "aGVsbG8=").unwrap().0, "application/octet-stream");
         assert_eq!(attachment_bytes("", "aGVsbG8=").unwrap().0, "application/octet-stream");
         assert!(attachment_bytes("text/plain", "not base64!").is_err());
+    }
+
+    #[test]
+    fn a_contact_card_gets_a_safe_file_name() {
+        assert_eq!(card_file_name("Paul Revere"), "Paul Revere.vcf");
+        assert_eq!(card_file_name("../../etc/passwd"), "etc passwd.vcf");
+        assert_eq!(card_file_name("  "), "Contact.vcf");
+        assert_eq!(card_file_name("A: B?"), "A B.vcf");
+        let dir = std::env::temp_dir().join(format!("minuteman-cards-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("Sam.vcf"), "x").unwrap();
+        assert_eq!(free_path(&dir, "Sam.vcf"), dir.join("Sam 2.vcf"));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
