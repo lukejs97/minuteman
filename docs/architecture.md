@@ -339,7 +339,13 @@ Minuteman's Cardhop: a second page, `contacts.html` (Vite builds both pages,
   googleusercontent.com), adds it to Favorites if any was, deletes the
   others and moves their History to it. Groups marked "Not the same person"
   are remembered per device (`contacts.notDuplicates` in localStorage).
-- **Photos** (contacts/photo.ts): a picture is opened with
+- **Photos** (contacts/photo.ts): **Adjust photo** (`cropPhoto`) draws the
+  picture on a canvas under a circle; a `Frame` (zoom, the point at the
+  middle, quarter turns) is kept covering the square, and the framed square
+  is saved as JPEG at most 512 pixels across (never more than the picture's
+  own). A current photo is fetched by `contact_photo` (desktop and website:
+  the page can't read a picture from another site), asking Google for it at
+  `=s1024`. A picture is opened with
   `createImageBitmap`, else an `<img>`, else (HEIC where the browser can't
   open it) with `heic-to` (libheif, LGPL), loaded only then as its own chunk;
   its CSP build runs in a `blob:` worker, hence `worker-src 'self' blob:` in

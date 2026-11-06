@@ -803,3 +803,78 @@ main.contacts-main {
 .photo-match input {
   accent-color: var(--accent);
 }
+
+/* The photo in the form: a button, to adjust it (or choose one). */
+button.photo-preview {
+  padding: 0;
+  border: none;
+  cursor: pointer;
+}
+
+/* ---------- Adjust photo ---------- */
+
+.crop-dialog {
+  width: min(400px, calc(100vw - 32px));
+}
+
+/* The picture, with everything outside the circle dimmed. */
+.crop-stage {
+  position: relative;
+  width: min(320px, 100%);
+  aspect-ratio: 1;
+  margin: 12px auto 0;
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.crop-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  cursor: grab;
+}
+
+.crop-canvas:active {
+  cursor: grabbing;
+}
+
+.crop-canvas:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.crop-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  box-shadow: 0 0 0 999px rgba(16, 26, 44, 0.5);
+  outline: 2px solid rgba(255, 255, 255, 0.85);
+  outline-offset: -1px;
+  pointer-events: none;
+}
+
+.crop-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.crop-slider {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--accent);
+}
+
+.crop-zoom {
+  width: 30px;
+  height: 30px;
+  font-size: 18px;
+}
+
+.crop-hint {
+  margin: 8px 0 0;
+  text-align: center;
+}

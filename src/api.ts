@@ -546,6 +546,8 @@ export const setContactStarred = (target: ContactRef, starred: boolean) =>
   invoke<Contact>("set_contact_starred", { target, starred });
 /** Sets a contact's photo (`data`: a JPEG or PNG, base64); resolves to them as saved. */
 export const setContactPhoto = (target: ContactRef, data: string) => invoke<Contact>("set_contact_photo", { target, data });
+/** A contact's photo itself (base64), to adjust it (Google's photo addresses only). */
+export const contactPhoto = (url: string) => invoke<string>("contact_photo", { url });
 /** Takes a contact's photo off; resolves to them as saved. */
 export const removeContactPhoto = (target: ContactRef) => invoke<Contact>("remove_contact_photo", { target });
 /**

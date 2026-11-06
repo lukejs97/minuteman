@@ -633,6 +633,15 @@ async fn remove_contact_photo(
     Ok(saved)
 }
 
+/// A contact's photo itself (base64), from Google, to adjust it: the page
+/// can't read a picture from another site. Only Google's photo addresses.
+#[tauri::command]
+async fn contact_photo(state: State<'_, AppState>, url: String) -> Result<String> {
+    use base64::Engine as _;
+    let bytes = google::contacts::photo_bytes(&state.http, &url).await?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
+}
+
 /// Merges duplicates into one, as Google Contacts' Merge does: `keep` gets
 /// `contact` (everything of theirs together, worked out by the page),
 /// `photo` (another's, when it has none) and Favorites if any was; the
@@ -1208,6 +1217,7 @@ pub fn run() {
             set_contact_starred,
             set_contact_photo,
             remove_contact_photo,
+            contact_photo,
             merge_contacts,
             save_contact_card,
             interactions,

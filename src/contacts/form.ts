@@ -2,6 +2,7 @@
 // addresses, websites, birthday, the people they're related to, and notes.
 // Editing saves only what changed.
 import {
+  contactPhoto,
   createContact,
   contactRef,
   errorMessage,
@@ -15,7 +16,7 @@ import {
 } from "../api";
 import { el } from "../dom";
 import { labelText } from "./model";
-import { squarePhoto } from "./photo";
+import { cropPhoto } from "./photo";
 import type { ParsedContact } from "./parse";
 import { enablePlaceSuggestions } from "../place-suggest";
 
@@ -304,8 +305,11 @@ class PhotoField {
   chosen: string | null = null;
   /** The one they had is to come off. */
   removed = false;
-  private preview = el("span", "avatar avatar-large photo-preview");
+  /** The picture the new photo was framed from, to frame it again from all of it. */
+  private original: Blob | null = null;
+  private preview = el("button", "avatar avatar-large photo-preview");
   private choose = el("button", "link-button");
+  private adjust = el("button", "link-button", "Adjust…");
   private remove = el("button", "link-button", "Remove");
   private picker = el("input");
   private note = el("span", "form-notes");
@@ -314,35 +318,64 @@ class PhotoField {
     this.picker.type = "file";
     this.picker.accept = "image/*";
     this.picker.hidden = true;
-    this.choose.type = "button";
-    this.remove.type = "button";
+    for (const button of [this.preview, this.choose, this.adjust, this.remove]) button.type = "button";
     this.choose.addEventListener("click", () => this.picker.click());
     this.remove.addEventListener("click", () => {
       this.chosen = null;
+      this.original = null;
       this.removed = true;
       this.draw(null);
     });
+    this.adjust.addEventListener("click", () => void this.reframe());
+    // Clicking the photo: adjust it, or choose one if there's none.
+    this.preview.addEventListener("click", () => (this.shown() ? void this.reframe() : this.picker.click()));
     this.picker.addEventListener("change", async () => {
       const file = this.picker.files?.[0];
       this.picker.value = "";
-      if (!file) return;
-      this.note.textContent = "Opening it…";
-      try {
-        this.chosen = await squarePhoto(file);
-        this.note.textContent = "";
-        this.removed = false;
-        this.draw(`data:image/jpeg;base64,${this.chosen}`);
-      } catch {
-        this.note.textContent = "That picture couldn't be opened. Try a JPEG, PNG or HEIC.";
-      }
+      if (file) await this.frame(file, true);
     });
-    this.preview.setAttribute("aria-hidden", "true");
-    this.node.append(this.preview, this.choose, this.remove, this.picker, this.note);
+    this.node.append(this.preview, this.choose, this.adjust, this.remove, this.picker, this.note);
     this.draw(current);
   }
 
   changed(): boolean {
     return this.chosen !== null || (this.removed && this.current !== null);
+  }
+
+  /** The photo there now: the new one, or the one they had. */
+  private shown(): boolean {
+    return this.chosen !== null || (!this.removed && this.current !== null);
+  }
+
+  /** Adjust photo for `source`; it becomes the new photo unless cancelled. */
+  private async frame(source: Blob, isNew: boolean): Promise<void> {
+    this.note.textContent = "Opening it…";
+    try {
+      const framed = await cropPhoto(source);
+      this.note.textContent = "";
+      if (framed === null) return;
+      this.chosen = framed;
+      this.removed = false;
+      if (isNew) this.original = source;
+      this.draw(`data:image/jpeg;base64,${framed}`);
+    } catch {
+      this.note.textContent = "That picture couldn't be opened. Try a JPEG, PNG or HEIC.";
+    }
+  }
+
+  /** Adjust… : the new photo again from all of its picture, or the one they have from Google. */
+  private async reframe(): Promise<void> {
+    if (this.original) return this.frame(this.original, false);
+    if (!this.current) return;
+    this.note.textContent = "Getting their photo…";
+    try {
+      const source = await photoBlob(this.current);
+      // Adjusting it doesn't replace the picture it can be adjusted from again.
+      this.original = source;
+      await this.frame(source, false);
+    } catch (e) {
+      this.note.textContent = `Couldn't get their photo: ${errorMessage(e)}`;
+    }
   }
 
   private draw(src: string | null): void {
@@ -353,9 +386,25 @@ class PhotoField {
       img.src = src;
       this.preview.replaceChildren(img);
     } else this.preview.replaceChildren(el("span", "avatar-initials", "—"));
+    this.preview.setAttribute("aria-label", src ? "Adjust photo" : "Choose a photo");
+    this.preview.title = src ? "Adjust photo" : "Choose a photo";
     this.choose.textContent = src ? "Change…" : "Choose…";
-    this.remove.hidden = !src;
+    this.remove.hidden = this.adjust.hidden = !src;
   }
+}
+
+/**
+ * A contact's photo as a picture to adjust: from a data: address as it is,
+ * or from Google, as big as Google has it (its addresses end "=s100", the
+ * size it's sent at).
+ */
+async function photoBlob(url: string): Promise<Blob> {
+  const toBlob = (data: string, type: string) => new Blob([Uint8Array.from(atob(data), (c) => c.charCodeAt(0))], { type });
+  const inline = /^data:([^;,]+);base64,(.*)$/.exec(url);
+  if (inline) return toBlob(inline[2], inline[1]);
+  const bigger = url.replace(/=s\d+(-[a-z0-9-]*)?$/i, "=s1024");
+  const data = await contactPhoto(bigger).catch(() => contactPhoto(url));
+  return toBlob(data, "image/jpeg");
 }
 
 /** Month, day and (optional) year: Google keeps birthdays without a year. */

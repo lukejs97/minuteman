@@ -235,6 +235,9 @@ export const commands: Record<string, Command> = {
   async set_contact_photo(ctx, args) {
     return contacts.setPhoto(ctx.env, value<ContactRef>(args, "target"), text(args, "data"));
   },
+  async contact_photo(_ctx, args) {
+    return contacts.contactPhoto(text(args, "url"));
+  },
   async remove_contact_photo(ctx, args) {
     return contacts.removePhoto(ctx.env, value<ContactRef>(args, "target"));
   },

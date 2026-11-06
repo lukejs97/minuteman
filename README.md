@@ -121,8 +121,11 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
   **Log…**, or the box), and past events with them, latest first. **Recent**
   (who you were last in touch with), upcoming birthdays and Favorites sit at
   the top of the list. Settings opens from here too.
-  - **Photos:** Edit → Photo → **Choose…** (a square from the middle of the
-    picture is saved to Google Contacts), **Change…** or **Remove**. iPhone
+  - **Photos:** Edit → Photo → **Choose…**, then frame it in **Adjust
+    photo**: drag it into the circle, zoom (pinch, scroll, the slider, or
+    + and −) and **Rotate**. **Adjust…** (or clicking the photo) frames a
+    new photo again from all of it, or someone's current photo from Google
+    (as big as Google keeps it); **Change…** and **Remove** too. iPhone
     photos (HEIC) work everywhere: where the browser can't open them
     (Chrome, Edge, the Windows app) they're converted first.
   - **Photos from a contacts file** (**⋯** at the top, or the menu on a

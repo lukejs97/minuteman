@@ -165,6 +165,13 @@ async function getContact(token: string, account: string, resourceName: string):
   return savedContact(account, await google<Person>(token, url.toString()));
 }
 
+/** A contact's photo itself (base64), to adjust it: the page can't read a picture from another site. */
+export async function contactPhoto(photoUrl: string): Promise<string> {
+  const data = await googlePhoto(photoUrl);
+  if (!data) throw invalidInput("couldn't get that photo from Google");
+  return data;
+}
+
 /** A photo's bytes as base64, if it's one of Google's photos (to give to another contact on a merge). */
 async function googlePhoto(photoUrl: string): Promise<string | null> {
   let url: URL;
