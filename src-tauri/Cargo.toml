@@ -24,7 +24,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # HTTP client for Google's APIs. rustls = TLS written in Rust, so no OpenSSL to install.
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
-tokio = { version = "1", features = ["net", "io-util", "time", "sync", "macros"] }
+tokio = { version = "1", features = ["net", "io-util", "time", "sync", "macros", "fs"] }
 futures = "0.3"
 # OS keychain: Windows Credential Manager and macOS/iOS Keychain.
 # Without these platform features keyring silently uses an in-memory mock store.
@@ -59,8 +59,9 @@ objc2-map-kit = "0.3"
 
 # Windows only: where the PC is, for drives that start from there (Settings →
 # Leave from → Start from where I am), from Windows' location service.
+# Also the files copied in File Explorer, for pasting them as attachments.
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.62", features = ["Devices_Geolocation", "Foundation", "Win32_System_WinRT"] }
+windows = { version = "0.62", features = ["Devices_Geolocation", "Foundation", "Win32_System_WinRT", "Win32_System_DataExchange", "Win32_UI_Shell"] }
 
 # iOS (and later Android): receives Google's sign-in redirect as a deep link.
 [target.'cfg(any(target_os = "ios", target_os = "android"))'.dependencies]

@@ -544,6 +544,11 @@ export function install(inApp = false): void {
         taskFiles.set(id, [...(taskFiles.get(id) ?? []), file]);
         return file;
       }
+      case "clipboard_files":
+        // Files copied in Finder: none here (the tests put one in with `__mockCopiedFiles`).
+        return ((window as { __mockCopiedFiles?: string[] }).__mockCopiedFiles ?? []).map(copiedFile);
+      case "copied_file":
+        return copiedFile((args as { url: string }).url);
       case "respond_to_event": {
         const { target, response } = args as { target: { eventId: string }; response: string };
         replies.set(target.eventId, response);
@@ -808,4 +813,10 @@ export function install(inApp = false): void {
   answerCommandsHere((cmd, args) =>
     cmd.startsWith("plugin:") || DESKTOP_COMMANDS.has(cmd) ? null : { answer: respond(cmd, args) },
   );
+}
+
+/** A copied file, as the app reads it from its path: a few bytes, named as the path says. */
+function copiedFile(url: string) {
+  const name = decodeURIComponent(url.split("/").pop() || "Attachment");
+  return { name, mimeType: name.endsWith(".pdf") ? "application/pdf" : "application/octet-stream", data: btoa("One if by land") };
 }

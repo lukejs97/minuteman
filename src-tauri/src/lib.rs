@@ -334,6 +334,131 @@ async fn remove_event_attachment(state: State<'_, AppState>, target: EventRef, u
     Ok(())
 }
 
+/// A file copied in Finder (or sent by Universal Clipboard) is on the
+/// clipboard only as its path; the page can't open a path, so it asks here.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CopiedFile {
+    name: String,
+    mime_type: String,
+    /// The file's bytes, base64.
+    data: String,
+}
+
+/// The file at a copied `file://` address, to attach it. Only a file (not a
+/// folder), and at most 25 MB.
+#[tauri::command]
+async fn copied_file(url: String) -> Result<CopiedFile> {
+    let not_file = || AppError::InvalidInput("what's on the clipboard isn't a file".into());
+    let address = url::Url::parse(url.trim()).map_err(|_| not_file())?;
+    if address.scheme() != "file" {
+        return Err(not_file());
+    }
+    read_copied(&address.to_file_path().map_err(|_| not_file())?).await
+}
+
+/// The files copied in Finder or File Explorer (or handed over by Universal
+/// Clipboard), read from the system clipboard: the web view only shows their names.
+#[tauri::command]
+async fn clipboard_files() -> Result<Vec<CopiedFile>> {
+    let mut files = Vec::new();
+    for path in clipboard::copied_paths() {
+        files.push(read_copied(&path).await?);
+    }
+    Ok(files)
+}
+
+/// A copied file, if it's one that can be attached (a file, up to 25 MB).
+async fn read_copied(path: &std::path::Path) -> Result<CopiedFile> {
+    use base64::Engine as _;
+    let size = tokio::fs::metadata(path)
+        .await
+        .map_err(|_| AppError::InvalidInput("what's on the clipboard isn't a file".into()))?;
+    if !size.is_file() {
+        return Err(AppError::InvalidInput("folders can't be attached, only files".into()));
+    }
+    if size.len() > MAX_ATTACHMENT_BYTES as u64 {
+        return Err(AppError::InvalidInput("files can be up to 25 MB".into()));
+    }
+    let bytes = tokio::fs::read(path).await.map_err(|_| AppError::InvalidInput("couldn't read that file".into()))?;
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("Attachment").to_string();
+    let mime_type = mime_for(&name).to_string();
+    Ok(CopiedFile { name, mime_type, data: base64::engine::general_purpose::STANDARD.encode(bytes) })
+}
+
+/// Where the files on the system clipboard are.
+mod clipboard {
+    use std::path::PathBuf;
+
+    #[cfg(target_os = "macos")]
+    pub fn copied_paths() -> Vec<PathBuf> {
+        use objc2_app_kit::{NSPasteboard, NSPasteboardTypeFileURL};
+        let pasteboard = NSPasteboard::generalPasteboard();
+        let Some(items) = pasteboard.pasteboardItems() else { return Vec::new() };
+        items
+            .iter()
+            .filter_map(|item| item.stringForType(unsafe { NSPasteboardTypeFileURL }))
+            .filter_map(|address| url::Url::parse(&address.to_string()).ok()?.to_file_path().ok())
+            .collect()
+    }
+
+    #[cfg(windows)]
+    pub fn copied_paths() -> Vec<PathBuf> {
+        use windows::Win32::System::DataExchange::{CloseClipboard, GetClipboardData, OpenClipboard};
+        use windows::Win32::UI::Shell::{DragQueryFileW, HDROP};
+        const CF_HDROP: u32 = 15;
+        let mut paths = Vec::new();
+        unsafe {
+            if OpenClipboard(None).is_err() {
+                return paths;
+            }
+            if let Ok(handle) = GetClipboardData(CF_HDROP) {
+                let drop = HDROP(handle.0);
+                for i in 0..DragQueryFileW(drop, u32::MAX, None) {
+                    let mut name = vec![0u16; DragQueryFileW(drop, i, None) as usize + 1];
+                    let length = DragQueryFileW(drop, i, Some(&mut name)) as usize;
+                    paths.push(PathBuf::from(String::from_utf16_lossy(&name[..length])));
+                }
+            }
+            let _ = CloseClipboard();
+        }
+        paths
+    }
+
+    #[cfg(not(any(target_os = "macos", windows)))]
+    pub fn copied_paths() -> Vec<PathBuf> {
+        Vec::new()
+    }
+}
+
+/// A file's type from its name's extension, for the common ones.
+fn mime_for(name: &str) -> &'static str {
+    let extension = name.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()).unwrap_or_default();
+    match extension.as_str() {
+        "pdf" => "application/pdf",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "heic" => "image/heic",
+        "webp" => "image/webp",
+        "txt" => "text/plain",
+        "csv" => "text/csv",
+        "doc" => "application/msword",
+        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "xls" => "application/vnd.ms-excel",
+        "xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "ppt" => "application/vnd.ms-powerpoint",
+        "pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "pages" | "numbers" | "key" => "application/octet-stream",
+        "zip" => "application/zip",
+        "mp4" => "video/mp4",
+        "mov" => "video/quicktime",
+        "mp3" => "audio/mpeg",
+        "m4a" => "audio/mp4",
+        _ => "application/octet-stream",
+    }
+}
+
 /// Files on a task's comments.
 #[tauri::command]
 async fn task_attachments(state: State<'_, AppState>, id: String) -> Result<Vec<agenda::Attachment>> {
@@ -940,6 +1065,8 @@ pub fn run() {
             remove_event_attachment,
             task_attachments,
             attach_to_task,
+            copied_file,
+            clipboard_files,
             set_demo,
             set_event_times,
             delete_event,
@@ -1014,5 +1141,22 @@ mod tests {
         assert_eq!(attachment_bytes("text/plain\r\nX-Evil: 1", "aGVsbG8=").unwrap().0, "application/octet-stream");
         assert_eq!(attachment_bytes("", "aGVsbG8=").unwrap().0, "application/octet-stream");
         assert!(attachment_bytes("text/plain", "not base64!").is_err());
+    }
+
+    #[test]
+    fn a_copied_file_is_read_from_its_path() {
+        let dir = std::env::temp_dir().join(format!("minuteman-copied-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("Fall Retreat.pdf");
+        std::fs::write(&file, b"%PDF").unwrap();
+        let url = url::Url::from_file_path(&file).unwrap().to_string();
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let copied = runtime.block_on(copied_file(url)).unwrap();
+        assert_eq!((copied.name.as_str(), copied.mime_type.as_str(), copied.data.as_str()), ("Fall Retreat.pdf", "application/pdf", "JVBERg=="));
+        // A folder, or not a file address: refused.
+        let folder = url::Url::from_file_path(&dir).unwrap().to_string();
+        assert!(runtime.block_on(copied_file(folder)).is_err());
+        assert!(runtime.block_on(copied_file("https://example.com/a.pdf".into())).is_err());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

@@ -460,6 +460,38 @@ async function fileArgs(file: File): Promise<Record<string, unknown>> {
   return isTauri() && !answerHere ? { ...meta, data: await base64Of(file) } : { ...meta, file };
 }
 
+/**
+ * The file at a copied `file://` address (copied in Finder, or sent by
+ * Universal Clipboard), read by the desktop app; null on the website, where
+ * a page can't open a file by its path.
+ */
+export async function copiedFile(url: string): Promise<File | null> {
+  if (!isTauri() || answerHere) return null;
+  return asFile(await invoke<CopiedFile>("copied_file", { url }));
+}
+
+/**
+ * The files copied in Finder or File Explorer (or by Universal Clipboard), in
+ * the desktop app: read from the system clipboard, where the web view shows
+ * only their names. Empty on the website.
+ */
+export async function clipboardFiles(): Promise<File[]> {
+  if (!isTauri() || answerHere) return [];
+  return (await invoke<CopiedFile[]>("clipboard_files")).map(asFile);
+}
+
+interface CopiedFile {
+  name: string;
+  mimeType: string;
+  /** Base64. */
+  data: string;
+}
+
+function asFile(copied: CopiedFile): File {
+  const bytes = Uint8Array.from(atob(copied.data), (c) => c.charCodeAt(0));
+  return new File([bytes], copied.name, { type: copied.mimeType });
+}
+
 /** Attaches `file` to an event: put in the account's Drive, then linked on it. */
 export const attachToEvent = async (target: EventRef, file: File) =>
   invoke<Attachment>("attach_to_event", { target, ...(await fileArgs(file)) });

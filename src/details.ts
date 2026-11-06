@@ -4,6 +4,8 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   attachToEvent,
   attachToTask,
+  clipboardFiles,
+  copiedFile,
   deleteEvent,
   deleteTask,
   errorMessage,
@@ -457,10 +459,36 @@ function attachmentsRow(item: AgendaItem, actions: DetailActions, dialog: HTMLDi
       paste.addEventListener("click", async () => {
         note.textContent = "";
         try {
+          // The desktop app: files copied in Finder or File Explorer, from the system clipboard.
+          const copied = await clipboardFiles();
+          if (copied.length) return void (await addFiles(copied));
+        } catch (e) {
+          note.textContent = `Couldn't attach it: ${errorMessage(e)}`;
+          return;
+        }
+        try {
           const found: File[] = [];
+          /** Copied files' addresses: Finder (and Universal Clipboard) puts a file there by its path. */
+          const addresses: string[] = [];
           for (const entry of await navigator.clipboard.read()) {
             const type = entry.types.find((t) => !t.startsWith("text/"));
             if (type) found.push(named(new File([await entry.getType(type)], "", { type })));
+            else {
+              const textType = entry.types.find((t) => t === "text/uri-list") ?? entry.types.find((t) => t === "text/plain");
+              const text = textType ? await (await entry.getType(textType)).text() : "";
+              addresses.push(...text.split(/\r?\n/).map((line) => line.trim()).filter((line) => /^file:\/\//i.test(line)));
+            }
+          }
+          if (!found.length && addresses.length) {
+            // The desktop app reads them; a web page isn't allowed to open a file by its path.
+            for (const address of addresses) {
+              const file = await copiedFile(address);
+              if (file) found.push(file);
+            }
+            if (!found.length) {
+              note.textContent = "That's a file on your computer: press ⌘V (Ctrl+V) here or drag it in, or use Add file….";
+              return;
+            }
           }
           if (found.length) await addFiles(found);
           else note.textContent = "There's no file or picture on the clipboard.";
