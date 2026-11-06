@@ -67,6 +67,11 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
 - **Custom repeats:** Repeat → **Custom…**: every so many days, weeks,
   months or years; which weekdays; the 12th, the second Tuesday or the last
   Friday of the month; ending never, on a date, or after a number of times.
+- **Attachments:** an event's or task's details show its files and **Add
+  file…**. An event's files go to your Google Drive and are linked on the
+  event, as Google Calendar does (Minuteman sees only the files it adds, not
+  the rest of your Drive); a task's go on a Todoist comment. Up to 25 MB
+  each. Accounts added before need adding again once to allow it.
 - **Duplicate:** an event's or task's details (or its right-click menu) →
   **Duplicate** opens New filled in like it, to change (the day, say) and add.
 - **Event colors:** Google Calendar's eleven, or the calendar's own, in

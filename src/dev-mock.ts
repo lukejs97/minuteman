@@ -7,6 +7,7 @@ import { mockIPC } from "@tauri-apps/api/mocks";
 import { answerCommandsHere } from "./api";
 import type {
   Agenda,
+  Attachment,
   AgendaItem,
   Alerts,
   Contact,
@@ -155,6 +156,14 @@ function sampleItems(from: Date, to: Date): AgendaItem[] {
     }
     if (weekday === 2) {
       timed(day, "Proof the Boston Massacre engraving", WORK, 11, 60, "Revere's shop, North Square", {
+        attachments: [
+          {
+            title: "The Bloody Massacre (proof).pdf",
+            url: "https://drive.google.com/file/d/mock-engraving/view",
+            mimeType: "application/pdf",
+            iconUrl: null,
+          },
+        ],
         reminders: [30, 7 * 24 * 60],
         emailReminders: [60],
         alertAt: [new Date(day.getFullYear(), day.getMonth(), day.getDate(), 8, 0).toISOString()],
@@ -327,6 +336,8 @@ export function install(inApp = false): void {
   // Changes to sample items, which are made afresh for every request.
   const edits = new Map<string, Partial<AgendaItem>>();
   const deleted = new Set<string>();
+  /** Files attached to tasks (as on their comments), by task ID. */
+  const taskFiles = new Map<string, Attachment[]>();
   /** Your replies to invitations, by event (or series) ID. */
   const replies = new Map<string, string>();
   const edit = (id: string, changes: Partial<AgendaItem>) => edits.set(id, { ...edits.get(id), ...changes });
@@ -510,6 +521,29 @@ export function install(inApp = false): void {
         }));
       case "event_recurrence":
         return ["RRULE:FREQ=WEEKLY;BYDAY=MO", "EXDATE;TZID=America/New_York:20261102T100000"];
+      case "attach_to_event": {
+        const { target, name, mimeType } = args as { target: { eventId: string }; name: string; mimeType: string };
+        const base = sampleItems(addDays(startOfDay(new Date()), -60), addDays(startOfDay(new Date()), 60)).find((i) => i.id === target.eventId);
+        const now = edits.get(target.eventId)?.attachments ?? base?.attachments ?? [];
+        const file = { title: name, url: `https://drive.google.com/file/d/mock-${Date.now()}/view`, mimeType, iconUrl: null };
+        edit(target.eventId, { attachments: [...now, file] });
+        return file;
+      }
+      case "remove_event_attachment": {
+        const { target, url } = args as { target: { eventId: string }; url: string };
+        const base = sampleItems(addDays(startOfDay(new Date()), -60), addDays(startOfDay(new Date()), 60)).find((i) => i.id === target.eventId);
+        const now = edits.get(target.eventId)?.attachments ?? base?.attachments ?? [];
+        edit(target.eventId, { attachments: now.filter((a) => a.url !== url) });
+        return null;
+      }
+      case "task_attachments":
+        return taskFiles.get((args as { id: string }).id) ?? [];
+      case "attach_to_task": {
+        const { id, name, mimeType } = args as { id: string; name: string; mimeType: string };
+        const file = { title: name, url: `https://files.todoist.com/mock/${encodeURIComponent(name)}`, mimeType, iconUrl: null };
+        taskFiles.set(id, [...(taskFiles.get(id) ?? []), file]);
+        return file;
+      }
       case "respond_to_event": {
         const { target, response } = args as { target: { eventId: string }; response: string };
         replies.set(target.eventId, response);

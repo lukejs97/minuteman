@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use url::Url;
 
-use crate::agenda::{AgendaItem, Attendee as Guest, ItemKind, Source};
+use crate::agenda::{AgendaItem, Attachment, Attendee as Guest, ItemKind, Source};
 use crate::error::{AppError, Result};
 
 const API: &str = "https://www.googleapis.com/calendar/v3";
@@ -76,6 +76,18 @@ struct Event {
     extended_properties: Option<ExtendedProperties>,
     /// The event's own color, when it isn't its calendar's ("1" to "11").
     color_id: Option<String>,
+    #[serde(default)]
+    attachments: Vec<EventAttachment>,
+}
+
+/// A file on an event, as Google keeps it (a Drive file).
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EventAttachment {
+    file_url: String,
+    title: Option<String>,
+    mime_type: Option<String>,
+    icon_link: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -821,6 +833,83 @@ fn events_url(calendar_id: &str, event_id: Option<&str>, notify_guests: bool) ->
     url
 }
 
+/// Attaches a file to an event, as Google Calendar does: it's put in your
+/// Drive (a resumable upload, so any size goes), then linked on the event.
+/// The event's other attachments stay.
+pub async fn attach(
+    http: &reqwest::Client,
+    token: &str,
+    calendar_id: &str,
+    event_id: &str,
+    name: &str,
+    mime_type: &str,
+    bytes: Vec<u8>,
+) -> Result<Attachment> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct DriveFile {
+        id: String,
+        name: String,
+        mime_type: Option<String>,
+        web_view_link: String,
+        icon_link: Option<String>,
+    }
+    let start = "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,name,mimeType,webViewLink,iconLink";
+    let begun = http
+        .post(start)
+        .bearer_auth(token)
+        .header("X-Upload-Content-Type", mime_type)
+        .header("X-Upload-Content-Length", bytes.len().to_string())
+        .json(&json!({ "name": name, "mimeType": mime_type }))
+        .send()
+        .await?;
+    if !begun.status().is_success() {
+        return Err(api_error(begun).await);
+    }
+    let Some(upload_url) = begun.headers().get("location").and_then(|v| v.to_str().ok()).map(str::to_string) else {
+        return Err(AppError::Api { status: 502, message: "Google Drive didn't say where to upload".into() });
+    };
+    let file: DriveFile = send(http.put(upload_url).header("Content-Type", mime_type).body(bytes)).await?;
+
+    let mut url = events_url(calendar_id, Some(event_id), false);
+    let mut read = url.clone();
+    read.set_query(Some("fields=attachments"));
+    let current: Value = get_json(http, token, read).await?;
+    let mut attachments = current.get("attachments").and_then(Value::as_array).cloned().unwrap_or_default();
+    let added = Attachment {
+        title: file.name,
+        url: file.web_view_link,
+        mime_type: Some(file.mime_type.unwrap_or_else(|| mime_type.to_string())),
+        icon_url: file.icon_link,
+    };
+    attachments.push(json!({
+        "fileUrl": added.url,
+        "title": added.title,
+        "mimeType": added.mime_type,
+        "iconLink": added.icon_url,
+        "fileId": file.id,
+    }));
+    url.query_pairs_mut().append_pair("supportsAttachments", "true").append_pair("fields", "id");
+    let _attached: Value = send(http.patch(url).bearer_auth(token).json(&json!({ "attachments": attachments }))).await?;
+    Ok(added)
+}
+
+/// Takes the attachment at `file_url` off an event (the file stays in Drive).
+pub async fn remove_attachment(http: &reqwest::Client, token: &str, calendar_id: &str, event_id: &str, file_url: &str) -> Result<()> {
+    let mut url = events_url(calendar_id, Some(event_id), false);
+    let mut read = url.clone();
+    read.set_query(Some("fields=attachments"));
+    let current: Value = get_json(http, token, read).await?;
+    let kept: Vec<Value> = current
+        .get("attachments")
+        .and_then(Value::as_array)
+        .map(|all| all.iter().filter(|a| a.get("fileUrl").and_then(Value::as_str) != Some(file_url)).cloned().collect())
+        .unwrap_or_default();
+    url.query_pairs_mut().append_pair("supportsAttachments", "true").append_pair("fields", "id");
+    let _changed: Value = send(http.patch(url).bearer_auth(token).json(&json!({ "attachments": kept }))).await?;
+    Ok(())
+}
+
 /// Your reply to an invitation: "accepted", "declined" or "tentative" (maybe).
 /// Only your own entry on the guest list changes; everyone else's (and their
 /// replies, notes and the rest) is sent back as it was. The organizer is told,
@@ -1256,6 +1345,11 @@ fn to_agenda_item(account: &str, can_edit: bool, calendar: &CalendarListEntry, e
             .map(str::to_string)
             .or_else(|| calendar.background_color.clone()),
         color_id: event.color_id.filter(|id| event_color(id).is_some()),
+        attachments: event
+            .attachments
+            .into_iter()
+            .map(|a| Attachment { title: a.title.unwrap_or_else(|| "Attachment".into()), url: a.file_url, mime_type: a.mime_type, icon_url: a.icon_link })
+            .collect(),
         repeat: None,
         list_name: calendar.name(),
         url: event.html_link,

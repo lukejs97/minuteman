@@ -341,6 +341,7 @@ fn to_agenda_item(
         leave_from: None,
         leave_alerts: Vec::new(),
         color_id: None,
+        attachments: Vec::new(),
         repeat,
     })
 }
@@ -455,6 +456,96 @@ fn rescheduled_date(at: &str, due: &Due) -> Result<String> {
     } else {
         time.naive_local().format("%Y-%m-%dT%H:%M:%S").to_string()
     })
+}
+
+/// Files attached to a task: those on its comments, as Todoist keeps them.
+pub async fn task_attachments(http: &reqwest::Client, token: &str, task_id: &str) -> Result<Vec<crate::agenda::Attachment>> {
+    #[derive(Deserialize)]
+    struct Comment {
+        file_attachment: Option<FileAttachment>,
+    }
+    #[derive(Deserialize)]
+    struct FileAttachment {
+        file_name: Option<String>,
+        file_url: Option<String>,
+        file_type: Option<String>,
+    }
+    let mut found = Vec::new();
+    let mut cursor: Option<String> = None;
+    loop {
+        let mut url = api_url(&["comments"]);
+        url.query_pairs_mut().append_pair("task_id", task_id).append_pair("limit", PAGE_SIZE);
+        if let Some(c) = &cursor {
+            url.query_pairs_mut().append_pair("cursor", c);
+        }
+        let page: Page<Comment> = check(http.get(url).bearer_auth(token).send().await?).await?.json().await?;
+        found.extend(page.results.into_iter().filter_map(|c| {
+            let file = c.file_attachment?;
+            Some(crate::agenda::Attachment {
+                title: file.file_name.unwrap_or_else(|| "Attachment".into()),
+                url: file.file_url?,
+                mime_type: file.file_type,
+                icon_url: None,
+            })
+        }));
+        match page.next_cursor {
+            Some(next) => cursor = Some(next),
+            None => return Ok(found),
+        }
+    }
+}
+
+/// Attaches a file to a task, as Todoist's apps do: uploaded, then added as a
+/// comment named after the file.
+pub async fn attach(
+    http: &reqwest::Client,
+    token: &str,
+    task_id: &str,
+    name: &str,
+    mime_type: &str,
+    bytes: Vec<u8>,
+) -> Result<crate::agenda::Attachment> {
+    // multipart/form-data with the one "file" field (reqwest is built without multipart).
+    let boundary = format!("minuteman-{:x}", rand_suffix());
+    let safe_name: String = name.chars().filter(|c| *c != '"' && *c != '\r' && *c != '\n').collect();
+    let mut body = format!(
+        "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{safe_name}\"\r\nContent-Type: {mime_type}\r\n\r\n"
+    )
+    .into_bytes();
+    body.extend(bytes);
+    body.extend(format!("\r\n--{boundary}--\r\n").into_bytes());
+    let upload: serde_json::Value = check(
+        http.post(api_url(&["uploads"]))
+            .bearer_auth(token)
+            .header("Content-Type", format!("multipart/form-data; boundary={boundary}"))
+            .body(body)
+            .send()
+            .await?,
+    )
+    .await?
+    .json()
+    .await?;
+    let attachment = serde_json::json!({
+        "resource_type": "file",
+        "file_name": upload.get("file_name").cloned().unwrap_or_else(|| serde_json::json!(name)),
+        "file_url": upload.get("file_url"),
+        "file_type": upload.get("file_type").cloned().unwrap_or_else(|| serde_json::json!(mime_type)),
+    });
+    let added = crate::agenda::Attachment {
+        title: attachment["file_name"].as_str().unwrap_or(name).to_string(),
+        url: attachment["file_url"].as_str().unwrap_or_default().to_string(),
+        mime_type: attachment["file_type"].as_str().map(str::to_string),
+        icon_url: None,
+    };
+    let comment = serde_json::json!({ "task_id": task_id, "content": name, "attachment": attachment });
+    check(http.post(api_url(&["comments"])).bearer_auth(token).json(&comment).send().await?).await?;
+    Ok(added)
+}
+
+/// A few random-enough hex digits for a multipart boundary.
+fn rand_suffix() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(0) ^ 0x9e37_79b9_7f4a_7c15
 }
 
 pub async fn delete_task(http: &reqwest::Client, token: &str, task_id: &str) -> Result<()> {

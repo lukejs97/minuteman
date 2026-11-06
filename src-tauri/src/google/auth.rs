@@ -41,9 +41,14 @@ const CALENDAR_SCOPE: &str = "https://www.googleapis.com/auth/calendar";
 /// Lets the Contacts window read and change your Google Contacts. Accounts
 /// added before it asked for this don't have it until they're added again.
 const CONTACTS_SCOPE: &str = "https://www.googleapis.com/auth/contacts";
+/// Lets the app put files you attach to events in your Drive, and see only
+/// those (and ones you open with it): not the rest of your Drive. Accounts
+/// added before it asked for this don't have it until they're added again.
+const DRIVE_FILE_SCOPE: &str = "https://www.googleapis.com/auth/drive.file";
 /// Reading the calendar list needs `calendar.readonly`; `calendar.events`
 /// alone only covers events.
-const SCOPES: &[&str] = &["https://www.googleapis.com/auth/calendar.readonly", EVENTS_SCOPE, CONTACTS_SCOPE];
+const SCOPES: &[&str] =
+    &["https://www.googleapis.com/auth/calendar.readonly", EVENTS_SCOPE, CONTACTS_SCOPE, DRIVE_FILE_SCOPE];
 
 const SIGN_IN_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 /// Refresh a little before Google's stated expiry so a request never races it.
@@ -151,6 +156,10 @@ impl AccessToken {
 
     fn can_use_contacts(&self) -> bool {
         has_scope(&self.scopes, CONTACTS_SCOPE)
+    }
+
+    fn can_attach_files(&self) -> bool {
+        has_scope(&self.scopes, DRIVE_FILE_SCOPE)
     }
 }
 
@@ -298,6 +307,13 @@ impl GoogleAuth {
         self.access_token(email).await?;
         let cached = self.access_tokens.lock().await;
         Ok(cached.get(email).is_some_and(|token| token.can_edit_events()))
+    }
+
+    /// Whether `email`'s account has allowed the app to put attached files in its Drive.
+    pub async fn can_attach_files(&self, email: &str) -> Result<bool> {
+        self.access_token(email).await?;
+        let cached = self.access_tokens.lock().await;
+        Ok(cached.get(email).is_some_and(|token| token.can_attach_files()))
     }
 
     /// Whether `email`'s account has allowed the app to use its contacts.

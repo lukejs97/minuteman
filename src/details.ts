@@ -1,7 +1,20 @@
 // The details popup for an event or task: when and where, a button to join
 // the video call, guests, and notes. Opens on click instead of the browser.
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { deleteEvent, deleteTask, errorMessage, eventRef, respondToEvent, type AgendaItem, type Attendee } from "./api";
+import {
+  attachToEvent,
+  attachToTask,
+  deleteEvent,
+  deleteTask,
+  errorMessage,
+  eventRef,
+  removeEventAttachment,
+  respondToEvent,
+  taskAttachments,
+  type AgendaItem,
+  type Attachment,
+  type Attendee,
+} from "./api";
 import { openContacts } from "./contacts/open";
 import { el, setItemColor, showMenu } from "./dom";
 import { deleteInSeries, inSeries } from "./series";
@@ -90,6 +103,8 @@ export function openDetails(item: AgendaItem, actions: DetailActions): void {
   const you = item.kind === "event" && item.source === "google" ? item.attendees.find((a) => a.isSelf && !a.organizer) : null;
   if (you) rows.append(row("Going?", replyButtons(item, you.response, actions)));
   if (item.attendees.length > 0) rows.append(row("Guests", guestList(item.attendees)));
+  const files = attachmentsRow(item, actions);
+  if (files) rows.append(row("Attachments", files));
   if (item.description) {
     const notes = el("div", "details-notes");
     notes.append(...notesToNodes(item.description));
@@ -306,6 +321,109 @@ function callService(url: string): string {
   if (url.includes("teams.microsoft.com") || url.includes("teams.live.com")) return "Teams";
   if (url.includes("webex.com")) return "Webex";
   return "call";
+}
+
+/**
+ * Files on an event (Drive files) or a task (on its Todoist comments): each
+ * opens; Add file… attaches more (an event's go to your Drive first); an
+ * event's can be taken off (the file stays in Drive). Null when there's
+ * nothing to show or add.
+ */
+function attachmentsRow(item: AgendaItem, actions: DetailActions): HTMLElement | null {
+  const isEvent = item.kind === "event" && item.source === "google";
+  const isTask = item.kind === "task" && item.source === "todoist";
+  const canAdd = isTask || (isEvent && item.editable);
+  if (!isEvent && !isTask) return null;
+  if (!canAdd && !(item.attachments?.length)) return null;
+  const box = el("div", "attachments");
+  const list = el("ul", "attachment-list");
+  const note = el("span", "reply-note");
+  let shown: Attachment[] = [];
+  const draw = () => {
+    list.replaceChildren(
+      ...shown.map((file) => {
+        const li = el("li");
+        const open = linkButton(file.title, () => void openUrl(file.url));
+        open.classList.add("attachment-name");
+        open.title = `Open ${file.title}`;
+        li.append(open);
+        if (isEvent && item.editable) {
+          const remove = el("button", "icon-button attachment-remove", "×");
+          remove.type = "button";
+          remove.title = "Take it off this event (the file stays in your Drive)";
+          remove.setAttribute("aria-label", `Remove ${file.title}`);
+          remove.addEventListener("click", async () => {
+            note.textContent = "";
+            try {
+              await removeEventAttachment(eventRef(item, false), file.url);
+              shown = shown.filter((f) => f !== file);
+              draw();
+              actions.changed(item);
+            } catch (e) {
+              note.textContent = `Couldn't remove it: ${errorMessage(e)}`;
+            }
+          });
+          li.append(remove);
+        }
+        return li;
+      }),
+    );
+    list.hidden = shown.length === 0;
+  };
+  if (isEvent) shown = [...(item.attachments ?? [])];
+  else {
+    note.textContent = "…";
+    void taskAttachments(item.sourceId!).then(
+      (found) => {
+        shown = found;
+        note.textContent = "";
+        draw();
+      },
+      () => (note.textContent = ""),
+    );
+  }
+  draw();
+  box.append(list);
+  if (canAdd) {
+    const picker = el("input");
+    picker.type = "file";
+    picker.multiple = true;
+    picker.hidden = true;
+    const add = el("button", "text-button attachment-add", "Add file…");
+    add.type = "button";
+    add.addEventListener("click", () => picker.click());
+    picker.addEventListener("change", async () => {
+      const chosen = [...(picker.files ?? [])];
+      picker.value = "";
+      if (!chosen.length) return;
+      let all = false;
+      if (isEvent && inSeries(item)) {
+        const scope = await ask(`Attach to “${item.title}”?`, "This is a repeating event.", [
+          ["one", "This event", true],
+          ["all", "All events", false],
+        ]);
+        if (scope !== "one" && scope !== "all") return;
+        all = scope === "all";
+      }
+      add.disabled = true;
+      try {
+        for (const file of chosen) {
+          note.textContent = isEvent ? `Adding ${file.name} to your Drive…` : `Adding ${file.name}…`;
+          shown.push(isEvent ? await attachToEvent(eventRef(item, all), file) : await attachToTask(item.sourceId!, file));
+          draw();
+        }
+        note.textContent = "";
+        actions.changed(item);
+      } catch (e) {
+        note.textContent = `Couldn't attach it: ${errorMessage(e)}`;
+      } finally {
+        add.disabled = false;
+      }
+    });
+    box.append(add, picker);
+  }
+  box.append(note);
+  return box;
 }
 
 /**

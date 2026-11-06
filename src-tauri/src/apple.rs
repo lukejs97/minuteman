@@ -314,6 +314,7 @@ fn event_item(event: &EKEvent) -> AgendaItem {
         leave_from: None,
         leave_alerts: Vec::new(),
         color_id: None,
+        attachments: Vec::new(),
         repeat: None,
     }
 }
@@ -428,6 +429,7 @@ fn reminder_item(reminder: &EKReminder, from: NaiveDate, to: NaiveDate, today: N
         leave_from: None,
         leave_alerts: Vec::new(),
         color_id: None,
+        attachments: Vec::new(),
         repeat: None,
     })
 }

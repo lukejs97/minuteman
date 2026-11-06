@@ -164,6 +164,15 @@ export const commands: Record<string, Command> = {
     const token = await tokenFor(ctx, target.email);
     return google.endSeriesBefore(token, ctx.zone, target.calendarId, target.eventId, value<string>(args, "before"), flag(args, "allDay"));
   },
+  async remove_event_attachment(ctx, args) {
+    const target = value<EventRef>(args, "target");
+    const token = await tokenFor(ctx, target.email);
+    await google.removeAttachment(token, target.calendarId, target.eventId, text(args, "url"));
+    return null;
+  },
+  async task_attachments(ctx, args) {
+    return todoist.taskAttachments(await todoistToken(ctx), text(args, "id"));
+  },
   async respond_to_event(ctx, args) {
     const target = value<EventRef>(args, "target");
     const token = await tokenFor(ctx, target.email);
@@ -330,3 +339,38 @@ export const commands: Record<string, Command> = {
     throw invalidInput("On the website the Routes key is a Cloudflare secret, not something you paste here");
   },
 };
+
+/** The largest file that can be attached. */
+const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+
+/**
+ * Attaching a file (`/upload/attach_to_event` or `/upload/attach_to_task`):
+ * the file is the request's body, as it is, and what it's for comes in the
+ * X-Attach header (JSON, URI-encoded): { target | id, name, mimeType }.
+ */
+export async function upload(ctx: Context, name: string, request: Request): Promise<unknown> {
+  let meta: { target?: EventRef; id?: string; name?: string; mimeType?: string };
+  try {
+    meta = JSON.parse(decodeURIComponent(request.headers.get("X-Attach") ?? "{}"));
+  } catch {
+    throw invalidInput("the file's details didn't come through");
+  }
+  const length = Number(request.headers.get("Content-Length") ?? "0");
+  if (length > MAX_ATTACHMENT_BYTES) throw invalidInput("files can be up to 25 MB");
+  const bytes = await request.arrayBuffer();
+  if (bytes.byteLength > MAX_ATTACHMENT_BYTES) throw invalidInput("files can be up to 25 MB");
+  const fileName = (meta.name ?? "").trim().slice(0, 200) || "Attachment";
+  const mimeType = /^[\w.+-]+\/[\w.+-]+$/.test(meta.mimeType ?? "") ? meta.mimeType! : "application/octet-stream";
+  if (name === "attach_to_event") {
+    const target = meta.target;
+    if (!target?.email || !target.calendarId || !target.eventId) throw invalidInput("which event?");
+    const account = await google.findAccount(ctx.env, target.email);
+    const token = await google.accessToken(ctx.env, account);
+    return google.attachToEvent(account, token, target.calendarId, target.eventId, fileName, mimeType, bytes);
+  }
+  if (name === "attach_to_task") {
+    if (!meta.id) throw invalidInput("which task?");
+    return todoist.attachToTask(await todoistToken(ctx), meta.id, fileName, mimeType, bytes);
+  }
+  throw invalidInput(`unknown upload ${name}`);
+}

@@ -53,10 +53,12 @@ console this section is called **Google Auth Platform**.
 4. **Contact information**: your email.
 5. **Finish**: tick the box to agree to the Google API Services User Data Policy, then **Continue** and **Create**.
 
-## 4. Add the Calendar and Contacts scopes
+## 4. Add the Calendar, Contacts and Drive scopes
 
-A *scope* is one specific permission the app asks for. The app asks for three:
-reading your calendars, adding events to them, and using your contacts.
+A *scope* is one specific permission the app asks for. The app asks for four:
+reading your calendars, adding events to them, using your contacts, and
+putting files you attach to events in your Drive (only those: not the rest
+of your Drive).
 
 1. In Google Auth Platform, open **Data Access**.
 2. Click **Add or remove scopes**.
@@ -66,7 +68,10 @@ reading your calendars, adding events to them, and using your contacts.
    `https://www.googleapis.com/auth/calendar.events` ("View and edit events on all your calendars").
 5. Clear the filter, type `auth/contacts` and tick
    `https://www.googleapis.com/auth/contacts` ("See, edit, download, and permanently delete your contacts").
-6. Click **Update**, then **Save** at the bottom of the page.
+6. Clear the filter, type `drive.file` and tick
+   `https://www.googleapis.com/auth/drive.file` ("See, edit, create, and delete only the specific
+   Google Drive files you use with this app"). It isn't a sensitive scope, so it needs no review.
+7. Click **Update**, then **Save** at the bottom of the page.
 
 Accounts added before the app could create events only gave permission to
 read. To add events to one, add it again (**Settings → Google accounts → Add account**, pick the

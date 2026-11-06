@@ -1,5 +1,5 @@
 // Typed wrappers around the Rust commands in src-tauri/src/lib.rs.
-import { type InvokeArgs, invoke as tauriInvoke } from "@tauri-apps/api/core";
+import { type InvokeArgs, invoke as tauriInvoke, isTauri } from "@tauri-apps/api/core";
 
 /**
  * Answers the app's own commands in the desktop app's Demo mode (see
@@ -102,6 +102,8 @@ export interface AgendaItem {
    * when it isn't its calendar's. `color` is already that color.
    */
   colorId?: string | null;
+  /** Google events: files attached (Drive files). A task's come from `taskAttachments`. */
+  attachments?: Attachment[];
   /**
    * Keeps its clock time in any time zone (an event marked so here, or
    * Apple's floating events): its times are that clock time here.
@@ -427,6 +429,49 @@ export const updateEvent = (
 ) => invoke<void>("update_event", { target, event, moveTo, notifyGuests, occurrence });
 /** Moves or resizes an event (dragging it). */
 /** Your reply to an invitation. For a repeating event, `target` is one occurrence, or its series for all. */
+/** A file attached to an event (a Drive file) or a task (on a Todoist comment). */
+export interface Attachment {
+  title: string;
+  /** Opens it. */
+  url: string;
+  mimeType: string | null;
+  iconUrl: string | null;
+}
+
+/** The largest file that can be attached. */
+export const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+
+/** `file`'s bytes as base64, for the desktop app's commands. */
+async function base64Of(file: File): Promise<string> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let text = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(text);
+}
+
+/**
+ * The arguments for attaching `file`: in the desktop app its bytes as text
+ * (Tauri's commands take JSON); on the website (and the sample data) the
+ * file itself, which web-bridge.ts uploads as it is.
+ */
+async function fileArgs(file: File): Promise<Record<string, unknown>> {
+  if (file.size > MAX_ATTACHMENT_BYTES) throw { kind: "input", message: "Files can be up to 25 MB." } satisfies AppError;
+  const meta = { name: file.name, mimeType: file.type || "application/octet-stream" };
+  return isTauri() && !answerHere ? { ...meta, data: await base64Of(file) } : { ...meta, file };
+}
+
+/** Attaches `file` to an event: put in the account's Drive, then linked on it. */
+export const attachToEvent = async (target: EventRef, file: File) =>
+  invoke<Attachment>("attach_to_event", { target, ...(await fileArgs(file)) });
+/** Takes an attachment off an event (the file stays in Drive). */
+export const removeEventAttachment = (target: EventRef, url: string) =>
+  invoke<void>("remove_event_attachment", { target, url });
+/** Files attached to a Todoist task (on its comments). */
+export const taskAttachments = (id: string) => invoke<Attachment[]>("task_attachments", { id });
+/** Attaches `file` to a Todoist task, on a comment. */
+export const attachToTask = async (id: string, file: File) =>
+  invoke<Attachment>("attach_to_task", { id, ...(await fileArgs(file)) });
+
 export const respondToEvent = (target: EventRef, response: "accepted" | "declined" | "tentative") =>
   invoke<void>("respond_to_event", { target, response });
 export const setEventTimes = (target: EventRef, times: EventTimes, notifyGuests: boolean) =>

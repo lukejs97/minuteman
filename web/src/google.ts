@@ -2,6 +2,7 @@
 // src-tauri/src/google/auth.rs and calendar.rs; behavior should match them.
 import type {
   AccountCalendarList,
+  Attachment,
   AccountCalendars,
   AgendaItem,
   Attendee,
@@ -37,7 +38,12 @@ const API = "https://www.googleapis.com/calendar/v3";
 const EVENTS_SCOPE = "https://www.googleapis.com/auth/calendar.events";
 /** Lets the Contacts page read and change your Google Contacts. */
 const CONTACTS_SCOPE = "https://www.googleapis.com/auth/contacts";
-const SCOPES = ["https://www.googleapis.com/auth/calendar.readonly", EVENTS_SCOPE, CONTACTS_SCOPE];
+/**
+ * Lets the app put files you attach to events in your Drive, and see only
+ * those (and ones opened with it), not the rest of your Drive.
+ */
+const DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file";
+const SCOPES = ["https://www.googleapis.com/auth/calendar.readonly", EVENTS_SCOPE, CONTACTS_SCOPE, DRIVE_FILE_SCOPE];
 
 /** Refresh a little before Google's stated expiry so a request never races it. */
 const EXPIRY_MARGIN_MS = 60_000;
@@ -125,6 +131,7 @@ export async function finishSignIn(
     refreshToken: tokens.refresh_token,
     canEditEvents: tokens.scope.split(" ").includes(EVENTS_SCOPE),
     canUseContacts: tokens.scope.split(" ").includes(CONTACTS_SCOPE),
+    canAttachFiles: tokens.scope.split(" ").includes(DRIVE_FILE_SCOPE),
   };
   await writeAccounts(env, [...accounts.filter((a) => a.email !== email), account]);
   remember(email, tokens);
@@ -220,6 +227,7 @@ interface GoogleEvent {
   recurringEventId?: string;
   extendedProperties?: { private?: Record<string, string> };
   colorId?: string;
+  attachments?: { fileUrl?: string; title?: string; mimeType?: string; iconLink?: string }[];
 }
 
 /**
@@ -246,7 +254,8 @@ const GOOGLE_MAX_MINUTES = 40_320;
 const EVENT_FIELDS =
   "nextPageToken,items(id,status,summary,location,htmlLink,start,end,eventType,description,hangoutLink," +
   "attendees(self,responseStatus,email,displayName,organizer,resource),conferenceData/entryPoints(entryPointType,uri)," +
-  "reminders,organizer/self,guestsCanModify,recurringEventId,extendedProperties/private,colorId)";
+  "reminders,organizer/self,guestsCanModify,recurringEventId,extendedProperties/private,colorId," +
+  "attachments(fileUrl,title,mimeType,iconLink))";
 
 const path = (...segments: string[]) => segments.map(encodeURIComponent).join("/");
 
@@ -538,6 +547,9 @@ function toAgendaItem(account: Account, calendar: CalendarListEntry, event: Goog
     location: placeOnOneLine(event.location),
     color: eventColor(event.colorId) ?? calendar.backgroundColor ?? null,
     colorId: eventColor(event.colorId) ? event.colorId! : null,
+    attachments: (event.attachments ?? [])
+      .filter((a) => a.fileUrl)
+      .map((a) => ({ title: a.title || "Attachment", url: a.fileUrl!, mimeType: a.mimeType ?? null, iconUrl: a.iconLink ?? null })),
     listName: calendarName(calendar),
     url: event.htmlLink ?? null,
     completed: false,
@@ -833,6 +845,62 @@ export async function respondToEvent(token: string, calendarId: string, eventId:
   if (!you) throw invalidInput("you're not on this event's guest list");
   you.responseStatus = response;
   await google(token, `${eventsUrl(calendarId, eventId, true)}&fields=id`, { method: "PATCH", body: JSON.stringify({ attendees }) });
+}
+
+/**
+ * Attaches a file to an event, as Google Calendar does: put in the account's
+ * Drive (a resumable upload), then linked on the event, after any others.
+ */
+export async function attachToEvent(
+  account: Account,
+  token: string,
+  calendarId: string,
+  eventId: string,
+  name: string,
+  mimeType: string,
+  bytes: ArrayBuffer,
+): Promise<Attachment> {
+  if (!account.canAttachFiles) {
+    throw invalidInput(`To attach files, add ${account.email} again in Settings → Google accounts, so Google can ask to allow it`);
+  }
+  const start = await fetchOrFail(
+    "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,name,mimeType,webViewLink,iconLink",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        "X-Upload-Content-Type": mimeType,
+        "X-Upload-Content-Length": String(bytes.byteLength),
+      },
+      body: JSON.stringify({ name, mimeType }),
+    },
+  );
+  const uploadUrl = start.headers.get("location");
+  if (!start.ok || !uploadUrl) throw apiError(start.status, `Google Drive didn't take the file (${start.status})`);
+  const sent = await fetchOrFail(uploadUrl, { method: "PUT", headers: { "Content-Type": mimeType }, body: bytes });
+  if (!sent.ok) throw apiError(sent.status, `Google Drive didn't take the file (${sent.status})`);
+  const file = (await sent.json()) as { id: string; name: string; mimeType?: string; webViewLink: string; iconLink?: string };
+  const read = new URL(`${API}/${path("calendars", calendarId, "events", eventId)}`);
+  read.searchParams.set("fields", "attachments");
+  const { attachments = [] } = await google<{ attachments?: Record<string, unknown>[] }>(token, read.toString());
+  attachments.push({ fileUrl: file.webViewLink, title: file.name, mimeType: file.mimeType ?? mimeType, iconLink: file.iconLink, fileId: file.id });
+  await google(token, `${eventsUrl(calendarId, eventId, false)}&supportsAttachments=true&fields=id`, {
+    method: "PATCH",
+    body: JSON.stringify({ attachments }),
+  });
+  return { title: file.name, url: file.webViewLink, mimeType: file.mimeType ?? mimeType, iconUrl: file.iconLink ?? null };
+}
+
+/** Takes the attachment at `fileUrl` off an event (the file stays in Drive). */
+export async function removeAttachment(token: string, calendarId: string, eventId: string, fileUrl: string): Promise<void> {
+  const read = new URL(`${API}/${path("calendars", calendarId, "events", eventId)}`);
+  read.searchParams.set("fields", "attachments");
+  const { attachments = [] } = await google<{ attachments?: { fileUrl?: string }[] }>(token, read.toString());
+  await google(token, `${eventsUrl(calendarId, eventId, false)}&supportsAttachments=true&fields=id`, {
+    method: "PATCH",
+    body: JSON.stringify({ attachments: attachments.filter((a) => a.fileUrl !== fileUrl) }),
+  });
 }
 
 /** Changes only when an event happens (dragging it). */

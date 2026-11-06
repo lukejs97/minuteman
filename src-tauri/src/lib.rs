@@ -278,6 +278,83 @@ async fn respond_to_event(state: State<'_, AppState>, target: EventRef, response
     Ok(())
 }
 
+/// The largest file that can be attached (Google and Todoist allow more, but
+/// it travels through the app as text).
+const MAX_ATTACHMENT_BYTES: usize = 25 * 1024 * 1024;
+
+/// A file sent from the page to attach: its bytes (base64), checked for size,
+/// and a type fit for a header ("image/png").
+fn attachment_bytes(mime_type: &str, data: &str) -> Result<(String, Vec<u8>)> {
+    use base64::Engine as _;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data.trim())
+        .map_err(|_| AppError::InvalidInput("the file didn't come through".into()))?;
+    if bytes.len() > MAX_ATTACHMENT_BYTES {
+        return Err(AppError::InvalidInput("files can be up to 25 MB".into()));
+    }
+    let plain = |c: char| c.is_ascii_alphanumeric() || "/+.-_".contains(c);
+    let mime = if !mime_type.is_empty() && mime_type.len() < 100 && mime_type.chars().all(plain) {
+        mime_type.to_string()
+    } else {
+        "application/octet-stream".to_string()
+    };
+    Ok((mime, bytes))
+}
+
+/// Attaches a file to an event: put in the account's Drive, then linked on it.
+#[tauri::command]
+async fn attach_to_event(
+    state: State<'_, AppState>,
+    target: EventRef,
+    name: String,
+    mime_type: String,
+    data: String,
+) -> Result<agenda::Attachment> {
+    let (mime, bytes) = attachment_bytes(&mime_type, &data)?;
+    if !state.google_auth.can_attach_files(&target.email).await? {
+        return Err(AppError::InvalidInput(format!(
+            "To attach files, add {} again in Settings → Google accounts, so Google can ask to allow it",
+            target.email
+        )));
+    }
+    let token = state.google_auth.access_token(&target.email).await?;
+    let name = name.trim();
+    let name = if name.is_empty() { "Attachment" } else { name };
+    let added = google::calendar::attach(&state.http, &token, &target.calendar_id, &target.event_id, name, &mime, bytes).await?;
+    events_changed();
+    Ok(added)
+}
+
+/// Takes an attachment off an event (the file stays in Drive).
+#[tauri::command]
+async fn remove_event_attachment(state: State<'_, AppState>, target: EventRef, url: String) -> Result<()> {
+    let token = state.google_auth.access_token(&target.email).await?;
+    google::calendar::remove_attachment(&state.http, &token, &target.calendar_id, &target.event_id, &url).await?;
+    events_changed();
+    Ok(())
+}
+
+/// Files on a task's comments.
+#[tauri::command]
+async fn task_attachments(state: State<'_, AppState>, id: String) -> Result<Vec<agenda::Attachment>> {
+    todoist::task_attachments(&state.http, &todoist_token()?, &id).await
+}
+
+/// Attaches a file to a task, on a comment, as Todoist does.
+#[tauri::command]
+async fn attach_to_task(
+    state: State<'_, AppState>,
+    id: String,
+    name: String,
+    mime_type: String,
+    data: String,
+) -> Result<agenda::Attachment> {
+    let (mime, bytes) = attachment_bytes(&mime_type, &data)?;
+    let name = name.trim();
+    let name = if name.is_empty() { "Attachment" } else { name };
+    todoist::attach(&state.http, &todoist_token()?, &id, name, &mime, bytes).await
+}
+
 /// Moves or resizes an event (dragging it).
 #[tauri::command]
 async fn set_event_times(
@@ -859,6 +936,10 @@ pub fn run() {
             event_recurrence,
             end_series_before,
             respond_to_event,
+            attach_to_event,
+            remove_event_attachment,
+            task_attachments,
+            attach_to_task,
             set_demo,
             set_event_times,
             delete_event,
@@ -919,4 +1000,19 @@ fn listen_for_sign_in_redirects(app: &tauri::App) {
             state.google_auth.handle_redirect_url(&url);
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_attached_file_is_checked_before_it_goes_anywhere() {
+        let (mime, bytes) = attachment_bytes("image/png", "aGVsbG8=").unwrap();
+        assert_eq!((mime.as_str(), bytes.as_slice()), ("image/png", b"hello".as_slice()));
+        // A type that could break the request header is replaced.
+        assert_eq!(attachment_bytes("text/plain\r\nX-Evil: 1", "aGVsbG8=").unwrap().0, "application/octet-stream");
+        assert_eq!(attachment_bytes("", "aGVsbG8=").unwrap().0, "application/octet-stream");
+        assert!(attachment_bytes("text/plain", "not base64!").is_err());
+    }
 }

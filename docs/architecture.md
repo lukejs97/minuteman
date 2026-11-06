@@ -260,6 +260,17 @@ shown while any dialog is open (`boot.ts` wraps `showModal`). Not
 contents change size, and the Mac's web view flickered. The layer stays on
 while one dialog replaces another.
 
+**Attachments**: an event's are Drive files on `event.attachments` (read
+with the event, shown in its details). Adding one (`attach_to_event`):
+a resumable upload to the account's Drive (`drive.file` scope, so only files
+Minuteman adds), then a PATCH of the event's attachments with
+`supportsAttachments=true`; taking one off leaves the file in Drive. A
+task's are files on its Todoist comments (`task_attachments`, fetched when
+its details open); adding one uploads to `/uploads` and adds a comment.
+Files go to the desktop app as base64 (25 MB at most); on the website the
+file itself is the body of a POST to `/upload/<command>`, with what it's for
+in `X-Attach`, so the Worker doesn't decode text.
+
 **Event colors** (`event-colors.ts`, `EVENT_COLORS` in calendar.rs): an
 event's `colorId` ("1" to "11", Google's names and the colors its apps show)
 becomes `AgendaItem.color` (else the calendar's) and `colorId`.

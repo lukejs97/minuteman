@@ -27,6 +27,8 @@ export interface Account {
   canEditEvents: boolean;
   /** Whether Google granted the permission to use contacts (missing on accounts added before). */
   canUseContacts?: boolean;
+  /** Whether Google granted putting attached files in Drive (missing on accounts added before). */
+  canAttachFiles?: boolean;
 }
 
 const SESSION_DAYS = 30;

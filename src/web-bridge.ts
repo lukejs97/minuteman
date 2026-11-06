@@ -29,6 +29,28 @@ async function send(command: string, args: unknown): Promise<unknown> {
   return body;
 }
 
+async function uploadFile(command: string, file: File, meta: Record<string, unknown>): Promise<unknown> {
+  let response: Response;
+  try {
+    response = await fetch(`/upload/${command}`, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        "Content-Type": file.type || "application/octet-stream",
+        "X-Minuteman": "1",
+        "X-Time-Zone": zone,
+        "X-Attach": encodeURIComponent(JSON.stringify(meta)),
+      },
+      body: file,
+    });
+  } catch {
+    throw { kind: "network", message: "Can't reach Minuteman. Check your internet connection." } satisfies AppError;
+  }
+  const body = await response.json().catch(() => null);
+  if (!response.ok) throw body ?? ({ kind: "api", message: `Server error ${response.status}` } satisfies AppError);
+  return body;
+}
+
 /** Ends this browser's session (other devices stay signed in), then reloads. */
 export async function signOutHere(): Promise<void> {
   await fetch("/auth/signout", { method: "POST", credentials: "same-origin", headers: { "X-Minuteman": "1" } });
@@ -53,6 +75,12 @@ export function install(): void {
       case "sign_in":
         location.assign("/auth/google/start");
         return new Promise(() => {});
+      // A file to attach goes as it is (not as text), to /upload/<command>.
+      case "attach_to_event":
+      case "attach_to_task": {
+        const { file, ...meta } = args as { file: File } & Record<string, unknown>;
+        return uploadFile(command, file, meta);
+      }
       case "plugin:opener|open_url":
         openLink((args as { url: string }).url);
         return null;

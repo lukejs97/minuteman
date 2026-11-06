@@ -148,6 +148,24 @@ pub struct AgendaItem {
     /// A repeating Todoist task's repeat, in Todoist's words ("every Monday").
     #[serde(default)]
     pub repeat: Option<String>,
+    /// Google events: files attached (Drive files, as Google Calendar keeps
+    /// them). A task's are fetched when its details open (`task_attachments`).
+    #[serde(default)]
+    pub attachments: Vec<Attachment>,
+}
+
+/// A file attached to an event (a Drive file) or a task (on a Todoist comment).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Attachment {
+    pub title: String,
+    /// Opens it: the Drive file's page, or Todoist's copy of the file.
+    pub url: String,
+    #[serde(default)]
+    pub mime_type: Option<String>,
+    /// A small icon for its kind, as Google gives it.
+    #[serde(default)]
+    pub icon_url: Option<String>,
 }
 
 #[derive(Serialize)]

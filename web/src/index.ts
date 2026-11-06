@@ -8,7 +8,7 @@
 //
 // Browsers only ever get an HttpOnly session cookie, which page scripts can't
 // read. Google and Todoist tokens stay here, encrypted in KV.
-import { commands } from "./commands";
+import { commands, upload } from "./commands";
 import { pkceChallenge, randomToken } from "./crypto";
 import type { Context, Env } from "./env";
 import { AppError, notSignedIn } from "./errors";
@@ -157,6 +157,14 @@ export default {
         if (!fromThisSite(request, url)) return json({ kind: "auth", message: "Not allowed" }, 403);
         await endSession(env, sessionCookie(request));
         return withHeaders(new Response(null, { status: 204 }), { "Set-Cookie": setCookie("", 0) });
+      }
+      if (url.pathname.startsWith("/upload/")) {
+        if (request.method !== "POST" || !fromThisSite(request, url)) {
+          return json({ kind: "auth", message: "Not allowed" }, 403);
+        }
+        if (!(await hasSession(env, sessionCookie(request)))) throw notSignedIn();
+        const ctx: Context = { env, zone: validZone(request.headers.get("X-Time-Zone")) };
+        return json(await upload(ctx, url.pathname.slice("/upload/".length), request));
       }
       if (url.pathname.startsWith("/api/")) {
         if (request.method !== "POST" || !fromThisSite(request, url)) {

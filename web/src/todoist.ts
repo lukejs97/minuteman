@@ -1,7 +1,7 @@
 // Todoist (API v1): a port of src-tauri/src/todoist.rs. Reads active tasks
 // with a due date; adds, edits, reschedules, deletes, completes and reopens
 // tasks, using the personal API token kept (encrypted) on the server.
-import type { AgendaItem, TaskDraft, TaskDue, TodoistProject } from "../../src/api";
+import type { AgendaItem, Attachment, TaskDraft, TaskDue, TodoistProject } from "../../src/api";
 import { AppError, fetchOrFail, invalidInput } from "./errors";
 import { addDays, dayOf, parseDay, wallToInstant } from "./zone";
 
@@ -293,6 +293,47 @@ export function rescheduledDate(at: string, due: NonNullable<Task["due"]>): stri
   if (due.timezone) return new Date(t).toISOString().replace(/\.\d{3}Z$/, "Z");
   // The clock time as written ("2026-11-10T10:30:00-05:00" → 10:30).
   return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?/.test(at) ? `${at.slice(0, 16)}:00` : new Date(t).toISOString().slice(0, 19);
+}
+
+/** Files on a task's comments, as Todoist keeps them. */
+export async function taskAttachments(token: string, id: string): Promise<Attachment[]> {
+  const found: Attachment[] = [];
+  let cursor: string | null = null;
+  do {
+    const target = new URL(url("comments"));
+    target.searchParams.set("task_id", id);
+    target.searchParams.set("limit", "200");
+    if (cursor) target.searchParams.set("cursor", cursor);
+    const page = (await (await todoist(token, target.toString())).json()) as {
+      results?: { file_attachment?: { file_name?: string; file_url?: string; file_type?: string } | null }[];
+      next_cursor?: string | null;
+    };
+    for (const comment of page.results ?? []) {
+      const file = comment.file_attachment;
+      if (file?.file_url) found.push({ title: file.file_name || "Attachment", url: file.file_url, mimeType: file.file_type ?? null, iconUrl: null });
+    }
+    cursor = page.next_cursor ?? null;
+  } while (cursor);
+  return found;
+}
+
+/** Attaches a file to a task, as Todoist's apps do: uploaded, then added as a comment named after it. */
+export async function attachToTask(token: string, id: string, name: string, mimeType: string, bytes: ArrayBuffer): Promise<Attachment> {
+  const form = new FormData();
+  form.append("file", new File([bytes], name, { type: mimeType }));
+  // Not todoist(): the form sets its own Content-Type (with the boundary).
+  const uploaded = await fetchOrFail(url("uploads"), { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: form });
+  if (!uploaded.ok) throw new AppError("api", `Todoist error (${uploaded.status}): ${await uploaded.text()}`, 502);
+  const file = (await uploaded.json()) as { file_name?: string; file_url?: string; file_type?: string };
+  await todoist(token, url("comments"), {
+    method: "POST",
+    body: JSON.stringify({
+      task_id: id,
+      content: name,
+      attachment: { resource_type: "file", file_name: file.file_name ?? name, file_url: file.file_url, file_type: file.file_type ?? mimeType },
+    }),
+  });
+  return { title: file.file_name ?? name, url: file.file_url ?? "", mimeType: file.file_type ?? mimeType, iconUrl: null };
 }
 
 export async function deleteTask(token: string, id: string): Promise<void> {
