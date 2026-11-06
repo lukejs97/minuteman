@@ -122,7 +122,14 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
   (who you were last in touch with), upcoming birthdays and Favorites sit at
   the top of the list. Settings opens from here too.
   - **Photos:** Edit → Photo → **Choose…** (a square from the middle of the
-    picture is saved to Google Contacts), **Change…** or **Remove**.
+    picture is saved to Google Contacts), **Change…** or **Remove**. iPhone
+    photos (HEIC) work everywhere: where the browser can't open them
+    (Chrome, Edge, the Windows app) they're converted first.
+  - **Photos from a contacts file** (**⋯** at the top, or the menu on a
+    phone): pick a contacts file (.vcf), such as a backup or contacts
+    exported from iCloud or Apple's Contacts, and everyone in it with a
+    photo who's in your contacts without one (found by email, phone number
+    or name) gets it, after you've seen who.
   - **Duplicates:** people listed twice in one account (the same email,
     phone number or whole name) are pointed out at the top of the list and
     on their cards; **Review…** shows what merging makes of them, then

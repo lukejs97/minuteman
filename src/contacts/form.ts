@@ -15,6 +15,7 @@ import {
 } from "../api";
 import { el } from "../dom";
 import { labelText } from "./model";
+import { squarePhoto } from "./photo";
 import type { ParsedContact } from "./parse";
 import { enablePlaceSuggestions } from "../place-suggest";
 
@@ -296,9 +297,6 @@ class LabeledList {
   }
 }
 
-/** The side of a contact's photo, in pixels: a square, as Google shows it. */
-const PHOTO_SIZE = 512;
-
 /** Their photo: Choose… (or Change…) and Remove. */
 class PhotoField {
   node = el("div", "form-controls photo-field");
@@ -328,13 +326,14 @@ class PhotoField {
       const file = this.picker.files?.[0];
       this.picker.value = "";
       if (!file) return;
-      this.note.textContent = "";
+      this.note.textContent = "Opening it…";
       try {
         this.chosen = await squarePhoto(file);
+        this.note.textContent = "";
         this.removed = false;
         this.draw(`data:image/jpeg;base64,${this.chosen}`);
       } catch {
-        this.note.textContent = "That picture couldn't be opened. Try a JPEG or PNG.";
+        this.note.textContent = "That picture couldn't be opened. Try a JPEG, PNG or HEIC.";
       }
     });
     this.preview.setAttribute("aria-hidden", "true");
@@ -356,26 +355,6 @@ class PhotoField {
     } else this.preview.replaceChildren(el("span", "avatar-initials", "—"));
     this.choose.textContent = src ? "Change…" : "Choose…";
     this.remove.hidden = !src;
-  }
-}
-
-/** `file` as a square photo (the middle of it), at most PHOTO_SIZE across, as base64 JPEG. */
-async function squarePhoto(file: File): Promise<string> {
-  const url = URL.createObjectURL(file);
-  try {
-    const img = new Image();
-    img.src = url;
-    await img.decode();
-    const side = Math.min(img.naturalWidth, img.naturalHeight);
-    if (!side) throw new Error("no picture");
-    const size = Math.min(PHOTO_SIZE, side);
-    const canvas = document.createElement("canvas");
-    canvas.width = canvas.height = size;
-    const context = canvas.getContext("2d")!;
-    context.drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, size, size);
-    return canvas.toDataURL("image/jpeg", 0.88).split(",")[1];
-  } finally {
-    URL.revokeObjectURL(url);
   }
 }
 

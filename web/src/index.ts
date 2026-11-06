@@ -37,6 +37,8 @@ const SECURITY_HEADERS: Record<string, string> = {
     "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://*.googleusercontent.com; " +
     // The weather (src/weather.ts) comes straight from Open-Meteo.
     "connect-src 'self' https://api.open-meteo.com https://geocoding-api.open-meteo.com https://photon.komoot.io https://api.zippopotam.us; " +
+    // The HEIC decoder for iPhone photos (src/contacts/photo.ts) works in a worker it makes itself.
+    "worker-src 'self' blob:; " +
     "frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
   "X-Content-Type-Options": "nosniff",
   "Referrer-Policy": "no-referrer",

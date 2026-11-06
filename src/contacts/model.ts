@@ -402,3 +402,93 @@ export function cardText(contact: Contact): string {
   if (contact.birthday) lines.push(`Birthday: ${describeBirthday(contact.birthday)}`);
   return lines.join("\n");
 }
+
+// ---------- Photos from a contacts file ----------
+
+/** Someone in a contacts file (.vcf), with what's needed to find them here. */
+export interface FilePerson {
+  name: string;
+  emails: string[];
+  phones: string[];
+  /** Their photo: its type ("image/jpeg") and base64 data. */
+  photo: { type: string; data: string } | null;
+}
+
+/** A vCard value with its escapes undone ("\,", "\;", "\n"). */
+const unescapeVCard = (value: string) => value.replace(/\\([\\,;nN])/g, (_, c: string) => (c.toLowerCase() === "n" ? "\n" : c));
+
+/**
+ * The people in a contacts file (vCard 2.1, 3.0 or 4.0, as Apple's Contacts,
+ * iCloud and Google export them): names, emails, phone numbers and photos
+ * kept in the file (not ones only linked to).
+ */
+export function readContactsFile(text: string): FilePerson[] {
+  // Long lines go on over the next, indented by a space or tab.
+  const lines = text.replace(/\r\n?/g, "\n").replace(/\n[ \t]/g, "").split("\n");
+  const people: FilePerson[] = [];
+  let person: FilePerson | null = null;
+  let given = "";
+  for (const line of lines) {
+    const colon = line.indexOf(":");
+    if (colon < 0) continue;
+    // "item1.EMAIL;TYPE=HOME" → name EMAIL, its parameters.
+    const [rawName, ...params] = line.slice(0, colon).split(";");
+    const name = rawName.replace(/^[^.]*\./, "").toUpperCase();
+    const value = line.slice(colon + 1);
+    if (name === "BEGIN" && value.trim().toUpperCase() === "VCARD") {
+      person = { name: "", emails: [], phones: [], photo: null };
+      given = "";
+    } else if (!person) continue;
+    else if (name === "END") {
+      if (!person.name) person.name = given;
+      people.push(person);
+      person = null;
+    } else if (name === "FN") person.name = unescapeVCard(value).trim();
+    else if (name === "N") {
+      const [family, first] = value.split(";").map((part) => unescapeVCard(part).trim());
+      given = [first, family].filter(Boolean).join(" ");
+    } else if (name === "EMAIL") person.emails.push(value.trim());
+    else if (name === "TEL") person.phones.push(value.replace(/^tel:/i, "").trim());
+    else if (name === "PHOTO" && !person.photo) {
+      const data = /^data:([^;,]+)?(?:;[^,]*)?;base64,(.*)$/i.exec(value.trim());
+      const parameters = params.join(";").toUpperCase();
+      if (data) person.photo = { type: (data[1] || "image/jpeg").toLowerCase(), data: data[2].replace(/\s+/g, "") };
+      else if (/ENCODING=(B|BASE64)/.test(parameters) || (parameters.includes("BASE64") && !/^https?:/i.test(value))) {
+        const kind = /TYPE=([A-Z0-9]+)/.exec(parameters)?.[1]?.toLowerCase() ?? "jpeg";
+        person.photo = { type: `image/${kind === "jpg" ? "jpeg" : kind}`, data: value.replace(/\s+/g, "") };
+      }
+    }
+  }
+  return people;
+}
+
+/** A person in a contacts file and who they are here. */
+export interface PhotoMatch {
+  person: FilePerson;
+  /** Your contacts who are them (by email, phone number or whole name). */
+  matches: Contact[];
+}
+
+/** For everyone in `people` with a photo, who they are among `contacts` (by email, then phone, then whole name). */
+export function matchFilePhotos(people: FilePerson[], contacts: Contact[]): PhotoMatch[] {
+  const byKey = new Map<string, Contact[]>();
+  const add = (key: string, contact: Contact) => byKey.set(key, [...(byKey.get(key) ?? []), contact]);
+  for (const contact of contacts) {
+    for (const email of contact.emails) add(`e:${email.value.trim().toLowerCase()}`, contact);
+    for (const phone of contact.phones) if (phoneKey(phone.value)) add(`p:${phoneKey(phone.value)}`, contact);
+    if (nameKey(contact)) add(`n:${nameKey(contact)}`, contact);
+  }
+  return people
+    .filter((person) => person.photo)
+    .map((person) => {
+      const asContact = { ...({} as Contact), name: person.name, givenName: null, familyName: null };
+      const keys = [
+        ...person.emails.map((e) => `e:${e.trim().toLowerCase()}`),
+        ...person.phones.map(phoneKey).filter(Boolean).map((k) => `p:${k}`),
+        ...(nameKey(asContact) ? [`n:${nameKey(asContact)}`] : []),
+      ];
+      const found = new Map<string, Contact>();
+      for (const key of keys) for (const contact of byKey.get(key) ?? []) found.set(contact.id, contact);
+      return { person, matches: [...found.values()] };
+    });
+}

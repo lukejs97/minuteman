@@ -339,6 +339,15 @@ Minuteman's Cardhop: a second page, `contacts.html` (Vite builds both pages,
   googleusercontent.com), adds it to Favorites if any was, deletes the
   others and moves their History to it. Groups marked "Not the same person"
   are remembered per device (`contacts.notDuplicates` in localStorage).
+- **Photos** (contacts/photo.ts): a picture is opened with
+  `createImageBitmap`, else an `<img>`, else (HEIC where the browser can't
+  open it) with `heic-to` (libheif, LGPL), loaded only then as its own chunk;
+  its CSP build runs in a `blob:` worker, hence `worker-src 'self' blob:` in
+  both CSPs (tauri.conf.json, web/src/index.ts). **Photos from a contacts
+  file** (`readContactsFile`, `matchFilePhotos`): vCard 2.1–4.0 photos kept
+  in the file (base64 or `data:`; links are skipped), matched by email, phone
+  (last ten digits) or whole name, added only to contacts without a photo,
+  one by one, waiting and trying again when Google says too many (429).
 - **Sharing** (`toVCard`, `cardText`): a vCard 3.0, with Apple's
   `X-ABRELATEDNAMES` for relations and `X-APPLE-OMIT-YEAR` for a birthday
   without a year; the share sheet where the browser can share files,

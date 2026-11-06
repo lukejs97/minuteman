@@ -24,6 +24,7 @@ import {
   logInteraction,
   mergeContacts,
   saveContactCard,
+  setContactPhoto,
   setContactStarred,
   signIn,
   updateContact,
@@ -46,6 +47,7 @@ import { announceChange } from "../sync";
 import { timeFormat } from "../time";
 import { avatar, isMac, renderCard, type CardActions } from "./card";
 import { openContactForm } from "./form";
+import { squarePhoto } from "./photo";
 import { openCalendar } from "./open";
 import { describeLatest, historyOf, KIND_WORDS, latestByContact, recentContacts } from "./history";
 import {
@@ -57,7 +59,9 @@ import {
   groupKey,
   indexLetter,
   labelText,
+  matchFilePhotos,
   mergeOf,
+  readContactsFile,
   newValues,
   toVCard,
   turning,
@@ -853,6 +857,144 @@ function shareMenu(contact: Contact, anchor: HTMLElement): void {
   showMenu(rect.left, rect.bottom + 4, items);
 }
 
+// ---------- Photos from a contacts file ----------
+
+/**
+ * Photos from a contacts file (.vcf): a backup, or contacts exported from
+ * iCloud or Apple's Contacts. Everyone in it with a photo who's here without
+ * one can have it added.
+ */
+function choosePhotosFile(): void {
+  const picker = el("input");
+  picker.type = "file";
+  picker.accept = ".vcf,text/vcard,text/x-vcard,text/directory";
+  picker.addEventListener("change", async () => {
+    const file = picker.files?.[0];
+    if (!file) return;
+    try {
+      openPhotosReview(file.name, matchFilePhotos(readContactsFile(await file.text()), contacts()));
+    } catch (e) {
+      banner.replaceChildren(el("p", "error", `Couldn't read ${file.name}: ${errorMessage(e)}`));
+    }
+  });
+  picker.click();
+}
+
+function findDuplicatesNow(): void {
+  if (duplicates().length) reviewDuplicates(duplicates());
+  else {
+    const line = el("p", "notice", "No duplicates found.");
+    banner.replaceChildren(line);
+    window.setTimeout(() => line.remove(), 5000);
+  }
+}
+
+/** Google turns down too many changes at once (429): wait a little and try again. */
+async function withRetry<T>(run: () => Promise<T>): Promise<T> {
+  for (let tries = 0; ; tries++) {
+    try {
+      return await run();
+    } catch (e) {
+      if (tries >= 3 || !/\(429\)|quota|rate limit/i.test(errorMessage(e))) throw e;
+      await new Promise((resolve) => window.setTimeout(resolve, 20_000 * (tries + 1)));
+    }
+  }
+}
+
+function openPhotosReview(fileName: string, found: ReturnType<typeof matchFilePhotos>): void {
+  const dialog = el("dialog", "dialog duplicates-dialog photos-dialog");
+  dialog.setAttribute("aria-labelledby", "photos-title");
+  document.body.append(dialog);
+  dialog.addEventListener("close", () => dialog.remove());
+  const title = el("h2", undefined, "Photos from a contacts file");
+  title.id = "photos-title";
+  // Who'd get a photo: matched here, without one.
+  const toAdd = found
+    .map((f) => ({ ...f, without: f.matches.filter((c) => !c.photo) }))
+    .filter((f) => f.without.length);
+  const alreadyHave = found.filter((f) => f.matches.length && f.matches.every((c) => c.photo)).length;
+  const unmatched = found.filter((f) => !f.matches.length).length;
+  const counts = [
+    found.length === 1 ? "1 person in it has a photo" : `${found.length} people in it have a photo`,
+    alreadyHave ? `${alreadyHave} already ${alreadyHave === 1 ? "has" : "have"} one here` : "",
+    unmatched ? `${unmatched} ${unmatched === 1 ? "isn't" : "aren't"} in your contacts (by email, phone number or name)` : "",
+  ].filter(Boolean);
+  const intro = el("p", "form-notes", `“${fileName}”: ${counts.join("; ")}.`);
+  const box = el("div", "duplicate-groups");
+  const chosen = new Map<HTMLInputElement, (typeof toAdd)[number]>();
+  for (const entry of toAdd) {
+    const row = el("label", "photo-match");
+    const check = el("input");
+    check.type = "checkbox";
+    check.checked = true;
+    chosen.set(check, entry);
+    const picture = el("span", "avatar avatar-small");
+    const img = el("img");
+    img.alt = "";
+    img.src = `data:${entry.person.photo!.type};base64,${entry.person.photo!.data}`;
+    // A kind the browser can't show (HEIC): their initials; it's converted when added.
+    img.addEventListener("error", () => picture.replaceChildren(el("span", "avatar-initials", "?")), { once: true });
+    picture.append(img);
+    const text = el("span", "contact-row-text");
+    text.append(el("span", "contact-row-name", entry.without.map(displayName).join(", ")));
+    const accounts = new Set(entry.without.map((c) => c.account));
+    const where = (list?.accounts.length ?? 1) > 1 ? ` · ${[...accounts].join(", ")}` : "";
+    if (entry.person.name && entry.person.name !== displayName(entry.without[0])) text.append(el("span", "contact-row-detail", `“${entry.person.name}” in the file${where}`));
+    else if (where) text.append(el("span", "contact-row-detail", where.slice(3)));
+    row.append(check, picture, text);
+    box.append(row);
+  }
+  if (!toAdd.length) box.append(el("p", "duplicate-result", "Nobody here is missing a photo that's in this file."));
+  const note = el("p", "form-notes");
+  const close = el("button", "text-button", toAdd.length ? "Cancel" : "Done");
+  close.type = "button";
+  close.addEventListener("click", () => dialog.close());
+  const add = el("button", "primary-button", "Add photos");
+  add.type = "button";
+  add.hidden = !toAdd.length;
+  const count = () => {
+    const n = [...chosen.keys()].filter((c) => c.checked).reduce((sum, c) => sum + chosen.get(c)!.without.length, 0);
+    add.textContent = n === 1 ? "Add 1 photo" : `Add ${n} photos`;
+    add.disabled = n === 0;
+  };
+  for (const check of chosen.keys()) check.addEventListener("change", count);
+  count();
+  add.addEventListener("click", async () => {
+    const work = [...chosen].filter(([check]) => check.checked).flatMap(([, entry]) => entry.without.map((contact) => ({ entry, contact })));
+    add.disabled = true;
+    for (const check of chosen.keys()) check.disabled = true;
+    let done = 0;
+    const failed: string[] = [];
+    for (const { entry, contact } of work) {
+      note.textContent = `Adding ${done + 1} of ${work.length}…`;
+      try {
+        const bytes = Uint8Array.from(atob(entry.person.photo!.data), (ch) => ch.charCodeAt(0));
+        const square = await squarePhoto(new Blob([bytes], { type: entry.person.photo!.type }));
+        const current = contacts().find((c) => c.id === contact.id) ?? contact;
+        const result = await withRetry(() => setContactPhoto(contactRef(current), square));
+        if (list) list = { ...list, contacts: list.contacts.map((c) => (c.id === result.id ? result : c)) };
+        done++;
+      } catch (e) {
+        failed.push(`${displayName(contact)} (${errorMessage(e)})`);
+      }
+    }
+    note.textContent = failed.length
+      ? `Added ${done} of ${work.length}. Couldn't add: ${failed.join("; ")}.`
+      : done === 1
+        ? "Added 1 photo."
+        : `Added ${done} photos.`;
+    close.textContent = "Done";
+    add.hidden = true;
+    shownCard = "";
+    update();
+  });
+  const buttons = el("div", "dialog-buttons");
+  buttons.append(close, add);
+  dialog.append(title, intro, box, note, buttons);
+  dialog.showModal();
+  (toAdd.length ? add : close).focus();
+}
+
 // ---------- Duplicates ----------
 
 /** "2 phones · 3 emails · birthday · photo": what someone has, in short. */
@@ -975,6 +1117,13 @@ function setUp(): void {
   document.querySelector("#refresh")!.addEventListener("click", () => void load());
   document.querySelector("#new-contact")!.addEventListener("click", newContact);
   document.querySelector("#settings")!.addEventListener("click", showSettings);
+  document.querySelector("#more")!.addEventListener("click", (e) => {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    showMenu(rect.left, rect.bottom + 4, [
+      ["Find duplicates…", findDuplicatesNow],
+      ["Photos from a contacts file…", choosePhotosFile],
+    ]);
+  });
   // Phones: the floating buttons at the bottom, as in the calendar, and a
   // shorter hint in the box, which is narrower there.
   const placeholder = () => {
@@ -984,7 +1133,8 @@ function setUp(): void {
   placeholder();
   setUpDockMenu(document.querySelector("#menu-button")!, document.querySelector("#menu")!, (line) => [
     line("Refresh", () => void load()),
-    line("Find duplicates…", () => (duplicates().length ? reviewDuplicates(duplicates()) : banner.replaceChildren(el("p", "notice", "No duplicates found.")))),
+    line("Find duplicates…", findDuplicatesNow),
+    line("Photos from a contacts file…", choosePhotosFile),
     el("hr", "menu-line"),
     line("Settings…", showSettings),
   ]);

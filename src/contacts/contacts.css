@@ -780,3 +780,26 @@ main.contacts-main {
   justify-content: flex-end;
   gap: 12px;
 }
+
+/* Photos from a contacts file: who'd get which photo. */
+.photo-match {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 2px;
+  cursor: pointer;
+}
+
+.photo-match img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.photos-dialog .duplicate-groups {
+  gap: 2px;
+}
+
+.photo-match input {
+  accent-color: var(--accent);
+}
