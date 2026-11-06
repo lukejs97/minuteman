@@ -1346,6 +1346,17 @@ body.dimmed::after {
   padding: 2px 0;
 }
 
+.attachment-actions {
+  display: flex;
+  gap: 14px;
+}
+
+/* Files dragged over an event's or task's details. */
+.dialog.dropping {
+  outline: 2px dashed var(--accent);
+  outline-offset: -8px;
+}
+
 /* An invitation's details: Yes / Maybe / No. */
 .reply {
   display: flex;

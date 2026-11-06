@@ -103,7 +103,7 @@ export function openDetails(item: AgendaItem, actions: DetailActions): void {
   const you = item.kind === "event" && item.source === "google" ? item.attendees.find((a) => a.isSelf && !a.organizer) : null;
   if (you) rows.append(row("Going?", replyButtons(item, you.response, actions)));
   if (item.attendees.length > 0) rows.append(row("Guests", guestList(item.attendees)));
-  const files = attachmentsRow(item, actions);
+  const files = attachmentsRow(item, actions, dialog);
   if (files) rows.append(row("Attachments", files));
   if (item.description) {
     const notes = el("div", "details-notes");
@@ -329,7 +329,7 @@ function callService(url: string): string {
  * event's can be taken off (the file stays in Drive). Null when there's
  * nothing to show or add.
  */
-function attachmentsRow(item: AgendaItem, actions: DetailActions): HTMLElement | null {
+function attachmentsRow(item: AgendaItem, actions: DetailActions, dialog: HTMLDialogElement): HTMLElement | null {
   const isEvent = item.kind === "event" && item.source === "google";
   const isTask = item.kind === "task" && item.source === "todoist";
   const canAdd = isTask || (isEvent && item.editable);
@@ -392,10 +392,10 @@ function attachmentsRow(item: AgendaItem, actions: DetailActions): HTMLElement |
     const add = el("button", "text-button attachment-add", "Add file…");
     add.type = "button";
     add.addEventListener("click", () => picker.click());
-    picker.addEventListener("change", async () => {
-      const chosen = [...(picker.files ?? [])];
-      picker.value = "";
-      if (!chosen.length) return;
+    const buttons: HTMLButtonElement[] = [add];
+    /** Attaches `chosen` (picked, pasted or dropped), one after another. */
+    const addFiles = async (chosen: File[]) => {
+      if (!chosen.length || add.disabled) return;
       let all = false;
       if (isEvent && inSeries(item)) {
         const scope = await ask(`Attach to “${item.title}”?`, "This is a repeating event.", [
@@ -405,7 +405,7 @@ function attachmentsRow(item: AgendaItem, actions: DetailActions): HTMLElement |
         if (scope !== "one" && scope !== "all") return;
         all = scope === "all";
       }
-      add.disabled = true;
+      buttons.forEach((b) => (b.disabled = true));
       try {
         for (const file of chosen) {
           note.textContent = isEvent ? `Adding ${file.name} to your Drive…` : `Adding ${file.name}…`;
@@ -417,13 +417,75 @@ function attachmentsRow(item: AgendaItem, actions: DetailActions): HTMLElement |
       } catch (e) {
         note.textContent = `Couldn't attach it: ${errorMessage(e)}`;
       } finally {
-        add.disabled = false;
+        buttons.forEach((b) => (b.disabled = false));
       }
+    };
+    picker.addEventListener("change", () => {
+      const chosen = [...(picker.files ?? [])];
+      picker.value = "";
+      void addFiles(chosen);
     });
-    box.append(add, picker);
+    // ⌘V / Ctrl+V with a file or a screenshot copied, while these details are open.
+    dialog.addEventListener("paste", (e) => {
+      const pasted = [...(e.clipboardData?.files ?? [])];
+      if (!pasted.length) return; // text: left as it is
+      e.preventDefault();
+      void addFiles(pasted.map(named));
+    });
+    // Files dragged onto the details.
+    dialog.addEventListener("dragover", (e) => {
+      if (!e.dataTransfer?.types.includes("Files")) return;
+      e.preventDefault();
+      dialog.classList.add("dropping");
+    });
+    dialog.addEventListener("dragleave", (e) => {
+      if (e.target === dialog) dialog.classList.remove("dropping");
+    });
+    dialog.addEventListener("drop", (e) => {
+      const dropped = [...(e.dataTransfer?.files ?? [])];
+      dialog.classList.remove("dropping");
+      if (!dropped.length) return;
+      e.preventDefault();
+      void addFiles(dropped);
+    });
+    // Paste: what's on the clipboard (a photo, a screenshot). On a phone
+    // there's no ⌘V; the browser asks before it lets the page read it.
+    if (navigator.clipboard && "read" in navigator.clipboard) {
+      const paste = el("button", "text-button attachment-add", "Paste");
+      paste.type = "button";
+      paste.title = "Attach what's on the clipboard";
+      paste.addEventListener("click", async () => {
+        note.textContent = "";
+        try {
+          const found: File[] = [];
+          for (const entry of await navigator.clipboard.read()) {
+            const type = entry.types.find((t) => !t.startsWith("text/"));
+            if (type) found.push(named(new File([await entry.getType(type)], "", { type })));
+          }
+          if (found.length) await addFiles(found);
+          else note.textContent = "There's no file or picture on the clipboard.";
+        } catch {
+          note.textContent = "Couldn't read the clipboard. Allow it when asked, or use Add file….";
+        }
+      });
+      buttons.push(paste);
+    }
+    const actionsLine = el("div", "attachment-actions");
+    actionsLine.append(add, ...buttons.slice(1));
+    box.append(actionsLine, picker);
   }
   box.append(note);
   return box;
+}
+
+/** A pasted file without a name (a screenshot) gets one: "Pasted 2026-11-06 13.20.05.png". */
+function named(file: File): File {
+  if (file.name && file.name !== "image.png") return file;
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}.${pad(now.getMinutes())}.${pad(now.getSeconds())}`;
+  const extension = file.type.split("/")[1]?.replace("jpeg", "jpg").replace(/[^a-z0-9]/g, "") || "bin";
+  return new File([file], `Pasted ${stamp}.${extension}`, { type: file.type });
 }
 
 /**

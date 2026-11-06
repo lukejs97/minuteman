@@ -25,16 +25,20 @@ A *project* is Google Cloud's container for one app's settings and API access.
 3. Name: `Calendar App` (anything works). Location/Organization: leave as is ("No organization" is fine).
 4. Click **Create**, wait a few seconds, then make sure the new project is selected in the picker.
 
-## 2. Enable the Google Calendar and People APIs
+## 2. Enable the Google Calendar, People and Drive APIs
 
 APIs are switched off by default in a new project. The People API is Google
-Contacts, for Minuteman's Contacts window.
+Contacts, for Minuteman's Contacts window; the Drive API is for files
+attached to events (they go to your Drive, as in Google Calendar).
 
 1. Open <https://console.cloud.google.com/apis/library/calendar-json.googleapis.com>
    (or **APIs & Services → Library**, search for "Google Calendar API").
 2. Check that your project is selected at the top, then click **Enable**.
 3. Do the same for <https://console.cloud.google.com/apis/library/people.googleapis.com>
    ("Google People API").
+4. And for <https://console.cloud.google.com/apis/library/drive.googleapis.com>
+   ("Google Drive API"). Until it's on, its permission (`drive.file`, step 4)
+   isn't listed to add.
 
 ## 3. Configure the OAuth consent screen
 
@@ -194,6 +198,8 @@ there renews it). Otherwise the old token still expires after 7 days.
 | `Error 403: access_denied` / "has not completed the Google verification process" | The app is still in **Testing** and your account isn't a test user. Publish it (step 6). |
 | "Google Calendar API has not been used in project … or it is disabled" | Do step 2 in the same project as your client. |
 | "People API has not been used in project … or it is disabled" (in Contacts) | Enable the People API (step 2, item 3) in the same project. |
+| "Google Drive API has not been used in project … or it is disabled" (attaching a file) | Enable the Drive API (step 2, item 4) in the same project. |
+| `drive.file` isn't in the list under Data Access | Enable the Drive API (step 2, item 4) and reload the page, or paste `https://www.googleapis.com/auth/drive.file` under "Manually add scopes". |
 | "Your Google session ended" after a week | The token was issued while in Testing. Publish the app, then sign in again. |
 | `invalid_client` | The client ID or secret in `.env` has a typo, or the secret was deleted. |
 | Leave-by times never appear | No Routes API key, or Routes API isn't enabled. See below. A video link isn't a place, so those events don't get one. |
