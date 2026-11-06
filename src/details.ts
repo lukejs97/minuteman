@@ -450,57 +450,80 @@ function attachmentsRow(item: AgendaItem, actions: DetailActions, dialog: HTMLDi
       e.preventDefault();
       void addFiles(dropped);
     });
-    // Paste: what's on the clipboard (a photo, a screenshot). On a phone
-    // there's no ⌘V; the browser asks before it lets the page read it.
-    if (navigator.clipboard && "read" in navigator.clipboard) {
-      const paste = el("button", "text-button attachment-add", "Paste");
-      paste.type = "button";
-      paste.title = "Attach what's on the clipboard";
-      paste.addEventListener("click", async () => {
-        note.textContent = "";
-        try {
-          // The desktop app: files copied in Finder or File Explorer, from the system clipboard.
-          const copied = await clipboardFiles();
-          if (copied.length) return void (await addFiles(copied));
-        } catch (e) {
-          note.textContent = `Couldn't attach it: ${errorMessage(e)}`;
-          return;
-        }
-        try {
-          const found: File[] = [];
-          /** Copied files' addresses: Finder (and Universal Clipboard) puts a file there by its path. */
-          const addresses: string[] = [];
-          for (const entry of await navigator.clipboard.read()) {
-            const type = entry.types.find((t) => !t.startsWith("text/"));
-            if (type) found.push(named(new File([await entry.getType(type)], "", { type })));
-            else {
-              const textType = entry.types.find((t) => t === "text/uri-list") ?? entry.types.find((t) => t === "text/plain");
-              const text = textType ? await (await entry.getType(textType)).text() : "";
-              addresses.push(...text.split(/\r?\n/).map((line) => line.trim()).filter((line) => /^file:\/\//i.test(line)));
-            }
+    // Paste: what's on the clipboard. A page may read only text and pictures
+    // from it (and on a phone there's no ⌘V), so for anything else — a PDF
+    // copied on an iPhone, say — it opens a box to paste into: a real paste
+    // hands the page the file itself.
+    const touch = matchMedia("(hover: none) and (pointer: coarse)").matches;
+    const pasteBox = el("div", "paste-box");
+    pasteBox.hidden = true;
+    pasteBox.contentEditable = "true";
+    pasteBox.inputMode = "none"; // no keyboard: it's only for pasting
+    pasteBox.setAttribute("role", "textbox");
+    pasteBox.setAttribute("aria-label", "Paste a file here");
+    pasteBox.dataset.hint = touch ? "Touch and hold here, then tap Paste" : "Press ⌘V (Ctrl+V) to paste here";
+    pasteBox.addEventListener("beforeinput", (e) => e.preventDefault()); // nothing typed goes in
+    pasteBox.addEventListener("paste", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const pasted = [...(e.clipboardData?.files ?? [])];
+      if (pasted.length) {
+        pasteBox.hidden = true;
+        void addFiles(pasted.map(named));
+      } else {
+        note.textContent = touch
+          ? "Only text came through, not the file. Save it to Files (Share → Save to Files), then use Add file…."
+          : "Only text came through, not the file. Drag the file in, or use Add file….";
+      }
+    });
+    const openPasteBox = () => {
+      pasteBox.hidden = false;
+      pasteBox.focus();
+    };
+    const paste = el("button", "text-button attachment-add", "Paste");
+    paste.type = "button";
+    paste.title = "Attach what's on the clipboard";
+    paste.addEventListener("click", async () => {
+      note.textContent = "";
+      try {
+        // The desktop app: files copied in Finder or File Explorer, from the system clipboard.
+        const copied = await clipboardFiles();
+        if (copied.length) return void (await addFiles(copied));
+      } catch (e) {
+        note.textContent = `Couldn't attach it: ${errorMessage(e)}`;
+        return;
+      }
+      // On a phone, reading the clipboard would ask first and still miss a
+      // copied file: the box takes anything (a picture too).
+      if (touch || !navigator.clipboard || !("read" in navigator.clipboard)) return openPasteBox();
+      try {
+        const found: File[] = [];
+        /** Copied files' addresses: Finder (and Universal Clipboard) puts a file there by its path. */
+        const addresses: string[] = [];
+        for (const entry of await navigator.clipboard.read()) {
+          const type = entry.types.find((t) => !t.startsWith("text/"));
+          if (type) found.push(named(new File([await entry.getType(type)], "", { type })));
+          else {
+            const textType = entry.types.find((t) => t === "text/uri-list") ?? entry.types.find((t) => t === "text/plain");
+            const text = textType ? await (await entry.getType(textType)).text() : "";
+            addresses.push(...text.split(/\r?\n/).map((line) => line.trim()).filter((line) => /^file:\/\//i.test(line)));
           }
-          if (!found.length && addresses.length) {
-            // The desktop app reads them; a web page isn't allowed to open a file by its path.
-            for (const address of addresses) {
-              const file = await copiedFile(address);
-              if (file) found.push(file);
-            }
-            if (!found.length) {
-              note.textContent = "That's a file on your computer: press ⌘V (Ctrl+V) here or drag it in, or use Add file….";
-              return;
-            }
-          }
-          if (found.length) await addFiles(found);
-          else note.textContent = "There's no file or picture on the clipboard.";
-        } catch {
-          note.textContent = "Couldn't read the clipboard. Allow it when asked, or use Add file….";
         }
-      });
-      buttons.push(paste);
-    }
+        // The desktop app reads a file by its address; a web page isn't allowed to.
+        for (const address of found.length ? [] : addresses) {
+          const file = await copiedFile(address);
+          if (file) found.push(file);
+        }
+        if (found.length) await addFiles(found);
+        else openPasteBox(); // a file it couldn't see: a real paste may carry it
+      } catch {
+        openPasteBox();
+      }
+    });
+    buttons.push(paste);
     const actionsLine = el("div", "attachment-actions");
     actionsLine.append(add, ...buttons.slice(1));
-    box.append(actionsLine, picker);
+    box.append(actionsLine, pasteBox, picker);
   }
   box.append(note);
   return box;

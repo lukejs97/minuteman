@@ -1351,6 +1351,31 @@ body.dimmed::after {
   gap: 14px;
 }
 
+/* Paste → a box to paste a file into (where the page can't read it from the clipboard). */
+.paste-box {
+  align-self: stretch;
+  min-height: 44px;
+  padding: 12px;
+  border: 1.5px dashed var(--border);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+  caret-color: transparent;
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: text;
+}
+
+.paste-box:empty::before {
+  content: attr(data-hint);
+}
+
+.paste-box:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
 /* Files dragged over an event's or task's details. */
 .dialog.dropping {
   outline: 2px dashed var(--accent);
