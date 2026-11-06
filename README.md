@@ -72,8 +72,9 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
   event, as Google Calendar does (Minuteman sees only the files it adds, not
   the rest of your Drive); a task's go on a Todoist comment. Paste a copied
   file or screenshot (⌘V / Ctrl+V, or **Paste**: on a phone it opens a box
-  to touch and hold in and Paste, which brings a copied PDF too) or drag
-  files onto the details; in the Mac and Windows apps **Paste** also takes a file copied
+  to touch and hold in and Paste; Safari pastes pictures there but not a
+  PDF, which needs saving to Files and **Add file…**) or drag files onto the
+  details; in the Mac and Windows apps **Paste** also takes a file copied
   in Finder or File Explorer (or handed over by Universal Clipboard). Up to 25 MB each. Accounts added before need adding again once to allow it.
 - **Duplicate:** an event's or task's details (or its right-click menu) →
   **Duplicate** opens New filled in like it, to change (the day, say) and add.

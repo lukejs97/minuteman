@@ -451,9 +451,10 @@ function attachmentsRow(item: AgendaItem, actions: DetailActions, dialog: HTMLDi
       void addFiles(dropped);
     });
     // Paste: what's on the clipboard. A page may read only text and pictures
-    // from it (and on a phone there's no ⌘V), so for anything else — a PDF
-    // copied on an iPhone, say — it opens a box to paste into: a real paste
-    // hands the page the file itself.
+    // from it (and on a phone there's no ⌘V), so for anything else it opens a
+    // box to paste into: a real paste hands a computer's browser the file
+    // itself. (Safari on an iPhone still passes a copied PDF on only by its
+    // name; Add file… is the way there.)
     const touch = matchMedia("(hover: none) and (pointer: coarse)").matches;
     const pasteBox = el("div", "paste-box");
     pasteBox.hidden = true;
@@ -461,7 +462,7 @@ function attachmentsRow(item: AgendaItem, actions: DetailActions, dialog: HTMLDi
     pasteBox.inputMode = "none"; // no keyboard: it's only for pasting
     pasteBox.setAttribute("role", "textbox");
     pasteBox.setAttribute("aria-label", "Paste a file here");
-    pasteBox.dataset.hint = touch ? "Touch and hold here, then tap Paste" : "Press ⌘V (Ctrl+V) to paste here";
+    pasteBox.dataset.hint = touch ? "Touch and hold here, then tap Paste (a picture; a PDF needs Add file…)" : "Press ⌘V (Ctrl+V) to paste here";
     pasteBox.addEventListener("beforeinput", (e) => e.preventDefault()); // nothing typed goes in
     pasteBox.addEventListener("paste", (e) => {
       e.preventDefault();
@@ -471,9 +472,12 @@ function attachmentsRow(item: AgendaItem, actions: DetailActions, dialog: HTMLDi
         pasteBox.hidden = true;
         void addFiles(pasted.map(named));
       } else {
+        // Safari on a phone passes a copied file (a PDF from Messages) on only by its name.
+        const text = (e.clipboardData?.getData("text/plain") ?? "").trim();
+        const name = text && text.length <= 120 && !text.includes("\n") ? `“${text}”` : "the file's name";
         note.textContent = touch
-          ? "Only text came through, not the file. Save it to Files (Share → Save to Files), then use Add file…."
-          : "Only text came through, not the file. Drag the file in, or use Add file….";
+          ? `The browser passed on only ${name}, not the file: on a phone it pastes pictures, not files. Save the file to Files (in Messages: touch and hold it → Share → Save to Files), then use Add file… → Browse.`
+          : `The browser passed on only ${name}, not the file. Drag the file in, or use Add file….`;
       }
     });
     const openPasteBox = () => {
