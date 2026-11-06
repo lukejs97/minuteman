@@ -46,7 +46,14 @@ pub const LOOKUP_HORIZON: TimeDelta = TimeDelta::hours(48);
 const REFINE_GAP_MINUTES: i64 = 10;
 /// A failed lookup is remembered this long, so a blip isn't retried at once
 /// and a real outage isn't retried on every check.
-const FAILURE_TTL: TimeDelta = TimeDelta::minutes(2);
+/// A lookup that failed (no internet, Google busy) is asked again after this.
+const FAILURE_TTL: TimeDelta = TimeDelta::minutes(10);
+/// A place Google can't drive to ("Church" alone, a typo) isn't asked again
+/// for this long: asking every few minutes used up the day's lookups.
+const NO_ROUTE_TTL: TimeDelta = TimeDelta::hours(12);
+/// A drive from where you are is used again while you're within this of
+/// where it was asked from (kilometres): a few streets don't change it.
+const NEARBY_KM: f64 = 2.0;
 /// Where a drive from the device's own location is cached (no street address).
 const DEVICE_ORIGIN: &str = "@device";
 
@@ -87,6 +94,9 @@ pub enum TravelStatus {
     TooFar,
     Past,
     Unavailable,
+    /// Google found no drive to the place (or from the starting address):
+    /// it's asked again after `NO_ROUTE_TTL`.
+    NoRoute,
     /// The daily or monthly Routes cap is used up. A drive already saved is
     /// still shown; nothing new is asked of Google.
     Limited,
@@ -206,30 +216,53 @@ pub fn parse_duration(raw: &str) -> Option<u32> {
 }
 
 /// How long a successful answer stays usable. Closer events are asked again
-/// sooner, because that's when traffic actually moves the leave-by time.
+/// sooner, because that's when traffic actually moves the leave-by time;
+/// further out, Google's answer is the usual traffic for that hour anyway.
 pub fn fresh_for(until_arrival: TimeDelta) -> TimeDelta {
     if until_arrival <= TimeDelta::minutes(45) {
-        TimeDelta::minutes(5)
+        TimeDelta::minutes(10)
     } else if until_arrival <= TimeDelta::hours(3) {
-        TimeDelta::minutes(15)
+        TimeDelta::minutes(30)
     } else if until_arrival <= TimeDelta::hours(12) {
-        TimeDelta::hours(1)
+        TimeDelta::hours(2)
     } else {
-        TimeDelta::hours(4)
+        TimeDelta::hours(12)
     }
 }
 
-/// Whether an answer fetched at `fetched` can still be used at `now`.
-pub fn still_fresh(fetched: DateTime<Utc>, now: DateTime<Utc>, arrive: DateTime<Utc>, failed: bool) -> bool {
+/// What a lookup came to, as saved.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Saved {
+    Drive(u32),
+    /// Google found no drive between the two places.
+    NoRoute,
+    /// It couldn't be asked, or didn't answer.
+    Failed,
+}
+
+/// Whether an answer fetched at `fetched` can still be used at `now`. Once
+/// it's time to leave, the drive is kept: you're on your way.
+pub fn still_fresh(fetched: DateTime<Utc>, now: DateTime<Utc>, arrive: DateTime<Utc>, saved: Saved) -> bool {
     let age = now.signed_duration_since(fetched);
     if age < TimeDelta::zero() {
         return false;
     }
-    if failed {
-        return age < FAILURE_TTL;
+    match saved {
+        Saved::Failed => age < FAILURE_TTL,
+        Saved::NoRoute => age < NO_ROUTE_TTL,
+        Saved::Drive(minutes) => {
+            let leave = arrive - TimeDelta::minutes(i64::from(minutes));
+            now >= leave || age < fresh_for(arrive.signed_duration_since(now))
+        }
     }
-    let until = arrive.signed_duration_since(now);
-    age < fresh_for(until)
+}
+
+/// Kilometres between two points (near enough, for a few kilometres).
+pub fn km_between(a: (f64, f64), b: (f64, f64)) -> f64 {
+    let lat = ((a.0 + b.0) / 2.0).to_radians();
+    let dy = (a.0 - b.0) * 111.32;
+    let dx = (a.1 - b.1) * 111.32 * lat.cos();
+    (dx * dx + dy * dy).sqrt()
 }
 
 /// Whether it's worth asking about a drive that should arrive at `arrive`.
@@ -242,11 +275,12 @@ pub fn device_should_query(now: DateTime<Utc>, arrive: DateTime<Utc>) -> bool {
     arrive > now && arrive.signed_duration_since(now) <= LEGACY_HORIZON
 }
 
-/// The departure to ask about first: half an hour before arrival, but never
-/// in the past (Routes rejects that).
-pub fn first_departure(now: DateTime<Utc>, arrive: DateTime<Utc>) -> DateTime<Utc> {
+/// The departure to ask about first: the last drive's before arrival (so it
+/// rarely needs asking twice), else half an hour before, but never in the
+/// past (Routes rejects that).
+pub fn first_departure(now: DateTime<Utc>, arrive: DateTime<Utc>, previous: Option<u32>) -> DateTime<Utc> {
     let soonest = now + TimeDelta::seconds(60);
-    let guess = arrive - TimeDelta::minutes(30);
+    let guess = arrive - TimeDelta::minutes(i64::from(previous.unwrap_or(30)));
     if guess < soonest { soonest } else { guess }
 }
 
@@ -403,15 +437,20 @@ where
             // the cache, and can still fire a leave alert. With nothing saved,
             // the alert waits.
             Fetch::Limited => answer(None, arrive, TravelStatus::Limited),
+            Fetch::NoRoute => answer(None, arrive, TravelStatus::NoRoute),
             Fetch::Failed => answer(None, arrive, TravelStatus::Unavailable),
         },
         Classify::Device => {
             let key = cache_key(DEVICE_ORIGIN, destination, arrive);
-            if let Some(cached) = lookup(&key, arrive, now) {
-                return answer(cached, arrive, if cached.is_some() { TravelStatus::Ok } else { TravelStatus::Unavailable });
+            if let Some(Lookup::Fresh(cached)) = lookup(&key, None, arrive, now) {
+                let minutes = match cached {
+                    Saved::Drive(minutes) => Some(minutes),
+                    _ => None,
+                };
+                return answer(minutes, arrive, if minutes.is_some() { TravelStatus::Ok } else { TravelStatus::Unavailable });
             }
             let minutes = device().await;
-            remember(&key, minutes, Utc::now());
+            remember(&key, minutes.map_or(Saved::Failed, Saved::Drive), None, Utc::now());
             answer(minutes, arrive, if minutes.is_some() { TravelStatus::Ok } else { TravelStatus::Unavailable })
         }
     }
@@ -419,6 +458,7 @@ where
 
 enum Fetch {
     Ready(u32),
+    NoRoute,
     Failed,
     Limited,
 }
@@ -430,17 +470,21 @@ async fn driving_minutes(
     arrive: DateTime<Utc>,
     now: DateTime<Utc>,
 ) -> Fetch {
-    let key = cache_key(origin, destination, arrive);
-    if let Some(cached) = lookup(&key, arrive, now) {
-        return match cached {
-            Some(minutes) => Fetch::Ready(minutes),
-            None => Fetch::Failed,
-        };
-    }
-    let fetched = fetch_minutes(http, origin, destination, arrive, now).await;
+    // From where you are: one slot, used again nearby (see NEARBY_KM).
+    let spot = parse_spot(origin);
+    let key = cache_key(if spot.is_some() { DEVICE_ORIGIN } else { origin }, destination, arrive);
+    let previous = match lookup(&key, spot, arrive, now) {
+        Some(Lookup::Fresh(Saved::Drive(minutes))) => return Fetch::Ready(minutes),
+        Some(Lookup::Fresh(Saved::NoRoute)) => return Fetch::NoRoute,
+        Some(Lookup::Fresh(Saved::Failed)) => return Fetch::Failed,
+        Some(Lookup::Stale(previous)) => previous,
+        None => None,
+    };
+    let fetched = fetch_minutes(http, origin, destination, arrive, now, previous).await;
     match fetched {
-        Fetch::Ready(minutes) => remember(&key, Some(minutes), Utc::now()),
-        Fetch::Failed => remember(&key, None, Utc::now()),
+        Fetch::Ready(minutes) => remember(&key, Saved::Drive(minutes), spot, Utc::now()),
+        Fetch::NoRoute => remember(&key, Saved::NoRoute, spot, Utc::now()),
+        Fetch::Failed => remember(&key, Saved::Failed, spot, Utc::now()),
         // Don't remember a cap as a failed drive: when the day turns, the
         // next check should ask again instead of waiting out a failure.
         Fetch::Limited => {}
@@ -454,9 +498,10 @@ async fn fetch_minutes(
     destination: &str,
     arrive: DateTime<Utc>,
     now: DateTime<Utc>,
+    previous: Option<u32>,
 ) -> Fetch {
     let Some(key) = api_key() else { return Fetch::Failed };
-    let mut departure = first_departure(now, arrive);
+    let mut departure = first_departure(now, arrive, previous);
     let mut refined = false;
     // The first answer, kept if the refinement would pass the cap.
     let mut latest: Option<u32> = None;
@@ -468,11 +513,15 @@ async fn fetch_minutes(
                 None => Fetch::Limited,
             };
         }
-        let Some(seconds) = query(http, &key, origin, destination, departure).await else {
-            return match latest {
-                Some(minutes) => Fetch::Ready(minutes),
-                None => Fetch::Failed,
-            };
+        let seconds = match query(http, &key, origin, destination, departure).await {
+            Query::Seconds(seconds) => seconds,
+            failed => {
+                return match (latest, failed) {
+                    (Some(minutes), _) => Fetch::Ready(minutes),
+                    (None, Query::NoRoute) => Fetch::NoRoute,
+                    (None, _) => Fetch::Failed,
+                };
+            }
         };
         let Some(minutes) = minutes_from_seconds(seconds) else {
             return match latest {
@@ -491,8 +540,17 @@ async fn fetch_minutes(
     }
 }
 
-async fn query(http: &reqwest::Client, key: &str, origin: &str, destination: &str, departure: DateTime<Utc>) -> Option<f64> {
-    let response = http
+/// What Google said about one drive.
+enum Query {
+    Seconds(f64),
+    /// No drive between the two (a place it can't find): not worth asking again soon.
+    NoRoute,
+    /// No answer: no internet, Google busy, a key problem.
+    Failed,
+}
+
+async fn query(http: &reqwest::Client, key: &str, origin: &str, destination: &str, departure: DateTime<Utc>) -> Query {
+    let Some(response) = http
         .post(ROUTES_URL)
         .timeout(Duration::from_secs(12))
         .header("X-Goog-Api-Key", key)
@@ -500,14 +558,22 @@ async fn query(http: &reqwest::Client, key: &str, origin: &str, destination: &st
         .json(&route_request(origin, destination, departure))
         .send()
         .await
-        .ok()?;
+        .ok()
+    else {
+        return Query::Failed;
+    };
+    let status = response.status().as_u16();
     if !response.status().is_success() {
-        return None;
+        // A place Google can't find comes back as a bad request (or not found).
+        return if matches!(status, 400 | 404) { Query::NoRoute } else { Query::Failed };
     }
-    let body: RoutesBody = response.json().await.ok()?;
-    let raw = body.routes.first()?.duration.as_deref()?;
-    let seconds: f64 = raw.trim().strip_suffix('s')?.parse().ok()?;
-    if seconds.is_finite() && seconds >= 0.0 { Some(seconds) } else { None }
+    let Ok(body) = response.json::<RoutesBody>().await else { return Query::Failed };
+    let raw = body.routes.first().and_then(|route| route.duration.as_deref());
+    // An answer with no route: there's no drive between them.
+    match raw.and_then(|raw| raw.trim().strip_suffix('s')?.parse::<f64>().ok()) {
+        Some(seconds) if seconds.is_finite() && seconds >= 0.0 => Query::Seconds(seconds),
+        _ => Query::NoRoute,
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -530,23 +596,39 @@ fn norm(value: &str) -> String {
 }
 
 struct Entry {
-    minutes: Option<u32>,
+    saved: Saved,
     at: DateTime<Utc>,
+    /// Where you were, for a drive from where you are.
+    spot: Option<(f64, f64)>,
 }
 
 static CACHE: Mutex<Option<HashMap<String, Entry>>> = Mutex::new(None);
 
-fn lookup(key: &str, arrive: DateTime<Utc>, now: DateTime<Utc>) -> Option<Option<u32>> {
-    let cache = CACHE.lock().expect("not poisoned");
-    let entry = cache.as_ref()?.get(key)?;
-    if still_fresh(entry.at, now, arrive, entry.minutes.is_none()) { Some(entry.minutes) } else { None }
+/// A saved answer: still good, or too old (with its drive, a good first guess for the next ask).
+enum Lookup {
+    Fresh(Saved),
+    Stale(Option<u32>),
 }
 
-fn remember(key: &str, minutes: Option<u32>, now: DateTime<Utc>) {
+fn lookup(key: &str, spot: Option<(f64, f64)>, arrive: DateTime<Utc>, now: DateTime<Utc>) -> Option<Lookup> {
+    let cache = CACHE.lock().expect("not poisoned");
+    let entry = cache.as_ref()?.get(key)?;
+    let nearby = match (spot, entry.spot) {
+        (Some(here), Some(there)) => km_between(here, there) <= NEARBY_KM,
+        _ => true,
+    };
+    let previous = match entry.saved {
+        Saved::Drive(minutes) => Some(minutes),
+        _ => None,
+    };
+    Some(if nearby && still_fresh(entry.at, now, arrive, entry.saved) { Lookup::Fresh(entry.saved) } else { Lookup::Stale(previous) })
+}
+
+fn remember(key: &str, saved: Saved, spot: Option<(f64, f64)>, now: DateTime<Utc>) {
     let mut cache = CACHE.lock().expect("not poisoned");
     let map = cache.get_or_insert_with(HashMap::new);
     map.retain(|_, entry| now.signed_duration_since(entry.at) < TimeDelta::hours(24));
-    map.insert(key.to_string(), Entry { minutes, at: now });
+    map.insert(key.to_string(), Entry { saved, at: now, spot });
 }
 
 /// Where a Routes API key comes from, if anywhere. The value itself stays here.
@@ -905,22 +987,53 @@ mod tests {
 
     #[test]
     fn closer_events_are_refreshed_sooner() {
-        assert_eq!(fresh_for(TimeDelta::minutes(20)), TimeDelta::minutes(5));
-        assert_eq!(fresh_for(TimeDelta::minutes(45)), TimeDelta::minutes(5));
-        assert_eq!(fresh_for(TimeDelta::hours(2)), TimeDelta::minutes(15));
-        assert_eq!(fresh_for(TimeDelta::hours(6)), TimeDelta::hours(1));
-        assert_eq!(fresh_for(TimeDelta::hours(20)), TimeDelta::hours(4));
+        assert_eq!(fresh_for(TimeDelta::minutes(20)), TimeDelta::minutes(10));
+        assert_eq!(fresh_for(TimeDelta::minutes(45)), TimeDelta::minutes(10));
+        assert_eq!(fresh_for(TimeDelta::hours(2)), TimeDelta::minutes(30));
+        assert_eq!(fresh_for(TimeDelta::hours(6)), TimeDelta::hours(2));
+        assert_eq!(fresh_for(TimeDelta::hours(20)), TimeDelta::hours(12));
 
         let arrive = utc("2026-11-02T16:00:00Z");
-        let now = utc("2026-11-02T14:00:00Z"); // two hours out: fresh for 15 min
-        let fetched = utc("2026-11-02T13:50:00Z");
-        assert!(still_fresh(fetched, now, arrive, false));
-        assert!(!still_fresh(utc("2026-11-02T13:40:00Z"), now, arrive, false));
-        // A failure is reused for two minutes, then asked again.
-        assert!(still_fresh(utc("2026-11-02T13:59:00Z"), now, arrive, true));
-        assert!(!still_fresh(utc("2026-11-02T13:57:00Z"), now, arrive, true));
+        let now = utc("2026-11-02T14:00:00Z"); // two hours out: fresh for 30 min
+        let drive = Saved::Drive(20);
+        assert!(still_fresh(utc("2026-11-02T13:40:00Z"), now, arrive, drive));
+        assert!(!still_fresh(utc("2026-11-02T13:20:00Z"), now, arrive, drive));
+        // Once it's time to leave, the drive is kept.
+        assert!(still_fresh(utc("2026-11-02T15:00:00Z"), utc("2026-11-02T15:45:00Z"), arrive, drive));
+        // A failure is reused for ten minutes, then asked again.
+        assert!(still_fresh(utc("2026-11-02T13:55:00Z"), now, arrive, Saved::Failed));
+        assert!(!still_fresh(utc("2026-11-02T13:45:00Z"), now, arrive, Saved::Failed));
+        // A place Google can't drive to isn't asked about again for 12 hours.
+        assert!(still_fresh(utc("2026-11-02T03:00:00Z"), now, arrive, Saved::NoRoute));
+        assert!(!still_fresh(utc("2026-11-02T01:00:00Z"), now, arrive, Saved::NoRoute));
         // A clock that jumps backwards isn't "fresh".
-        assert!(!still_fresh(now, fetched, arrive, false));
+        assert!(!still_fresh(now, utc("2026-11-02T13:50:00Z"), arrive, drive));
+    }
+
+    #[test]
+    fn nearby_spots_share_a_drive() {
+        // About 1.1 km north, and about 11 km.
+        assert!(km_between((34.85, -82.40), (34.86, -82.40)) < NEARBY_KM);
+        assert!(km_between((34.85, -82.40), (34.95, -82.40)) > NEARBY_KM);
+    }
+
+    /// The most lookups one event can take, start to finish, if it's on screen
+    /// all the time: few enough that 80 a day covers a busy day.
+    #[test]
+    fn an_event_takes_few_lookups() {
+        let arrive = utc("2026-11-03T15:00:00Z");
+        let drive = 25;
+        let mut now = arrive - LOOKUP_HORIZON;
+        let mut fetched: Option<DateTime<Utc>> = None;
+        let mut asks = 0;
+        while now < arrive {
+            if !fetched.is_some_and(|at| still_fresh(at, now, arrive, Saved::Drive(drive))) {
+                asks += 1;
+                fetched = Some(now);
+            }
+            now += TimeDelta::minutes(1);
+        }
+        assert!(asks <= 16, "{asks} lookups");
     }
 
     #[test]
@@ -936,9 +1049,11 @@ mod tests {
     #[test]
     fn the_first_guess_is_not_in_the_past() {
         let arrive = utc("2026-11-02T15:00:00Z");
-        assert_eq!(first_departure(utc("2026-11-02T13:00:00Z"), arrive), utc("2026-11-02T14:30:00Z"));
+        assert_eq!(first_departure(utc("2026-11-02T13:00:00Z"), arrive, None), utc("2026-11-02T14:30:00Z"));
         // Half an hour before would be 14:30, which is already past.
-        assert_eq!(first_departure(utc("2026-11-02T14:50:00Z"), arrive), utc("2026-11-02T14:51:00Z"));
+        assert_eq!(first_departure(utc("2026-11-02T14:50:00Z"), arrive, None), utc("2026-11-02T14:51:00Z"));
+        // The last drive's length is the better guess.
+        assert_eq!(first_departure(utc("2026-11-02T13:00:00Z"), arrive, Some(45)), utc("2026-11-02T14:15:00Z"));
     }
 
     #[test]

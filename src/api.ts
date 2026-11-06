@@ -608,6 +608,8 @@ export type LeaveStatus =
   | "tooFar"
   | "past"
   | "unavailable"
+  /** Google found no drive to the place: it isn't asked again for 12 hours. */
+  | "noRoute"
   | "limited"
   /** Google's drive is too long to be right (an address in the wrong town): minutes, but no leave time. */
   | "implausible";

@@ -236,9 +236,14 @@ ten minutes earlier).
 
 Nothing is shown, and nothing breaks, when the key is missing, the address is
 missing, the place is a video call, the event is too far away, or Google
-doesn't answer. A failed lookup is tried again after a couple of minutes.
-Successful ones are reused, and asked again more often as the event gets
-closer.
+doesn't answer. A failed lookup is tried again after ten minutes, and a
+place Google can't drive to (a name like "Church" with no address) after 12
+hours; its details say to give it a full address. A drive is reused, and
+asked again more often as the event gets closer: every 12 hours until 12
+hours before, then every 2 hours, every 30 minutes in the last 3 hours and
+every 10 in the last 45 minutes, and not at all once it's time to leave.
+From where you are, a drive is reused while you're within 2 km of where it
+was asked. That's about 15 lookups for an event, at most.
 
 To check it: set the address and key, make an event an hour from now at a
 street address, and confirm the day view says **Leave by** a time. Add

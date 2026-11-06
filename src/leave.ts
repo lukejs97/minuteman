@@ -138,9 +138,10 @@ function armRefresh(estimates: LeaveEstimate[]): void {
     return new Date(estimate.leaveAt).getTime() - Date.now() < 3 * 60 * 60 * 1000;
   });
   const failed = estimates.some((estimate) => estimate.status === "unavailable");
-  // Failures are remembered for a couple of minutes. A soon event's traffic
-  // is asked again about once a minute; a later one can wait.
-  const wait = failed ? 2 * 60_000 : soon ? 60_000 : 15 * 60_000;
+  // Failures are remembered for ten minutes. A soon event's traffic is
+  // checked about once a minute (the answer is saved, so that's rarely a
+  // new lookup); a later one can wait.
+  const wait = failed ? 10 * 60_000 : soon ? 60_000 : 15 * 60_000;
   if (!failed && !estimates.some((estimate) => estimate.status === "ok")) return;
   refreshTimer = window.setTimeout(() => void flush(), wait);
 }
@@ -171,6 +172,8 @@ export function leaveHint(status: LeaveStatus | undefined): string | null {
       return "Set a leave-from address in Settings, or on this event.";
     case "unavailable":
       return "Couldn't check traffic just now.";
+    case "noRoute":
+      return "Google couldn't find a drive to this place. Give it a full address (with the town) for a leave-by time.";
     case "tooFar":
       return "Travel time shows within two days of the event.";
     case "limited":

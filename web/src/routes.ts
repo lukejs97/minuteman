@@ -10,13 +10,17 @@ import {
   firstDeparture,
   isPhysical,
   judge,
+  kmBetween,
   MAX_PLAUSIBLE_DRIVE_MINUTES,
+  NEARBY_KM,
+  parseSpot,
   pacificDate,
   parseDuration,
   pickOrigin,
   waypoint,
   shouldQuery,
   stillFresh,
+  type Saved,
   type Usage,
 } from "../../src/routes-budget";
 import type { Env } from "./env";
@@ -40,7 +44,8 @@ async function spend(env: Env, usage: Usage, limits: { daily: number; monthly: n
   return { ok: next.kind === "allowed", usage: next.usage };
 }
 
-async function query(key: string, origin: string, destination: string, departure: Date): Promise<number | null> {
+/** Minutes, "noRoute" (Google found no drive: not worth asking again soon), or null (no answer). */
+async function query(key: string, origin: string, destination: string, departure: Date): Promise<number | "noRoute" | null> {
   let response: Response;
   try {
     response = await fetch(ROUTES_URL, {
@@ -63,10 +68,13 @@ async function query(key: string, origin: string, destination: string, departure
   } catch {
     return null;
   }
-  if (!response.ok) return null;
+  // A place Google can't find comes back as a bad request (or not found).
+  if (!response.ok) return response.status === 400 || response.status === 404 ? "noRoute" : null;
   const body = (await response.json().catch(() => null)) as { routes?: { duration?: string }[] } | null;
-  const raw = body?.routes?.[0]?.duration;
-  return raw ? parseDuration(raw) : null;
+  if (!body) return null;
+  const raw = body.routes?.[0]?.duration;
+  // An answer with no route: there's no drive between them.
+  return (raw ? parseDuration(raw) : null) ?? "noRoute";
 }
 
 /** One drive, counting each attempt. A saved first answer is kept if the refinement is past the cap. */
@@ -79,19 +87,20 @@ async function drivingMinutes(
   now: Date,
   usage: Usage,
   limits: { daily: number; monthly: number },
-): Promise<{ minutes: number | null; limited: boolean; usage: Usage }> {
+  previous: number | null,
+): Promise<{ minutes: number | null; noRoute: boolean; limited: boolean; usage: Usage }> {
   let state = usage;
-  let departure = firstDeparture(now, arrive);
+  let departure = firstDeparture(now, arrive, previous);
   let refined = false;
   let latest: number | null = null;
   for (;;) {
     const spent = await spend(env, state, limits);
     state = spent.usage;
-    if (!spent.ok) return { minutes: latest, limited: latest === null, usage: state };
+    if (!spent.ok) return { minutes: latest, noRoute: false, limited: latest === null, usage: state };
     const minutes = await query(key, origin, destination, departure);
-    if (minutes === null) return { minutes: latest, limited: false, usage: state };
+    if (typeof minutes !== "number") return { minutes: latest, noRoute: latest === null && minutes === "noRoute", limited: false, usage: state };
     const again = judge(departure, minutes, arrive, now, refined);
-    if (again === "done") return { minutes, limited: false, usage: state };
+    if (again === "done") return { minutes, noRoute: false, limited: false, usage: state };
     latest = minutes;
     departure = again;
     refined = true;
@@ -147,22 +156,30 @@ export async function leaveTimes(env: Env, events: LeaveQuery[], here: string | 
       out.push(estimate(id, start, null, "tooFar"));
       continue;
     }
-    const slot = cacheKey(origin, destination, arrive);
+    // From where you are: one slot, used again nearby (NEARBY_KM).
+    const spot = parseSpot(origin);
+    const slot = cacheKey(spot ? "@here" : origin, destination, arrive);
     const saved = cache[slot];
-    if (saved && stillFresh(new Date(saved.at), now, arrive, saved.minutes === null)) {
-      out.push(estimate(id, start, saved.minutes, saved.minutes === null ? "unavailable" : "ok"));
+    const savedAs: Saved | null = saved ? (saved.minutes ?? (saved.noRoute ? "noRoute" : "failed")) : null;
+    const nearby = !spot || !saved?.spot || kmBetween(spot, saved.spot) <= NEARBY_KM;
+    if (saved && savedAs !== null && nearby && stillFresh(new Date(saved.at), now, arrive, savedAs)) {
+      out.push(estimate(id, start, saved.minutes, saved.minutes !== null ? "ok" : saved.noRoute ? "noRoute" : "unavailable"));
       continue;
     }
-    const driven = await drivingMinutes(env, key, origin, destination, arrive, now, usage, limits);
+    const driven = await drivingMinutes(env, key, origin, destination, arrive, now, usage, limits, saved?.minutes ?? null);
     usage = driven.usage;
     if (driven.limited) {
       out.push(estimate(id, start, null, "limited"));
       continue;
     }
-    const entry = { at: now.toISOString(), minutes: driven.minutes };
-    cache[slot] = entry;
+    cache[slot] = {
+      at: now.toISOString(),
+      minutes: driven.minutes,
+      ...(driven.noRoute ? { noRoute: true } : {}),
+      ...(spot ? { spot } : {}),
+    };
     cacheDirty = true;
-    out.push(estimate(id, start, driven.minutes, driven.minutes === null ? "unavailable" : "ok"));
+    out.push(estimate(id, start, driven.minutes, driven.minutes !== null ? "ok" : driven.noRoute ? "noRoute" : "unavailable"));
   }
   if (cacheDirty) await writeRoutesCache(env, prune(cache, now)).catch(() => undefined);
   return out;

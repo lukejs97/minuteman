@@ -111,8 +111,13 @@ Mac only (`#[cfg(target_os = "macos")]`), through the `objc2-*` crates:
   (`routingPreference: TRAFFIC_AWARE`). The key is the environment variable
   `MINUTEMAN_ROUTES_API_KEY`, else the keychain, else (development builds) a
   `.env` line read at run time — never compiled in. Driving traffic is asked
-  at a departure time, then once more if that drive would change when you
-  leave. Every attempt, including a failure, counts toward a daily and a
+  at a departure time (the last drive's length before arrival, else half an
+  hour), then once more if that drive would change when you leave. Answers
+  are cached (`fresh_for` / `freshFor`: 12 h, 2 h, 30 min, 10 min as the
+  event nears, and kept once it's time to leave); failures for 10 minutes,
+  and "no route" (`noRoute`: a 400/404, or an answer with no route) for 12
+  hours. A drive from where you are has one slot per event, reused within
+  2 km (`NEARBY_KM`). Every attempt, including a failure, counts toward a daily and a
   monthly cap (`routes-usage.json`, reset at midnight Pacific time) so a
   month of traffic-aware requests stays inside the free 5,000. The website
   uses the same cap: the address is saved on the Worker, and lookups run

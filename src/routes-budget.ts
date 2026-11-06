@@ -21,7 +21,12 @@ export const MAX_MONTHLY = 4_000;
 export const MAX_PLAUSIBLE_DRIVE_MINUTES = 240;
 
 const LOOKUP_HORIZON_MS = 48 * 60 * 60 * 1000;
-const FAILURE_TTL_MS = 2 * 60 * 1000;
+/** A lookup that failed (no internet, Google busy) is asked again after this. */
+const FAILURE_TTL_MS = 10 * 60 * 1000;
+/** A place Google can't drive to isn't asked again for this long. Kept in step with leave.rs. */
+const NO_ROUTE_TTL_MS = 12 * 60 * 60 * 1000;
+/** A drive from where you are is used again within this many kilometres of where it was asked from. */
+export const NEARBY_KM = 2;
 const REFINE_GAP_MINUTES = 10;
 
 export interface Usage {
@@ -190,25 +195,40 @@ export function shouldQuery(now: Date, arrive: Date): boolean {
   return until > 0 && until <= LOOKUP_HORIZON_MS;
 }
 
+/** How long a drive stays usable: closer events are asked again sooner. Kept in step with fresh_for in leave.rs. */
 export function freshFor(untilArrivalMs: number): number {
   const minute = 60_000;
-  if (untilArrivalMs <= 45 * minute) return 5 * minute;
-  if (untilArrivalMs <= 3 * 60 * minute) return 15 * minute;
-  if (untilArrivalMs <= 12 * 60 * minute) return 60 * minute;
-  return 4 * 60 * minute;
+  if (untilArrivalMs <= 45 * minute) return 10 * minute;
+  if (untilArrivalMs <= 3 * 60 * minute) return 30 * minute;
+  if (untilArrivalMs <= 12 * 60 * minute) return 2 * 60 * minute;
+  return 12 * 60 * minute;
 }
 
-export function stillFresh(fetched: Date, now: Date, arrive: Date, failed: boolean): boolean {
+/** What a lookup came to: driving minutes, "noRoute" (Google found no drive), or "failed". */
+export type Saved = number | "noRoute" | "failed";
+
+/** Whether a saved answer can still be used. Once it's time to leave, the drive is kept. */
+export function stillFresh(fetched: Date, now: Date, arrive: Date, saved: Saved): boolean {
   const age = now.getTime() - fetched.getTime();
   if (age < 0) return false;
-  if (failed) return age < FAILURE_TTL_MS;
+  if (saved === "failed") return age < FAILURE_TTL_MS;
+  if (saved === "noRoute") return age < NO_ROUTE_TTL_MS;
+  if (now.getTime() >= arrive.getTime() - saved * 60_000) return true;
   return age < freshFor(arrive.getTime() - now.getTime());
 }
 
-/** Half an hour before arrival, but never in the past (Routes rejects that). */
-export function firstDeparture(now: Date, arrive: Date): Date {
+/** Kilometres between two points (near enough, for a few kilometres). */
+export function kmBetween(a: { latitude: number; longitude: number }, b: { latitude: number; longitude: number }): number {
+  const lat = (((a.latitude + b.latitude) / 2) * Math.PI) / 180;
+  const dy = (a.latitude - b.latitude) * 111.32;
+  const dx = (a.longitude - b.longitude) * 111.32 * Math.cos(lat);
+  return Math.hypot(dx, dy);
+}
+
+/** The last drive's length before arrival (so it rarely needs asking twice), else half an hour; never in the past. */
+export function firstDeparture(now: Date, arrive: Date, previous: number | null = null): Date {
   const soonest = now.getTime() + 60_000;
-  const guess = arrive.getTime() - 30 * 60_000;
+  const guess = arrive.getTime() - (previous ?? 30) * 60_000;
   return new Date(Math.max(guess, soonest));
 }
 

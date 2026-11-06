@@ -137,6 +137,10 @@ export async function writeRoutesUsage(env: Env, usage: Usage): Promise<void> {
 export interface RouteCacheEntry {
   at: string;
   minutes: number | null;
+  /** Google found no drive (minutes is null). */
+  noRoute?: boolean;
+  /** Where you were, for a drive from where you are. */
+  spot?: { latitude: number; longitude: number };
 }
 
 export type RouteCache = Record<string, RouteCacheEntry>;
