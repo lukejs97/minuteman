@@ -150,17 +150,39 @@ async function suggest(text: string, signal: AbortSignal): Promise<PlaceSuggesti
   const sameStreet = (f: PhotonFeature) =>
     `${(f.properties.street ?? f.properties.name ?? "").toLowerCase()}|${f.properties.postcode ?? ""}`;
   const housesFound = new Set(features.filter(hasNumber).map(sameStreet));
+  // A town or ZIP typed ("…, Taylorsville, NC 28681") says where: results
+  // there come before anything near you.
+  // The town counts only after a comma, as an address is written: "Bethel
+  // Church Road" isn't asking for the town of Bethel.
+  const typed = query.includes(",") ? words(query.slice(query.indexOf(",") + 1)) : [];
+  const zipTyped = /\b(\d{5})(?:-\d{4})?\b/.exec(query)?.[1] ?? null;
+  const inTypedPlace = (f: PhotonFeature) => {
+    const p = f.properties;
+    if (zipTyped && p.postcode?.startsWith(zipTyped)) return true;
+    const town = words(p.city ?? p.town ?? p.village ?? p.district ?? "");
+    // The town's every word typed (the last may be typed in part: "Taylorsv").
+    return town.length > 0 && town.every((w) => typed.some((t) => w === t || (t.length >= 3 && w.startsWith(t) && t === typed.at(-1))));
+  };
+  // The very address typed: its house number, and every word of its street
+  // ("Rd" for "Road" and so on). It comes before a place nearby that only
+  // shares a word ("Bethel … Church" for "1509 Bethel Church Road").
+  const typedStreet = words(query.split(",")[0]).map(shortStreetWord);
+  const fullAddress = (f: PhotonFeature) => {
+    if (!hasNumber(f) || !f.properties.street) return false;
+    const want = words(f.properties.street).map(shortStreetWord);
+    return want.length > 0 && want.every((w) => typedStreet.some((t) => w === t || (t.length >= 2 && w.startsWith(t))));
+  };
   const ranked = features.map((feature, order) => {
     const [lon, lat] = feature.geometry?.coordinates ?? [NaN, NaN];
     const far = near && Number.isFinite(lat) ? kmBetween(near, { latitude: lat, longitude: lon }) > NEAR_KM : false;
-    return { feature, order, far, exact: hasNumber(feature) };
+    return { feature, order, far, exact: hasNumber(feature), there: inTypedPlace(feature), full: fullAddress(feature) };
   });
   // Something matches near you: other countries are left out (a 20 Via Nora
   // in Italy isn't what someone in South Carolina means by "20 Nora").
   const nearCountries = new Set(ranked.filter((r) => !r.far).map((r) => r.feature.properties.countrycode?.toUpperCase()));
   const kept = (
     near && nearCountries.size > 0
-      ? ranked.filter((r) => !r.far || nearCountries.has(r.feature.properties.countrycode?.toUpperCase()))
+      ? ranked.filter((r) => !r.far || r.there || nearCountries.has(r.feature.properties.countrycode?.toUpperCase()))
       : ranked
   )
     // The house found: the bare street it's on isn't needed as well.
@@ -177,9 +199,16 @@ async function suggest(text: string, signal: AbortSignal): Promise<PlaceSuggesti
       if (town) towns.set(zip, town);
     }),
   );
-  // Near you first; among those, the very house typed; otherwise as Photon
-  // ranked them.
-  kept.sort((a, b) => Number(a.far) - Number(b.far) || Number(b.exact) - Number(a.exact) || a.order - b.order);
+  // In the town or ZIP typed first, then near you; among those, the very
+  // house typed; otherwise as Photon ranked them.
+  kept.sort(
+    (a, b) =>
+      Number(b.there) - Number(a.there) ||
+      Number(b.full) - Number(a.full) ||
+      Number(a.far) - Number(b.far) ||
+      Number(b.exact) - Number(a.exact) ||
+      a.order - b.order,
+  );
   const seen = new Set<string>();
   const found = kept
     .map(({ feature }) => toSuggestion(feature, housesFound.has(sameStreet(feature)) ? null : houseNumber, towns))
@@ -189,6 +218,14 @@ async function suggest(text: string, signal: AbortSignal): Promise<PlaceSuggesti
   if (cache.size > 100) cache.delete(cache.keys().next().value!);
   return found;
 }
+
+/** A street word as it's usually shortened ("road" → "rd"), so "Rd" and "Road" match. */
+const STREET_WORDS: Record<string, string> = {
+  road: "rd", drive: "dr", street: "st", avenue: "ave", av: "ave", court: "ct", lane: "ln", circle: "cir",
+  boulevard: "blvd", highway: "hwy", place: "pl", parkway: "pkwy", terrace: "ter", trail: "trl", way: "wy",
+  north: "n", south: "s", east: "e", west: "w",
+};
+const shortStreetWord = (word: string) => STREET_WORDS[word] ?? word;
 
 /** A bus or tram stop, or a platform: not a place to go to (stations are). */
 const isStop = (f: PhotonFeature) => {
