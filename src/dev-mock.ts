@@ -811,6 +811,19 @@ export function install(inApp = false): void {
         contacts = contacts.map((c) => (c.resourceName === target.resourceName ? { ...c, starred, etag: `%${Date.now()}` } : c));
         return contacts.find((c) => c.resourceName === target.resourceName);
       }
+      // TomTom place search: "set up" here, with one place it knows.
+      case "places_key_status":
+        return { configured: true, source: "settings" };
+      case "places_usage":
+        return { dayCount: 3, dayLimit: 100, monthCount: 41, monthLimit: 1500 };
+      case "set_places_key":
+        return null;
+      case "search_places": {
+        const { query } = args as { query: string };
+        return /old south/i.test(query)
+          ? [{ name: "Old South Meeting House", street: "310 Washington St", town: "Boston", state: "MA", zip: "02108", country: "", latitude: 42.357, longitude: -71.059 }]
+          : [];
+      }
       case "set_contact_photo": {
         const { target, data } = args as { target: { resourceName: string }; data: string };
         contacts = contacts.map((c) => (c.resourceName === target.resourceName ? { ...c, photo: `data:image/jpeg;base64,${data}`, etag: `%${Date.now()}` } : c));

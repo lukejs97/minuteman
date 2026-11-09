@@ -5,11 +5,15 @@
 // What you type is sent to it (from 3 letters, after a short pause), so
 // nothing is sent until you type in one of these fields.
 //
+// When OpenStreetMap has nothing by the name typed, and a TomTom key is set
+// up, TomTom is asked too, after a longer pause (`searchPlaces`, on the
+// Worker or in the app, where the key stays and a cap keeps it free).
+//
 // Up and down choose, Enter or a tap/click picks, Escape closes. Picking
 // fills the field (or, with `onPick`, whatever the caller fills in). Video
 // links are left alone.
 import { isTauri } from "@tauri-apps/api/core";
-import { type Contact, getContacts, getPreferences, getSavedContacts } from "./api";
+import { type Contact, type FoundPlace, getContacts, getPreferences, getSavedContacts, placesKeyStatus, searchPlaces } from "./api";
 import { el } from "./dom";
 import { splitAddress } from "./routes-budget";
 import { placeOnOneLine } from "./time";
@@ -35,6 +39,8 @@ export interface PlaceSuggestion {
   line: string;
   /** A contact's address: whose, and which ("Samuel Adams · Home"). */
   contact?: string;
+  /** Found by TomTom, not OpenStreetMap (shown, as TomTom asks). */
+  tomtom?: boolean;
 }
 
 interface PhotonFeature {
@@ -210,13 +216,51 @@ async function suggest(text: string, signal: AbortSignal): Promise<PlaceSuggesti
       a.order - b.order,
   );
   const seen = new Set<string>();
-  const found = kept
+  let found = kept
     .map(({ feature }) => toSuggestion(feature, housesFound.has(sameStreet(feature)) ? null : houseNumber, towns))
     .filter((s): s is PlaceSuggestion => !!s && !seen.has(s.line) && !!seen.add(s.line))
     .slice(0, LIMIT);
+  // Nothing by that name in OpenStreetMap: TomTom's, first, when it has any.
+  if (wantsBackup(query, houseNumber, found) && (await backupOn())) {
+    // A longer pause first: each ask counts toward the cap, so not on every letter.
+    await new Promise((resolve) => window.setTimeout(resolve, BACKUP_PAUSE_MS));
+    if (signal.aborted) throw new DOMException("typed on", "AbortError");
+    const extra = (await searchPlaces(query, near).catch(() => [] as FoundPlace[])).map(fromTomTom).filter((s) => !seen.has(s.line));
+    if (signal.aborted) throw new DOMException("typed on", "AbortError");
+    found = [...extra, ...found].slice(0, LIMIT);
+  }
   cache.set(key, found);
   if (cache.size > 100) cache.delete(cache.keys().next().value!);
   return found;
+}
+
+/** How long typing must pause before TomTom is asked (on top of PAUSE_MS). */
+const BACKUP_PAUSE_MS = 500;
+
+/** Whether TomTom is set up here (asked once). */
+let backupKnown: Promise<boolean> | null = null;
+const backupOn = () => (backupKnown ??= placesKeyStatus().then((status) => status.configured, () => false));
+
+/**
+ * Whether to ask TomTom: what's typed is a name of two words or more, or an
+ * address with its number, and nothing OpenStreetMap found has every word
+ * of it (and that number).
+ */
+export function wantsBackup(query: string, houseNumber: string | null, found: PlaceSuggestion[]): boolean {
+  const typed = words(query.split(",")[0]).filter((w) => w !== houseNumber?.toLowerCase());
+  if (typed.length < (houseNumber ? 1 : 2) || (typed.at(-1)?.length ?? 0) < 3) return false;
+  return !found.some((s) => {
+    const have = words(`${s.name ?? ""} ${s.street}`).map(shortStreetWord);
+    const matches = typed.map(shortStreetWord).every((w) => have.some((h) => h === w || h.startsWith(w)));
+    return matches && (!houseNumber || s.street.toLowerCase().startsWith(houseNumber.toLowerCase()));
+  });
+}
+
+/** A TomTom place as a suggestion. */
+export function fromTomTom(place: FoundPlace): PlaceSuggestion {
+  const regionZip = [place.state, place.zip].filter(Boolean).join(" ");
+  const line = [place.name, place.street, place.town !== place.name ? place.town : "", regionZip, place.country].filter(Boolean).join(", ");
+  return { name: place.name, street: place.street, town: place.town, state: place.state, zip: place.zip, country: place.country, line, tomtom: true };
 }
 
 /** A street word as it's usually shortened ("road" → "rd"), so "Rd" and "Road" match. */
@@ -551,7 +595,11 @@ export function enablePlaceSuggestions(
             ? [s.name, s.line.slice(s.name.length + 2)]
             : [s.line];
         option.append(el("span", "place-suggest-main", first));
-        if (rest[0]) option.append(el("span", "place-suggest-detail", rest[0]));
+        if (rest[0] || s.tomtom) {
+          const detail = el("span", "place-suggest-detail", rest[0] ?? "");
+          if (s.tomtom) detail.append(el("span", "place-suggest-source", rest[0] ? " · TomTom" : "TomTom"));
+          option.append(detail);
+        }
         // Pressed, not clicked: the field keeps focus (and a phone its keyboard).
         option.addEventListener("pointerdown", (e) => e.preventDefault());
         option.addEventListener("mousedown", (e) => e.preventDefault());

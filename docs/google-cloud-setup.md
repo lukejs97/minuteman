@@ -336,3 +336,28 @@ off. The event form says leave-by times stay hidden. Lookups, once the
 secret is set, use the same 80-per-day and 2,500-per-month defaults, and
 the same ceilings (160 and 4,000). They count every attempt, including
 failures, in the Worker's store, and reset at midnight Pacific time.
+
+## Place search backup: TomTom (optional)
+
+Place and address suggestions come from OpenStreetMap. When it has nothing
+by the name typed (some churches and small businesses aren't in it),
+Minuteman can also ask TomTom. It's optional and free:
+
+1. Sign up at [developer.tomtom.com](https://developer.tomtom.com/) **without
+   adding a card**. Without one TomTom can't charge anything: past its free
+   amount (5,000 place searches a month, as of 2026-11-09) it turns requests
+   down. Minuteman stops well before, at 100 a day and 1,500 a month, on the
+   website and on each computer separately.
+2. Copy the API key from the TomTom Dashboard.
+3. **Desktop app:** Settings → **Place search** → paste it → **Save** (it's kept
+   in the keychain; or set `MINUTEMAN_TOMTOM_API_KEY`).
+   **Website:** add it as a secret on the Worker, named
+   `MINUTEMAN_TOMTOM_API_KEY`: in the Cloudflare dashboard, Workers & Pages →
+   the Minuteman worker → Settings → Variables and Secrets → Add → type
+   **Secret**; or `npx wrangler secret put MINUTEMAN_TOMTOM_API_KEY` in `web/`.
+   It never reaches the browser.
+
+To check it: in New event, type the name of a place OpenStreetMap doesn't
+have and pause. A suggestion marked **TomTom** should appear first, and
+Settings → **Place search** counts the search.
+

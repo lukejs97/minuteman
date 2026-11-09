@@ -16,6 +16,12 @@ export interface Env {
    * browser. Absent until `wrangler secret put MINUTEMAN_ROUTES_API_KEY`.
    */
   MINUTEMAN_ROUTES_API_KEY?: string;
+  /**
+   * TomTom key for place search when OpenStreetMap doesn't know a place
+   * (places.ts). A Cloudflare secret; never sent to the browser. Absent
+   * until `wrangler secret put MINUTEMAN_TOMTOM_API_KEY`.
+   */
+  MINUTEMAN_TOMTOM_API_KEY?: string;
 }
 
 /** Per-request details every command needs. */

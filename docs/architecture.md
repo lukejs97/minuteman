@@ -337,6 +337,16 @@ Minuteman's Cardhop: a second page, `contacts.html` (Vite builds both pages,
   sends a square JPEG at most 512 pixels across). `relations` are read and
   written like the other labeled lists. Resource names from the page are
   checked to be `people/<id>`.
+- **Place search backup** (`places.rs`, web/src/places.ts, `wantsBackup` in
+  place-suggest.ts): when nothing Photon found has every word typed (a name
+  of two words or more, or an address with its number), the page asks
+  `search_places` after a further 500 ms pause. The app (key in the keychain
+  or `MINUTEMAN_TOMTOM_API_KEY`) or the Worker (a Cloudflare secret) asks
+  TomTom's Places Search `discover` (Orbis, API version 3), and if that
+  doesn't answer as expected, the older Search API; each attempt counts
+  first toward 100 a day and 1,500 a month (`places-usage.json`, KV
+  `placesUsage`), and a 429 (or the older API's 403) is taken as over
+  TomTom's free amount. TomTom's results come first, marked "TomTom".
 - **Duplicates** (`findDuplicates`, `mergeOf` in contacts/model.ts): people in
   the same account sharing an email, a phone number (last ten digits) or a
   whole name. The page works out the merged contact; `merge_contacts` saves

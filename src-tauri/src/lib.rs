@@ -11,6 +11,7 @@ mod error;
 mod google;
 mod interactions;
 mod leave;
+mod places;
 mod prefs;
 mod search;
 mod secrets;
@@ -642,6 +643,29 @@ async fn contact_photo(state: State<'_, AppState>, url: String) -> Result<String
     Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
 }
 
+/// Places by name near `near`, from TomTom, when OpenStreetMap (searched by
+/// the page) doesn't know one. Empty without a key, or past the cap.
+#[tauri::command]
+async fn search_places(state: State<'_, AppState>, query: String, near: Option<places::Near>) -> Result<Vec<places::FoundPlace>> {
+    Ok(places::search(&state.http, &query, near).await)
+}
+
+#[tauri::command]
+fn places_key_status() -> places::KeyStatus {
+    places::key_status()
+}
+
+/// TomTom searches today and this month, of the cap.
+#[tauri::command]
+fn places_usage() -> leave::UsageSnapshot {
+    places::usage_snapshot(chrono::Utc::now())
+}
+
+#[tauri::command]
+fn set_places_key(key: String) -> Result<()> {
+    places::set_api_key(&key)
+}
+
 /// Merges duplicates into one, as Google Contacts' Merge does: `keep` gets
 /// `contact` (everything of theirs together, worked out by the page),
 /// `photo` (another's, when it has none) and Favorites if any was; the
@@ -1169,6 +1193,7 @@ pub fn run() {
             app.manage(ContactsCache::load(path));
             prefs::init(app.path().app_config_dir().ok().map(|dir| dir.join("preferences.json")));
             leave::init_usage(app.path().app_config_dir().ok().map(|dir| dir.join("routes-usage.json")));
+            places::init_usage(app.path().app_config_dir().ok().map(|dir| dir.join("places-usage.json")));
             app.manage(Interactions::load(app.path().app_config_dir().ok().map(|dir| dir.join("interactions.json"))));
             #[cfg(mobile)]
             listen_for_sign_in_redirects(app);
@@ -1245,6 +1270,10 @@ pub fn run() {
             routes_key_status,
             routes_usage,
             set_routes_key,
+            search_places,
+            places_key_status,
+            places_usage,
+            set_places_key,
             open_at_login,
             set_open_at_login,
         ])

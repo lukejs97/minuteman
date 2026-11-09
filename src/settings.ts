@@ -13,6 +13,9 @@ import {
   setOpenAtLogin,
   locationAccess,
   routesKeyStatus,
+  placesKeyStatus,
+  placesUsage,
+  setPlacesKey,
   routesUsage,
   setPreferences,
   setRoutesKey,
@@ -141,6 +144,8 @@ export async function openSettings(actions: SettingsActions): Promise<void> {
   // Leave-by: the default address. On the website the Routes key stays on the
   // server; the row still lets you set and see the address from a phone.
   void addTravelRow(rows, openScreen);
+  // Place search's TomTom backup, for places OpenStreetMap doesn't know.
+  void addPlacesRow(rows, openScreen);
 
   // The desktop app: the menu bar, and on a Mac, Apple's apps and location.
   // (To preview them in a browser during `npm run dev`, add ?desktop.)
@@ -725,6 +730,108 @@ async function openAppleCalendars(actions: SettingsActions, back?: () => void): 
   } catch (e) {
     list.append(el("p", "error", errorMessage(e)));
   }
+}
+
+/** Place search: OpenStreetMap, and TomTom for places it doesn't know (with a key). */
+async function addPlacesRow(rows: HTMLElement, openScreen: (open: (back: () => void) => unknown) => void): Promise<void> {
+  const state = await placesKeyStatus().catch(() => null);
+  if (!state) return;
+  const describe = (on: boolean) => (on ? "OpenStreetMap, then TomTom" : "OpenStreetMap");
+  const note = el("span", "settings-note", describe(state.configured));
+  const button = el("button", "pill-button", state.configured ? "Change…" : "Set up…");
+  button.addEventListener("click", () =>
+    openScreen((back) =>
+      openPlacesSettings(back, (on) => {
+        note.textContent = describe(on);
+        button.textContent = on ? "Change…" : "Set up…";
+      }),
+    ),
+  );
+  rows.append(settingsRow("Place search", note, button));
+}
+
+/** The TomTom key (desktop), or where it's set (the website), and how much it's been used. */
+function openPlacesSettings(back: (() => void) | undefined, onChange: (on: boolean) => void): void {
+  const dialog = el("dialog", "dialog settings");
+  dialog.setAttribute("aria-labelledby", "places-title");
+  document.body.append(dialog);
+  dialog.addEventListener("close", () => dialog.remove());
+  dialog.addEventListener("click", (e) => {
+    if (e.target === dialog) dialog.close();
+  });
+  const title = el("h2", undefined, "Place search");
+  title.id = "places-title";
+  const onWeb = !isTauri() && !import.meta.env.DEV;
+  const help = el(
+    "p",
+    undefined,
+    "Place and address suggestions come from OpenStreetMap, free and without an account. When it has nothing by the name you type (a church or shop it doesn't know), TomTom is asked too, if there's a TomTom key. " +
+      "Make one free at developer.tomtom.com: sign up without a card, and copy the key from the Dashboard. Without a card TomTom can't charge anything; past its free amount it just says no, and Minuteman stops well before (100 searches a day, 1,500 a month). " +
+      (onWeb
+        ? "On the website the key is a Cloudflare secret (MINUTEMAN_TOMTOM_API_KEY) and never comes to this device."
+        : "It's kept in the keychain, or it can be the MINUTEMAN_TOMTOM_API_KEY environment variable."),
+  );
+  const status = el("p", "settings-note", "…");
+  const error = el("p", "error");
+  const key = el("input", "text-input");
+  key.type = "password";
+  key.autocomplete = "off";
+  key.placeholder = "TomTom API key";
+  key.setAttribute("aria-label", "TomTom API key");
+  const form = el("form", "travel-form");
+  if (!onWeb) form.append(key);
+  form.append(status, error);
+  const save = el("button", "primary-button", onWeb ? "Done" : "Save");
+  save.type = "submit";
+  const remove = el("button", "text-button danger", "Remove key");
+  remove.type = "button";
+  remove.hidden = true;
+  const close = el("button", "text-button", "Cancel");
+  close.type = "button";
+  close.hidden = onWeb;
+  close.addEventListener("click", () => dialog.close());
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    error.textContent = "";
+    try {
+      if (!onWeb && key.value.trim()) {
+        await setPlacesKey(key.value.trim());
+        onChange(true);
+      }
+      dialog.close();
+    } catch (err) {
+      error.textContent = errorMessage(err);
+    }
+  });
+  remove.addEventListener("click", async () => {
+    error.textContent = "";
+    try {
+      await setPlacesKey("");
+      const now = await placesKeyStatus();
+      onChange(now.configured);
+      remove.hidden = true;
+      status.textContent = now.configured ? "The key in MINUTEMAN_TOMTOM_API_KEY is still used." : "Key removed: suggestions come from OpenStreetMap alone.";
+    } catch (err) {
+      error.textContent = errorMessage(err);
+    }
+  });
+  form.append(buttonRow(remove, close, save));
+  dialog.append(...backTo(dialog, back), title, help, form);
+  dialog.showModal();
+  if (!onWeb) key.focus();
+  void Promise.all([placesKeyStatus().catch(() => null), placesUsage().catch(() => null)]).then(([state, used]) => {
+    if (!dialog.isConnected) return;
+    const where: Record<string, string> = {
+      environment: onWeb ? "TomTom is set up on the server." : "Using the key in MINUTEMAN_TOMTOM_API_KEY.",
+      settings: "A key is saved. Paste a new one to replace it.",
+      dotenv: "Using the key in src-tauri/.env (development).",
+      none: onWeb ? "No TomTom key on the server: suggestions come from OpenStreetMap alone." : "No key yet: suggestions come from OpenStreetMap alone.",
+    };
+    const n = (x: number) => x.toLocaleString();
+    const counts = used ? ` TomTom searches: ${n(used.dayCount)} of ${n(used.dayLimit)} today · ${n(used.monthCount)} of ${n(used.monthLimit)} this month.` : "";
+    status.textContent = `${where[state?.source ?? "none"] ?? ""}${state?.configured ? counts : ""}`;
+    remove.hidden = onWeb || state?.source !== "settings";
+  });
 }
 
 /** "‹ Settings", back to Settings from one of its screens (if opened from there). */

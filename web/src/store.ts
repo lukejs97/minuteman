@@ -7,6 +7,7 @@
 //   leaveSettings       default leave-from address and the Routes caps
 //   routesUsage         how many Routes attempts have been made (the free-tier cap)
 //   routesCache         recent drive times, so a refresh doesn't ask again
+//   placesUsage         how many TomTom place searches have been made (places.ts)
 //   pushSubscriptions   encrypted list of phones and browsers with alerts on (push.ts)
 //   pushKey             encrypted key the site signs its alerts with (push.ts)
 //   pushUpcoming        encrypted alerts due in the next half hour, further ahead (reminders.ts)
@@ -117,8 +118,8 @@ export async function writeLeaveSettings(env: Env, settings: LeaveSettings): Pro
 }
 
 /** Routes attempts already made, so a restart doesn't start the count over. */
-export async function readRoutesUsage(env: Env): Promise<Usage | null> {
-  const json = await readEncrypted(env, "routesUsage");
+export async function readRoutesUsage(env: Env, name = "routesUsage"): Promise<Usage | null> {
+  const json = await readEncrypted(env, name);
   if (!json) return null;
   const parsed = JSON.parse(json) as { day?: string; dayCount?: number; month?: string; monthCount?: number };
   if (!parsed.day || !parsed.month) return null;
@@ -130,8 +131,8 @@ export async function readRoutesUsage(env: Env): Promise<Usage | null> {
   };
 }
 
-export async function writeRoutesUsage(env: Env, usage: Usage): Promise<void> {
-  await writeEncrypted(env, "routesUsage", JSON.stringify(usage));
+export async function writeRoutesUsage(env: Env, usage: Usage, name = "routesUsage"): Promise<void> {
+  await writeEncrypted(env, name, JSON.stringify(usage));
 }
 
 export interface RouteCacheEntry {

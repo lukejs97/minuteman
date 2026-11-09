@@ -1468,6 +1468,12 @@ body.dimmed::after {
   color: var(--muted);
 }
 
+/* Where a suggestion came from, when it's TomTom (OpenStreetMap's say nothing). */
+.place-suggest-source {
+  font-size: 11px;
+  opacity: 0.8;
+}
+
 /* Settings → Leave from: State and ZIP side by side. */
 .address-row {
   display: flex;

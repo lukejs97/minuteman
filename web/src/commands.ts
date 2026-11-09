@@ -16,6 +16,7 @@ import type {
 } from "../../src/api";
 import * as agenda from "./agenda";
 import * as contacts from "./contacts";
+import * as places from "./places";
 import type { Context } from "./env";
 import { configError, invalidInput } from "./errors";
 import * as google from "./google";
@@ -360,6 +361,25 @@ export const commands: Record<string, Command> = {
       maxDaily: MAX_DAILY,
       maxMonthly: MAX_MONTHLY,
     };
+  },
+  /** Places by name, from TomTom, when OpenStreetMap doesn't know one (places.ts). */
+  async search_places(ctx, args) {
+    const near = args.near as { latitude?: unknown; longitude?: unknown } | null | undefined;
+    const spot =
+      near && typeof near.latitude === "number" && typeof near.longitude === "number"
+        ? { latitude: near.latitude, longitude: near.longitude }
+        : null;
+    return places.searchPlaces(ctx.env, text(args, "query"), spot);
+  },
+  async places_key_status(ctx) {
+    const configured = !!ctx.env.MINUTEMAN_TOMTOM_API_KEY?.trim();
+    return { configured, source: configured ? "environment" : "none" };
+  },
+  async places_usage(ctx) {
+    return places.placesUsage(ctx.env);
+  },
+  async set_places_key() {
+    throw invalidInput("On the website the TomTom key is a Cloudflare secret, not something you paste here");
   },
   async set_routes_key() {
     throw invalidInput("On the website the Routes key is a Cloudflare secret, not something you paste here");

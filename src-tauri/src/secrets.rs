@@ -22,6 +22,8 @@ pub const LEGACY_GOOGLE_REFRESH_TOKEN: &str = "google-refresh-token";
 pub const TODOIST_TOKEN: &str = "todoist-token";
 /// Google Routes API key for traffic-aware leave-by times. Not the OAuth client.
 pub const ROUTES_API_KEY: &str = "routes-api-key";
+/// TomTom API key for place search, when OpenStreetMap doesn't know a place.
+pub const TOMTOM_API_KEY: &str = "tomtom-api-key";
 
 #[cfg(not(target_os = "macos"))]
 pub fn get(key: &str) -> Result<Option<String>> {

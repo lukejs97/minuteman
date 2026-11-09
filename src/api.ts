@@ -653,6 +653,29 @@ export const routesUsage = () => invoke<RoutesUsage>("routes_usage");
 /** Saves a Routes API key, or clears the saved one when `key` is empty. */
 export const setRoutesKey = (key: string) => invoke<void>("set_routes_key", { key });
 
+/** A place TomTom found (place-suggest.ts asks only when OpenStreetMap doesn't know one). Mirrors `FoundPlace` in places.rs. */
+export interface FoundPlace {
+  name: string | null;
+  street: string;
+  town: string;
+  /** "NC" in the US. */
+  state: string;
+  zip: string;
+  /** Empty in the US. */
+  country: string;
+  latitude: number | null;
+  longitude: number | null;
+}
+/** Places by name near `near`, from TomTom; empty without a key or past the cap. */
+export const searchPlaces = (query: string, near: { latitude: number; longitude: number } | null) =>
+  invoke<FoundPlace[]>("search_places", { query, near });
+/** Whether there's a TomTom key (and where); the key itself stays put. */
+export const placesKeyStatus = () => invoke<RoutesKeyStatus>("places_key_status");
+/** TomTom searches today and this month, of the cap. */
+export const placesUsage = () => invoke<{ dayCount: number; dayLimit: number; monthCount: number; monthLimit: number }>("places_usage");
+/** Desktop: saves the TomTom key in the keychain; empty removes it. */
+export const setPlacesKey = (key: string) => invoke<void>("set_places_key", { key });
+
 /** Whether macOS lets Minuteman use something (calendars, location). */
 export type Access = "notAsked" | "granted" | "denied";
 

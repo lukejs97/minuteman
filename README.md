@@ -41,7 +41,12 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
   account or key, so it never costs anything. What you type there is sent
   to it (from 3 letters); places near you come first. An address outside
   any town's limits gets its mailing town from its ZIP code (Zippopotam.us,
-  also free; only the ZIP is sent, once).
+  also free; only the ZIP is sent, once). When OpenStreetMap has nothing
+  by the name typed (a church or shop it doesn't know), **TomTom** is asked
+  too, if there's a TomTom key (Settings → **Place search**; on the website
+  a Cloudflare secret): free without a card, after a longer pause, and capped
+  at 100 searches a day and 1,500 a month, well inside TomTom's free 5,000
+  a month. Its suggestions say "TomTom".
 - **Quick actions:** right-click an event or task (on a phone, press and
   hold it) for Open, Edit, Duplicate, Complete, Open in Google Calendar or
   Todoist, and Delete. On a phone, press and hold a day's heading, an empty time, or an
