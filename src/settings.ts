@@ -39,7 +39,7 @@ import type { MapProvider } from "./preferences";
 import { DAY_COUNTS, multiDayCount, savedMapProvider, setMapProvider, setMultiDayCount } from "./preferences";
 import { devicePosition, locate, type Place, searchPlaces, setWeatherSettings, type Unit, weatherSettings } from "./weather";
 import { enablePlaceSuggestions } from "./place-suggest";
-import { joinAddress, looksComplete, splitAddress } from "./routes-budget";
+import { hasLocality, joinAddress, keptLeaveFrom, looksComplete, pastedPlaceText, splitAddress } from "./routes-budget";
 
 const TOKEN_PAGE = "https://app.todoist.com/app/settings/integrations/developer";
 
@@ -328,18 +328,45 @@ function openTravelSettings(back: (() => void) | undefined, onAddress: (address:
   zip.classList.add("address-zip");
   zip.inputMode = "numeric";
   const parts = [street, town, state, zip];
-  // Suggestions as you type the street: picking one fills in all four.
+  const boxes = () => ({ street: street.value, town: town.value, state: state.value, zip: zip.value });
+  const fill = (next: { street: string; town: string; state: string; zip: string }) => {
+    street.value = next.street;
+    town.value = next.town;
+    state.value = next.state;
+    zip.value = next.zip;
+  };
+  // A whole address typed or pasted into one box ("10 Mill Park Ct, Greenville, SC 29611",
+  // or the same with a line break after the street) is split across the four before
+  // it's saved. Otherwise the street box keeps only its first line.
+  const spread = (value: string) => {
+    const next = splitAddress(value);
+    if (!hasLocality(next)) return;
+    fill(next);
+  };
+  // Suggestions as you type the street: picking one fills in all four, and a
+  // hit that is only the street does not clear a town already entered.
   enablePlaceSuggestions(street, (place) => {
-    street.value = place.street || place.name || "";
-    town.value = place.town;
-    state.value = place.state;
-    zip.value = place.zip;
+    fill(keptLeaveFrom(street.value, boxes(), { line: place.line, street: place.street, name: place.name }));
   });
-  const address = { value: () => joinAddress({ street: street.value, town: town.value, state: state.value, zip: zip.value }) };
+  const address = { value: () => joinAddress(boxes()) };
   let typed = false;
   for (const input of parts) {
-    input.addEventListener("input", () => {
+    input.addEventListener("paste", (event) => {
+      if (!(event instanceof ClipboardEvent)) return;
+      const line = pastedPlaceText(event.clipboardData?.getData("text/plain") ?? "");
+      if (!line) return;
+      event.preventDefault();
+      fill(splitAddress(line));
       typed = true;
+      showCompleteness();
+    });
+    input.addEventListener("input", (event) => {
+      typed = true;
+      if (event instanceof InputEvent && event.inputType === "insertFromPaste") spread(input.value);
+      showCompleteness();
+    });
+    input.addEventListener("blur", () => {
+      spread(input.value);
       showCompleteness();
     });
   }
@@ -412,6 +439,8 @@ function openTravelSettings(back: (() => void) | undefined, onAddress: (address:
   save.type = "submit";
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
+    for (const input of parts) spread(input.value);
+    showCompleteness();
     error.textContent = "";
     save.disabled = true;
     try {

@@ -10,12 +10,14 @@
 // Worker or in the app, where the key stays and a cap keeps it free).
 //
 // Up and down choose, Enter or a tap/click picks, Escape closes. Picking
-// fills the field (or, with `onPick`, whatever the caller fills in). Video
-// links are left alone.
+// fills the field with the whole address (or, with `onPick`, whatever the
+// caller fills in), not only the first line of the suggestion. A paste of
+// several lines is joined first: a one-line field would otherwise keep only
+// the street. Video links are left alone.
 import { isTauri } from "@tauri-apps/api/core";
 import { type Contact, type FoundPlace, getContacts, getPreferences, getSavedContacts, placesKeyStatus, searchPlaces } from "./api";
 import { el } from "./dom";
-import { splitAddress } from "./routes-budget";
+import { keptAddress, pastedPlaceText, splitAddress } from "./routes-budget";
 import { placeOnOneLine } from "./time";
 import { weatherSettings } from "./weather";
 
@@ -572,7 +574,13 @@ export function enablePlaceSuggestions(
   const pick = (suggestion: PlaceSuggestion) => {
     close();
     if (onPick) onPick(suggestion);
-    else field.value = field instanceof HTMLTextAreaElement ? multiline(suggestion) : suggestion.line;
+    else {
+      // The list's first line is the place's name, or only the street. The
+      // field keeps the whole address: town, state and ZIP included.
+      const street = suggestion.street || suggestion.name || "";
+      const kept = keptAddress(field.value, suggestion.line, street);
+      field.value = field instanceof HTMLTextAreaElement && kept === suggestion.line.trim() ? multiline(suggestion) : kept;
+    }
     // As if typed, so the form knows it changed.
     field.dispatchEvent(new Event("input", { bubbles: true }));
     field.dispatchEvent(new Event("change", { bubbles: true }));
@@ -613,8 +621,26 @@ export function enablePlaceSuggestions(
     field.setAttribute("aria-expanded", "true");
   };
 
+  // A copied place is often several lines, and a one-line field would keep
+  // only the street. Take the whole paste, and don't search-and-replace it.
+  field.addEventListener("paste", (event) => {
+    if (!(field instanceof HTMLInputElement) || !(event instanceof ClipboardEvent)) return;
+    const line = pastedPlaceText(event.clipboardData?.getData("text/plain") ?? "");
+    if (!line) return;
+    event.preventDefault();
+    window.clearTimeout(timer);
+    request?.abort();
+    const start = field.selectionStart ?? field.value.length;
+    const end = field.selectionEnd ?? start;
+    field.value = field.value.slice(0, start) + line + field.value.slice(end);
+    const caret = start + line.length;
+    field.setSelectionRange(caret, caret);
+    field.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertFromPaste", data: line }));
+    field.dispatchEvent(new Event("change", { bubbles: true }));
+    picked = field.value;
+  });
   field.addEventListener("input", (e) => {
-    if (!e.isTrusted) return; // filled in by pick(), not typed
+    if (!e.isTrusted) return; // filled in by pick() or by the paste above, not typed
     const text = field.value;
     window.clearTimeout(timer);
     request?.abort();
@@ -658,9 +684,11 @@ export function enablePlaceSuggestions(
   window.addEventListener("resize", () => !list.hidden && place());
 }
 
-/** For an address box with lines: the street, then the town, state and ZIP. */
+/** For an address box with lines: the place and street, then the town, state and ZIP. */
 function multiline(s: PlaceSuggestion): string {
   const regionZip = [s.state, s.zip].filter(Boolean).join(" ");
   const last = [s.town, regionZip].filter(Boolean).join(", ");
-  return [s.street || s.name || "", last, s.country].filter(Boolean).join("\n");
+  const street =
+    s.name && s.street && s.name !== s.street && !s.street.startsWith(`${s.name} `) ? `${s.name}, ${s.street}` : s.street || s.name || "";
+  return [street, last, s.country].filter(Boolean).join("\n");
 }
