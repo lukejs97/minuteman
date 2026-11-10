@@ -1,7 +1,8 @@
 // Leave-by times on events. The drive is worked out off the page: in the app
 // (leave.rs) or, on the website, by the Worker. A missing key, address, or
 // place stays quiet on the calendar and is explained in details.
-import { getPreferences, leaveTimes, type AgendaItem, type LeaveEstimate, type LeaveStatus } from "./api";
+import { isTauri } from "@tauri-apps/api/core";
+import { currentLocation, getPreferences, leaveTimes, locationAccess, type AgendaItem, type LeaveEstimate, type LeaveStatus } from "./api";
 import { el } from "./dom";
 import { spotOrigin } from "./routes-budget";
 import { itemStart } from "./time";
@@ -65,6 +66,38 @@ async function here(): Promise<string | null> {
   return spot;
 }
 
+/**
+ * Where you are, if this device is already allowed to say so. Never asks.
+ * Used only to tell two streets of the same name apart, not as the start of the drive.
+ */
+async function quietSpot(): Promise<string | null> {
+  if (lastSpot && Date.now() - lastSpot.at < SPOT_MS && lastSpot.spot) return lastSpot.spot;
+  try {
+    if (isTauri()) {
+      if ((await locationAccess().catch(() => null)) !== "granted") return null;
+      const at = await currentLocation().catch(() => null);
+      if (!at) return null;
+      const spot = spotOrigin(at.latitude, at.longitude);
+      lastSpot = { at: Date.now(), spot };
+      return spot;
+    }
+    if (!navigator.permissions || !navigator.geolocation) return null;
+    const { state } = await navigator.permissions.query({ name: "geolocation" });
+    if (state !== "granted") return null;
+    const spot = await new Promise<string | null>((resolve) =>
+      navigator.geolocation.getCurrentPosition(
+        (position) => resolve(spotOrigin(position.coords.latitude, position.coords.longitude)),
+        () => resolve(null),
+        { maximumAge: SPOT_MS, timeout: 5000 },
+      ),
+    );
+    if (spot) lastSpot = { at: Date.now(), spot };
+    return spot;
+  } catch {
+    return null;
+  }
+}
+
 /** Asks again for whatever is on screen, e.g. after the address or key changes. */
 export function refreshLeaveTimes(): void {
   fromHere = null;
@@ -114,6 +147,7 @@ async function flushOnce(): Promise<void> {
         leaveFrom: slot.item.leaveFrom ?? null,
       })),
       await here(),
+      await quietSpot(),
     );
   } catch {
     return;
@@ -151,7 +185,8 @@ export function formatLeave(estimate: LeaveEstimate | undefined): string | null 
   if (!estimate || estimate.minutes == null || !estimate.leaveAt) return null;
   const when = new Date(estimate.leaveAt);
   if (Number.isNaN(when.getTime())) return null;
-  return `Leave by ${timeFormat.format(when)}`;
+  const drive = estimate.minutes > 0 ? ` · ${estimate.minutes === 1 ? "1 min" : `${estimate.minutes} min`}` : "";
+  return `Leave by ${timeFormat.format(when)}${drive}`;
 }
 
 /** "8:40 AM · 25 min drive", for the details popup. */
@@ -160,7 +195,10 @@ export function formatLeaveDetail(estimate: LeaveEstimate | undefined): string |
   const when = new Date(estimate.leaveAt);
   if (Number.isNaN(when.getTime())) return null;
   const drive = estimate.minutes === 1 ? "1 min drive" : `${estimate.minutes} min drive`;
-  return `${timeFormat.format(when)} · ${drive}`;
+  const from = estimate.originLabel ? ` · from ${estimate.originLabel}` : "";
+  const to = estimate.destinationLabel ? ` · to ${estimate.destinationLabel}` : "";
+  const credit = from || to ? " · OpenStreetMap" : "";
+  return `${timeFormat.format(when)} · ${drive}${from}${to}${credit}`;
 }
 
 /** Why details has no time, when it's something the person can fix or retry. */
@@ -178,6 +216,8 @@ export function leaveHint(status: LeaveStatus | undefined): string | null {
       return "Travel time shows within two days of the event.";
     case "limited":
       return "Leave-by lookups are paused until the Routes limit resets. A drive already saved is still used.";
+    case "vague":
+      return "Add the town and ZIP. A street with no town can match one with the same name far away, so no leave-by time is shown.";
     default:
       return null;
   }
@@ -196,14 +236,17 @@ export async function leaveDetail(item: AgendaItem): Promise<string | null> {
     const [estimate] = await leaveTimes(
       [{ id: item.id, start: item.start, location: item.location ?? "", leaveFrom: item.leaveFrom ?? null }],
       await here(),
+      await quietSpot(),
     );
     // Too long to be right: Google matched an address in the wrong town.
     if (estimate?.status === "implausible" && estimate.minutes != null) {
-      const from = item.leaveFrom?.trim() ? `"${item.leaveFrom.trim()}"` : "the leave-from address";
-      return `Google found a ${hoursAndMinutes(estimate.minutes)} drive from ${from}, so no leave time. Check the address: add the town and ZIP.`;
+      const from = estimate.originLabel ?? (item.leaveFrom?.trim() ? `"${item.leaveFrom.trim()}"` : "the leave-from address");
+      const to = estimate.destinationLabel ? ` to ${estimate.destinationLabel}` : "";
+      return `Google found a ${hoursAndMinutes(estimate.minutes)} drive from ${from}${to}, so no leave time. Add the town and ZIP. A street alone can match one with the same name far away.`;
     }
     const detail = formatLeaveDetail(estimate);
     if (detail) {
+      if (estimate?.originLabel || estimate?.destinationLabel) return detail;
       const from = item.leaveFrom?.trim();
       return from ? `${detail} · from ${from}` : detail;
     }

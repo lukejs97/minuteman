@@ -13,12 +13,20 @@ export const MAX_DAILY = 160;
 export const MAX_MONTHLY = 4_000;
 
 /**
- * A drive longer than this (4 hours) almost always means Google matched an
- * address somewhere else, usually a street with no town ("10 Battle Rd").
- * No leave-by time is given for it. Kept in step with MAX_PLAUSIBLE_DRIVE in
- * leave.rs.
+ * A drive longer than this (4 hours) almost always means an address was
+ * matched in the wrong place. A street with no town is the usual cause:
+ * "10 Mill Park Ct" is a house in Greenville and also a street in Virginia,
+ * Delaware, and Illinois, and the wrong one is many hours away. No leave-by
+ * time is given for it. Kept in step with MAX_PLAUSIBLE_DRIVE in leave.rs.
  */
 export const MAX_PLAUSIBLE_DRIVE_MINUTES = 240;
+/**
+ * How close a vague address must be to a known point (the other end of the
+ * drive, or this device) before that match is trusted. Farther than this,
+ * same-named streets are different places. Kept in step with ANCHOR_KM in
+ * src-tauri/src/anchor.rs.
+ */
+export const ANCHOR_KM = 80;
 
 const LOOKUP_HORIZON_MS = 48 * 60 * 60 * 1000;
 /** A lookup that failed (no internet, Google busy) is asked again after this. */
@@ -134,9 +142,26 @@ export function parseSpot(origin: string): { latitude: number; longitude: number
   return Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180 ? { latitude, longitude } : null;
 }
 
-/** The Routes waypoint: coordinates for where you are, otherwise the address. */
+/**
+ * An address resolved to a point, "geo:34.86739,-82.42850". Not the device:
+ * those stay "@lat,lng" and share one cache slot. Kept in step with
+ * `geo_pin` in src-tauri/src/anchor.rs.
+ */
+export function geoPin(latitude: number, longitude: number): string {
+  return `geo:${latitude.toFixed(5)},${longitude.toFixed(5)}`;
+}
+
+/** The coordinates in a geoPin; null for an address or a device spot. */
+export function parseGeoPin(value: string): { latitude: number; longitude: number } | null {
+  const m = /^geo:(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)$/i.exec(value.trim());
+  if (!m) return null;
+  const [latitude, longitude] = [Number(m[1]), Number(m[2])];
+  return Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180 ? { latitude, longitude } : null;
+}
+
+/** The Routes waypoint: coordinates for a resolved point or where you are, otherwise the address. */
 export function waypoint(origin: string): Record<string, unknown> {
-  const spot = parseSpot(origin);
+  const spot = parseSpot(origin) ?? parseGeoPin(origin);
   return spot ? { location: { latLng: spot } } : { address: origin };
 }
 
@@ -213,6 +238,11 @@ export function stillFresh(fetched: Date, now: Date, arrive: Date, saved: Saved)
   if (age < 0) return false;
   if (saved === "failed") return age < FAILURE_TTL_MS;
   if (saved === "noRoute") return age < NO_ROUTE_TTL_MS;
+  // Too long to be a local trip: keep it only for a while, then ask again.
+  // The usual "you're already leaving, so keep the drive" rule must not apply.
+  // A 9 hour mismatch would otherwise stick until the event, because its
+  // bogus leave time is already in the past.
+  if (saved > MAX_PLAUSIBLE_DRIVE_MINUTES) return age < NO_ROUTE_TTL_MS;
   if (now.getTime() >= arrive.getTime() - saved * 60_000) return true;
   return age < freshFor(arrive.getTime() - now.getTime());
 }
@@ -250,11 +280,170 @@ export function looksComplete(address: string): boolean {
   return !text || text.includes(",") || /\b\d{5}(?:-\d{4})?\b/.test(text);
 }
 
-/** `"165s"` or `"165.4s"` → whole minutes, rounded up. */
+/**
+ * `"165s"` or `"165.4s"` → whole minutes, rounded up. Routes always reports
+ * seconds with an "s" on the end (a 20 minute drive is `"1200s"`, not 1200
+ * minutes). Anything else is not a duration.
+ */
 export function parseDuration(raw: string): number | null {
   const body = raw.trim().match(/^(\d+(?:\.\d+)?)s$/);
   if (!body) return null;
   const seconds = Number(body[1]);
   if (!Number.isFinite(seconds) || seconds < 0) return null;
   return Math.ceil(seconds / 60);
+}
+
+/** One place a free geocoder returned. `label` is a short address a person can check. */
+export interface GeoHit {
+  latitude: number;
+  longitude: number;
+  label: string;
+}
+
+/**
+ * Which hit is safe to route from. With a known point nearby, the closest
+ * hit within ANCHOR_KM. With none, only a single hit: two streets of the
+ * same name are not a guess. Kept in step with `choose_hit` in anchor.rs.
+ */
+export function chooseHit(hits: GeoHit[], bias: { latitude: number; longitude: number } | null): GeoHit | null {
+  const usable = hits.filter((hit) => Number.isFinite(hit.latitude) && Number.isFinite(hit.longitude) && Math.abs(hit.latitude) <= 90 && Math.abs(hit.longitude) <= 180);
+  if (bias) {
+    const near = usable
+      .map((hit) => ({ hit, km: kmBetween(hit, bias) }))
+      .filter((row) => row.km <= ANCHOR_KM)
+      .sort((a, b) => a.km - b.km);
+    return near[0]?.hit ?? null;
+  }
+  return usable.length === 1 ? usable[0] : null;
+}
+
+/** Nominatim's viewbox, "left,top,right,bottom", about `km` around `bias`. A hint, not a hard box. */
+export function nominatimViewbox(bias: { latitude: number; longitude: number }, km = ANCHOR_KM): string {
+  const dLat = km / 111.32;
+  const dLon = km / (111.32 * Math.max(0.2, Math.abs(Math.cos((bias.latitude * Math.PI) / 180))));
+  return `${bias.longitude - dLon},${bias.latitude + dLat},${bias.longitude + dLon},${bias.latitude - dLat}`;
+}
+
+/** A Nominatim row, the fields leave-by uses. */
+export interface NominatimPlace {
+  lat?: string;
+  lon?: string;
+  name?: string;
+  display_name?: string;
+  address?: Record<string, string>;
+}
+
+/** "1207 Haywood Road, Wade Hampton, SC 29615", with the place's name in front when it has one. */
+export function nominatimLabel(place: NominatimPlace): string {
+  const address = place.address ?? {};
+  const region = (address["ISO3166-2-lvl4"] ?? "").split("-").pop() || address.state || "";
+  const town = address.city || address.town || address.village || address.hamlet || "";
+  const street = [address.house_number, address.road].filter(Boolean).join(" ");
+  const name = place.name && place.name !== street ? place.name : "";
+  const line = [name, street, town, [region, address.postcode].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+  const text = (line || place.display_name || "").trim();
+  return text.length > 160 ? `${text.slice(0, 157)}…` : text;
+}
+
+/** Nominatim's JSON list as hits. A row without coordinates is dropped. */
+export function nominatimHits(body: unknown): GeoHit[] {
+  if (!Array.isArray(body)) return [];
+  const hits: GeoHit[] = [];
+  for (const row of body) {
+    if (!row || typeof row !== "object") continue;
+    const place = row as NominatimPlace;
+    const latitude = Number(place.lat);
+    const longitude = Number(place.lon);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) continue;
+    const label = nominatimLabel(place);
+    if (!label) continue;
+    hits.push({ latitude, longitude, label });
+  }
+  return hits;
+}
+
+export interface AnchoredEnd {
+  /** What Routes is asked for: an address, "@lat,lng", or a geo pin. */
+  waypoint: string;
+  /** The place that was matched, when a vague address had to be resolved. */
+  label: string | null;
+}
+
+export type AnchorResult =
+  | { kind: "ready"; origin: AnchoredEnd; destination: AnchoredEnd }
+  | { kind: "vague" }
+  | { kind: "unavailable" };
+
+/** Hits for one address, or "failed" when the geocoder didn't answer. Empty is a real "nothing matched". */
+export type GeoLookup = (query: string, bias: { latitude: number; longitude: number } | null) => Promise<GeoHit[] | "failed">;
+
+/**
+ * Turn vague ends ("10 Mill Park Ct", a place name with no town) into points
+ * before Google geocodes them on its own. A full address is left as written.
+ * Device location wins as the hint, then the other end. Neither: a vague
+ * address is not guessed. Kept in step with `anchor_ends` in anchor.rs.
+ */
+export async function anchorEnds(origin: string, destination: string, device: { latitude: number; longitude: number } | null, lookup: GeoLookup): Promise<AnchorResult> {
+  const originCoord = parseSpot(origin) ?? parseGeoPin(origin);
+  const destCoord = parseSpot(destination) ?? parseGeoPin(destination);
+  const originVague = !originCoord && !looksComplete(origin);
+  const destVague = !destCoord && !looksComplete(destination);
+  if (!originVague && !destVague) {
+    return { kind: "ready", origin: { waypoint: origin, label: null }, destination: { waypoint: destination, label: null } };
+  }
+
+  let failed = false;
+  const take = async (query: string, bias: { latitude: number; longitude: number } | null): Promise<GeoHit | null> => {
+    const hits = await lookup(query, bias);
+    if (hits === "failed") {
+      failed = true;
+      return null;
+    }
+    return chooseHit(hits, bias);
+  };
+
+  let originHit: GeoHit | null = originCoord ? { ...originCoord, label: "" } : null;
+  let destHit: GeoHit | null = destCoord ? { ...destCoord, label: "" } : null;
+
+  // A place name is often unique in the world. Try near the device first, then anywhere.
+  if (destVague) {
+    destHit = await take(destination, device);
+    if (!failed && !destHit && device) destHit = await take(destination, null);
+  }
+  if (failed) return { kind: "unavailable" };
+
+  if (originVague) {
+    let bias = device ?? destHit;
+    if (!bias && !destVague) {
+      destHit = await take(destination, null);
+      bias = destHit;
+    }
+    if (failed) return { kind: "unavailable" };
+    originHit = await take(origin, bias);
+    if (!failed && !originHit && bias) originHit = await take(origin, null);
+  }
+  if (failed) return { kind: "unavailable" };
+
+  if (destVague && !destHit) {
+    let bias = device ?? (originHit && originVague ? originHit : null);
+    if (!bias && !originVague) {
+      originHit = await take(origin, null);
+      bias = originHit;
+    }
+    if (failed) return { kind: "unavailable" };
+    if (bias) destHit = await take(destination, bias);
+    if (!failed && !destHit && bias) destHit = await take(destination, null);
+  }
+  if (failed) return { kind: "unavailable" };
+
+  if (originVague && !originHit && destHit) {
+    originHit = await take(origin, destHit);
+    if (failed) return { kind: "unavailable" };
+  }
+
+  if ((originVague && !originHit) || (destVague && !destHit)) return { kind: "vague" };
+
+  const end = (text: string, vague: boolean, hit: GeoHit | null): AnchoredEnd =>
+    vague && hit ? { waypoint: geoPin(hit.latitude, hit.longitude), label: hit.label || null } : { waypoint: text, label: hit?.label || null };
+  return { kind: "ready", origin: end(origin, originVague, originHit), destination: end(destination, destVague, destHit) };
 }

@@ -103,6 +103,9 @@ pub enum TravelStatus {
     /// Google's drive is longer than `MAX_PLAUSIBLE_DRIVE`: probably an
     /// address matched in the wrong town. No leave-by time is given.
     Implausible,
+    /// The address doesn't name a town, and nothing nearby says which street
+    /// it is. Google is not asked: it would pick one in another state.
+    Vague,
 }
 
 /// Where the Routes API key was found. `environment` wins over Settings.
@@ -130,6 +133,10 @@ pub struct TravelAnswer {
     /// (RFC 3339). The alert's buffer is applied separately.
     pub leave_at: Option<String>,
     pub status: TravelStatus,
+    /// Where a vague leave-from address was matched, so a wrong town is visible.
+    pub origin_label: Option<String>,
+    /// Where a vague destination was matched.
+    pub destination_label: Option<String>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -250,6 +257,11 @@ pub fn still_fresh(fetched: DateTime<Utc>, now: DateTime<Utc>, arrive: DateTime<
     match saved {
         Saved::Failed => age < FAILURE_TTL,
         Saved::NoRoute => age < NO_ROUTE_TTL,
+        // Too long to be a local trip: keep it only for a while, then ask again.
+        // "You're already leaving, so keep the drive" must not apply. A 9 hour
+        // mismatch would otherwise stick until the event, because its bogus
+        // leave time is already in the past.
+        Saved::Drive(minutes) if minutes > MAX_PLAUSIBLE_DRIVE => age < NO_ROUTE_TTL,
         Saved::Drive(minutes) => {
             let leave = arrive - TimeDelta::minutes(i64::from(minutes));
             now >= leave || age < fresh_for(arrive.signed_duration_since(now))
@@ -326,14 +338,15 @@ pub fn classify(destination: &str, arrive: DateTime<Utc>, now: DateTime<Utc>, or
 
 /// The Routes request body. `departure` is an absolute time.
 pub fn route_request(origin: &str, destination: &str, departure: DateTime<Utc>) -> Value {
-    // Where you are goes as coordinates: nothing for Google to mismatch.
-    let origin = match parse_spot(origin) {
+    // Where you are, and an address we already resolved, go as coordinates:
+    // nothing for Google to mismatch. A written address is geocoded by Routes.
+    let place = |text: &str| match parse_spot(text).or_else(|| crate::anchor::parse_geo_pin(text)) {
         Some((latitude, longitude)) => json!({ "location": { "latLng": { "latitude": latitude, "longitude": longitude } } }),
-        None => json!({ "address": origin }),
+        None => json!({ "address": text }),
     };
     json!({
-        "origin": origin,
-        "destination": { "address": destination },
+        "origin": place(origin),
+        "destination": place(destination),
         "travelMode": "DRIVE",
         "routingPreference": "TRAFFIC_AWARE",
         "departureTime": departure.to_rfc3339_opts(SecondsFormat::Secs, true),
@@ -407,10 +420,16 @@ fn leave_alert_body(minutes: u32, leave_at: DateTime<chrono::Local>, start: Date
 fn answer(minutes: Option<u32>, arrive: DateTime<Utc>, status: TravelStatus) -> TravelAnswer {
     // A drive too long to be right: no time to leave, and the reason.
     if status == TravelStatus::Ok && minutes.is_some_and(|m| m > MAX_PLAUSIBLE_DRIVE) {
-        return TravelAnswer { minutes, leave_at: None, status: TravelStatus::Implausible };
+        return TravelAnswer { minutes, leave_at: None, status: TravelStatus::Implausible, origin_label: None, destination_label: None };
     }
     let leave_at = minutes.and_then(|m| leave_at(arrive, m, 0)).map(|t| t.to_rfc3339());
-    TravelAnswer { minutes, leave_at, status }
+    TravelAnswer { minutes, leave_at, status, origin_label: None, destination_label: None }
+}
+
+fn with_labels(mut answer: TravelAnswer, origin_label: Option<String>, destination_label: Option<String>) -> TravelAnswer {
+    answer.origin_label = origin_label;
+    answer.destination_label = destination_label;
+    answer
 }
 
 /// Minutes to drive, from the cache when it's still fresh. `None` is a
@@ -423,6 +442,7 @@ pub async fn resolve<F, Fut>(
     origin: Option<&str>,
     has_key: bool,
     allow_device: bool,
+    bias: Option<(f64, f64)>,
     device: F,
 ) -> TravelAnswer
 where
@@ -431,18 +451,19 @@ where
 {
     match classify(destination, arrive, now, origin, has_key, allow_device) {
         Classify::Status(status) => answer(None, arrive, status),
-        Classify::Routes(origin) => match driving_minutes(http, &origin, destination, arrive, now).await {
-            Fetch::Ready(minutes) => answer(Some(minutes), arrive, TravelStatus::Ok),
+        Classify::Routes(origin) => match driving_minutes(http, &origin, destination, arrive, now, bias).await {
+            Fetch::Ready { minutes, origin_label, destination_label } => with_labels(answer(Some(minutes), arrive, TravelStatus::Ok), origin_label, destination_label),
             // No new request. A drive saved earlier is returned above, from
             // the cache, and can still fire a leave alert. With nothing saved,
             // the alert waits.
             Fetch::Limited => answer(None, arrive, TravelStatus::Limited),
             Fetch::NoRoute => answer(None, arrive, TravelStatus::NoRoute),
+            Fetch::Vague => answer(None, arrive, TravelStatus::Vague),
             Fetch::Failed => answer(None, arrive, TravelStatus::Unavailable),
         },
         Classify::Device => {
             let key = cache_key(DEVICE_ORIGIN, destination, arrive);
-            if let Some(Lookup::Fresh(cached)) = lookup(&key, None, arrive, now) {
+            if let Some(Lookup::Fresh(cached, _, _)) = lookup(&key, None, arrive, now) {
                 let minutes = match cached {
                     Saved::Drive(minutes) => Some(minutes),
                     _ => None,
@@ -450,44 +471,63 @@ where
                 return answer(minutes, arrive, if minutes.is_some() { TravelStatus::Ok } else { TravelStatus::Unavailable });
             }
             let minutes = device().await;
-            remember(&key, minutes.map_or(Saved::Failed, Saved::Drive), None, Utc::now());
+            remember(&key, minutes.map_or(Saved::Failed, Saved::Drive), None, None, None, Utc::now());
             answer(minutes, arrive, if minutes.is_some() { TravelStatus::Ok } else { TravelStatus::Unavailable })
         }
     }
 }
 
 enum Fetch {
-    Ready(u32),
+    Ready { minutes: u32, origin_label: Option<String>, destination_label: Option<String> },
     NoRoute,
     Failed,
     Limited,
+    /// The address needs a town. Google was not asked.
+    Vague,
 }
 
-async fn driving_minutes(
-    http: &reqwest::Client,
-    origin: &str,
-    destination: &str,
-    arrive: DateTime<Utc>,
-    now: DateTime<Utc>,
-) -> Fetch {
+fn ready(minutes: u32) -> Fetch {
+    Fetch::Ready { minutes, origin_label: None, destination_label: None }
+}
+
+async fn driving_minutes(http: &reqwest::Client, origin: &str, destination: &str, arrive: DateTime<Utc>, now: DateTime<Utc>, bias: Option<(f64, f64)>) -> Fetch {
+    // A street with no town is resolved here, before Google picks one. Not a
+    // Routes call, so it doesn't spend the cap.
+    let ends = crate::anchor::anchor_ends(origin, destination, bias, |query, hint| {
+        let http = http.clone();
+        async move { crate::anchor::lookup(&http, &query, hint).await }
+    })
+    .await;
+    let (origin, destination, origin_label, destination_label) = match ends {
+        crate::anchor::AnchorResult::Ready { origin, destination } => (origin.waypoint, destination.waypoint, origin.label, destination.label),
+        crate::anchor::AnchorResult::Vague => return Fetch::Vague,
+        crate::anchor::AnchorResult::Unavailable => return Fetch::Failed,
+    };
     // From where you are: one slot, used again nearby (see NEARBY_KM).
-    let spot = parse_spot(origin);
-    let key = cache_key(if spot.is_some() { DEVICE_ORIGIN } else { origin }, destination, arrive);
+    // A resolved address is not that, even though it is coordinates.
+    let spot = parse_spot(&origin);
+    let key = cache_key(if spot.is_some() { DEVICE_ORIGIN } else { &origin }, &destination, arrive);
     let previous = match lookup(&key, spot, arrive, now) {
-        Some(Lookup::Fresh(Saved::Drive(minutes))) => return Fetch::Ready(minutes),
-        Some(Lookup::Fresh(Saved::NoRoute)) => return Fetch::NoRoute,
-        Some(Lookup::Fresh(Saved::Failed)) => return Fetch::Failed,
-        Some(Lookup::Stale(previous)) => previous,
+        Some(Lookup::Fresh(Saved::Drive(minutes), saved_origin, saved_destination)) => {
+            return Fetch::Ready { minutes, origin_label: saved_origin.or(origin_label), destination_label: saved_destination.or(destination_label) };
+        }
+        Some(Lookup::Fresh(Saved::NoRoute, _, _)) => return Fetch::NoRoute,
+        Some(Lookup::Fresh(Saved::Failed, _, _)) => return Fetch::Failed,
+        // A saved 9 hour mismatch is not a useful first guess for the next ask.
+        Some(Lookup::Stale(previous)) => previous.filter(|minutes| *minutes <= MAX_PLAUSIBLE_DRIVE),
         None => None,
     };
-    let fetched = fetch_minutes(http, origin, destination, arrive, now, previous).await;
-    match fetched {
-        Fetch::Ready(minutes) => remember(&key, Saved::Drive(minutes), spot, Utc::now()),
-        Fetch::NoRoute => remember(&key, Saved::NoRoute, spot, Utc::now()),
-        Fetch::Failed => remember(&key, Saved::Failed, spot, Utc::now()),
-        // Don't remember a cap as a failed drive: when the day turns, the
-        // next check should ask again instead of waiting out a failure.
-        Fetch::Limited => {}
+    let fetched = fetch_minutes(http, &origin, &destination, arrive, now, previous).await;
+    let fetched = match fetched {
+        Fetch::Ready { minutes, .. } => Fetch::Ready { minutes, origin_label: origin_label.clone(), destination_label: destination_label.clone() },
+        other => other,
+    };
+    match &fetched {
+        Fetch::Ready { minutes, origin_label, destination_label } => remember(&key, Saved::Drive(*minutes), spot, origin_label.clone(), destination_label.clone(), Utc::now()),
+        Fetch::NoRoute => remember(&key, Saved::NoRoute, spot, None, None, Utc::now()),
+        Fetch::Failed => remember(&key, Saved::Failed, spot, None, None, Utc::now()),
+        // Don't remember a cap, or a vague address, as a failed drive.
+        Fetch::Limited | Fetch::Vague => {}
     }
     fetched
 }
@@ -507,9 +547,9 @@ async fn fetch_minutes(
     let mut latest: Option<u32> = None;
     loop {
         // Count this attempt before it is sent, success or failure.
-        if !try_spend(now) {
+            if !try_spend(now) {
             return match latest {
-                Some(minutes) => Fetch::Ready(minutes),
+                Some(minutes) => ready(minutes),
                 None => Fetch::Limited,
             };
         }
@@ -517,7 +557,7 @@ async fn fetch_minutes(
             Query::Seconds(seconds) => seconds,
             failed => {
                 return match (latest, failed) {
-                    (Some(minutes), _) => Fetch::Ready(minutes),
+                    (Some(minutes), _) => ready(minutes),
                     (None, Query::NoRoute) => Fetch::NoRoute,
                     (None, _) => Fetch::Failed,
                 };
@@ -525,12 +565,12 @@ async fn fetch_minutes(
         };
         let Some(minutes) = minutes_from_seconds(seconds) else {
             return match latest {
-                Some(minutes) => Fetch::Ready(minutes),
+                Some(minutes) => ready(minutes),
                 None => Fetch::Failed,
             };
         };
         match judge(departure, minutes, arrive, now, refined) {
-            Sample::Done(minutes) => return Fetch::Ready(minutes),
+            Sample::Done(minutes) => return ready(minutes),
             Sample::Again(next) => {
                 latest = Some(minutes);
                 departure = next;
@@ -588,7 +628,8 @@ struct RouteLeg {
 }
 
 fn cache_key(origin: &str, destination: &str, arrive: DateTime<Utc>) -> String {
-    format!("{}|{}|{}", norm(origin), norm(destination), arrive.timestamp().div_euclid(60))
+    // v2: a drive asked with the raw vague address (the wrong-town match) is not reused.
+    format!("v2|{}|{}|{}", norm(origin), norm(destination), arrive.timestamp().div_euclid(60))
 }
 
 fn norm(value: &str) -> String {
@@ -600,13 +641,15 @@ struct Entry {
     at: DateTime<Utc>,
     /// Where you were, for a drive from where you are.
     spot: Option<(f64, f64)>,
+    origin_label: Option<String>,
+    destination_label: Option<String>,
 }
 
 static CACHE: Mutex<Option<HashMap<String, Entry>>> = Mutex::new(None);
 
 /// A saved answer: still good, or too old (with its drive, a good first guess for the next ask).
 enum Lookup {
-    Fresh(Saved),
+    Fresh(Saved, Option<String>, Option<String>),
     Stale(Option<u32>),
 }
 
@@ -621,14 +664,19 @@ fn lookup(key: &str, spot: Option<(f64, f64)>, arrive: DateTime<Utc>, now: DateT
         Saved::Drive(minutes) => Some(minutes),
         _ => None,
     };
-    Some(if nearby && still_fresh(entry.at, now, arrive, entry.saved) { Lookup::Fresh(entry.saved) } else { Lookup::Stale(previous) })
+    Some(if nearby && still_fresh(entry.at, now, arrive, entry.saved) {
+        Lookup::Fresh(entry.saved, entry.origin_label.clone(), entry.destination_label.clone())
+    } else {
+        Lookup::Stale(previous)
+    })
 }
 
-fn remember(key: &str, saved: Saved, spot: Option<(f64, f64)>, now: DateTime<Utc>) {
+fn remember(key: &str, saved: Saved, spot: Option<(f64, f64)>, origin_label: Option<String>, destination_label: Option<String>, now: DateTime<Utc>) {
     let mut cache = CACHE.lock().expect("not poisoned");
     let map = cache.get_or_insert_with(HashMap::new);
-    map.retain(|_, entry| now.signed_duration_since(entry.at) < TimeDelta::hours(24));
-    map.insert(key.to_string(), Entry { saved, at: now, spot });
+    // Drives from before vague addresses were resolved (no "v2|" key) matched the wrong town.
+    map.retain(|saved_key, entry| saved_key.starts_with("v2|") && now.signed_duration_since(entry.at) < TimeDelta::hours(24));
+    map.insert(key.to_string(), Entry { saved, at: now, spot, origin_label, destination_label });
 }
 
 /// Where a Routes API key comes from, if anywhere. The value itself stays here.
@@ -979,6 +1027,10 @@ mod tests {
         assert_eq!(parse_duration("61s"), Some(2));
         assert_eq!(parse_duration("119.2s"), Some(2));
         assert_eq!(parse_duration("  30s "), Some(1));
+        // A 20 minute drive is 1200 seconds, not 1200 minutes. 570 minutes is 34200 seconds.
+        assert_eq!(parse_duration("1200s"), Some(20));
+        assert_eq!(parse_duration("34200s"), Some(570));
+        assert_eq!(parse_duration("1200"), None);
         assert_eq!(parse_duration("10"), None);
         assert_eq!(parse_duration("-5s"), None);
         assert_eq!(parse_duration(""), None);
@@ -1000,6 +1052,11 @@ mod tests {
         assert!(!still_fresh(utc("2026-11-02T13:20:00Z"), now, arrive, drive));
         // Once it's time to leave, the drive is kept.
         assert!(still_fresh(utc("2026-11-02T15:00:00Z"), utc("2026-11-02T15:45:00Z"), arrive, drive));
+        // A 9 hour mismatch is not kept just because that bogus leave time has passed.
+        let wrong = Saved::Drive(550);
+        let soon = utc("2026-11-02T18:00:00Z");
+        assert!(still_fresh(utc("2026-11-02T13:00:00Z"), now, soon, wrong));
+        assert!(!still_fresh(utc("2026-11-01T13:00:00Z"), now, soon, wrong));
         // A failure is reused for ten minutes, then asked again.
         assert!(still_fresh(utc("2026-11-02T13:55:00Z"), now, arrive, Saved::Failed));
         assert!(!still_fresh(utc("2026-11-02T13:45:00Z"), now, arrive, Saved::Failed));

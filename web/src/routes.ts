@@ -4,6 +4,7 @@
 // request is sent, including when Google doesn't answer.
 import type { LeaveEstimate, LeaveQuery, LeaveStatus } from "../../src/api";
 import {
+  anchorEnds,
   charge,
   clampLimits,
   emptyUsage,
@@ -24,13 +25,15 @@ import {
   type Usage,
 } from "../../src/routes-budget";
 import type { Env } from "./env";
-import { readLeaveSettings, readRoutesCache, readRoutesUsage, writeRoutesCache, writeRoutesUsage, type RouteCache } from "./store";
+import { cachedLookup, pruneGeoCache, type GeoCache } from "./nominatim";
+import { readGeocodeCache, readLeaveSettings, readRoutesCache, readRoutesUsage, writeGeocodeCache, writeRoutesCache, writeRoutesUsage, type RouteCache } from "./store";
 
 const ROUTES_URL = "https://routes.googleapis.com/directions/v2:computeRoutes";
 
 function cacheKey(origin: string, destination: string, arrive: Date): string {
   const norm = (value: string) => value.trim().toLowerCase().split(/\s+/).join(" ");
-  return `${norm(origin)}|${norm(destination)}|${Math.floor(arrive.getTime() / 60_000)}`;
+  // v2: a drive asked with the raw vague address (the wrong-town match) is not reused.
+  return `v2|${norm(origin)}|${norm(destination)}|${Math.floor(arrive.getTime() / 60_000)}`;
 }
 
 async function spend(env: Env, usage: Usage, limits: { daily: number; monthly: number }): Promise<{ ok: boolean; usage: Usage }> {
@@ -58,7 +61,7 @@ async function query(key: string, origin: string, destination: string, departure
       body: JSON.stringify({
         // Where you are goes as coordinates: nothing for Google to mismatch.
         origin: waypoint(origin),
-        destination: { address: destination },
+        destination: waypoint(destination),
         travelMode: "DRIVE",
         routingPreference: "TRAFFIC_AWARE",
         departureTime: departure.toISOString().replace(/\.\d{3}Z$/, "Z"),
@@ -107,27 +110,40 @@ async function drivingMinutes(
   }
 }
 
-function estimate(id: string, start: string, minutes: number | null, status: LeaveStatus): LeaveEstimate {
+function estimate(
+  id: string,
+  start: string,
+  minutes: number | null,
+  status: LeaveStatus,
+  labels: { originLabel?: string | null; destinationLabel?: string | null } = {},
+): LeaveEstimate {
+  const originLabel = labels.originLabel || null;
+  const destinationLabel = labels.destinationLabel || null;
   // Too long to be right (an address matched in the wrong town): say so, no time.
   if (status === "ok" && minutes !== null && minutes > MAX_PLAUSIBLE_DRIVE_MINUTES) {
-    return { id, start, minutes, leaveAt: null, status: "implausible" };
+    return { id, start, minutes, leaveAt: null, status: "implausible", originLabel, destinationLabel };
   }
-  if (minutes === null || status !== "ok") return { id, start, minutes: null, leaveAt: null, status };
+  if (minutes === null || status !== "ok") return { id, start, minutes: null, leaveAt: null, status, originLabel, destinationLabel };
   const arrive = new Date(start);
-  return { id, start, minutes, leaveAt: new Date(arrive.getTime() - minutes * 60_000).toISOString(), status: "ok" };
+  return { id, start, minutes, leaveAt: new Date(arrive.getTime() - minutes * 60_000).toISOString(), status: "ok", originLabel, destinationLabel };
 }
 
 /** Leave-by times for the events on screen. The key never leaves this function. */
-export async function leaveTimes(env: Env, events: LeaveQuery[], here: string | null = null): Promise<LeaveEstimate[]> {
+export async function leaveTimes(env: Env, events: LeaveQuery[], here: string | null = null, near: string | null = null): Promise<LeaveEstimate[]> {
   const settings = await readLeaveSettings(env);
   // Where the browser found you, when Settings says to start from there.
   const from = settings.leaveFromHere ? here : null;
+  // The same point, when it's already allowed, used only to tell same-named streets apart.
+  const device = parseSpot(near ?? "") ?? parseSpot(here ?? "");
   const limits = clampLimits(settings.routesDailyLimit, settings.routesMonthlyLimit);
   const key = env.MINUTEMAN_ROUTES_API_KEY?.trim() ?? "";
   let usage = (await readRoutesUsage(env)) ?? emptyUsage(new Date());
   const cache = await readRoutesCache(env);
   let cacheDirty = false;
   const now = new Date();
+  const geoCache: GeoCache = await readGeocodeCache(env);
+  const geoDirty = { current: false };
+  const lookup = cachedLookup(geoCache, geoDirty, now);
   const out: LeaveEstimate[] = [];
 
   for (const event of events.slice(0, 40)) {
@@ -156,20 +172,37 @@ export async function leaveTimes(env: Env, events: LeaveQuery[], here: string | 
       out.push(estimate(id, start, null, "tooFar"));
       continue;
     }
-    // From where you are: one slot, used again nearby (NEARBY_KM).
-    const spot = parseSpot(origin);
-    const slot = cacheKey(spot ? "@here" : origin, destination, arrive);
+    // Resolve a street with no town before Google picks one in another state.
+    // This is not a Routes call. A failure here doesn't spend the cap.
+    const anchored = await anchorEnds(origin, destination, device, lookup);
+    if (anchored.kind === "vague") {
+      out.push(estimate(id, start, null, "vague"));
+      continue;
+    }
+    if (anchored.kind === "unavailable") {
+      out.push(estimate(id, start, null, "unavailable"));
+      continue;
+    }
+    const originWp = anchored.origin.waypoint;
+    const destinationWp = anchored.destination.waypoint;
+    const labels = { originLabel: anchored.origin.label, destinationLabel: anchored.destination.label };
+    // From where you are: one slot, used again nearby (NEARBY_KM). A resolved address is not that.
+    const spot = parseSpot(originWp);
+    const slot = cacheKey(spot ? "@here" : originWp, destinationWp, arrive);
     const saved = cache[slot];
     const savedAs: Saved | null = saved ? (saved.minutes ?? (saved.noRoute ? "noRoute" : "failed")) : null;
     const nearby = !spot || !saved?.spot || kmBetween(spot, saved.spot) <= NEARBY_KM;
+    const savedLabels = { originLabel: saved?.originLabel ?? labels.originLabel, destinationLabel: saved?.destinationLabel ?? labels.destinationLabel };
     if (saved && savedAs !== null && nearby && stillFresh(new Date(saved.at), now, arrive, savedAs)) {
-      out.push(estimate(id, start, saved.minutes, saved.minutes !== null ? "ok" : saved.noRoute ? "noRoute" : "unavailable"));
+      out.push(estimate(id, start, saved.minutes, saved.minutes !== null ? "ok" : saved.noRoute ? "noRoute" : "unavailable", savedLabels));
       continue;
     }
-    const driven = await drivingMinutes(env, key, origin, destination, arrive, now, usage, limits, saved?.minutes ?? null);
+    // A saved 9 hour mismatch is not a useful first guess for the next ask.
+    const previous = saved?.minutes != null && saved.minutes <= MAX_PLAUSIBLE_DRIVE_MINUTES ? saved.minutes : null;
+    const driven = await drivingMinutes(env, key, originWp, destinationWp, arrive, now, usage, limits, previous);
     usage = driven.usage;
     if (driven.limited) {
-      out.push(estimate(id, start, null, "limited"));
+      out.push(estimate(id, start, null, "limited", labels));
       continue;
     }
     cache[slot] = {
@@ -177,17 +210,22 @@ export async function leaveTimes(env: Env, events: LeaveQuery[], here: string | 
       minutes: driven.minutes,
       ...(driven.noRoute ? { noRoute: true } : {}),
       ...(spot ? { spot } : {}),
+      ...(labels.originLabel ? { originLabel: labels.originLabel } : {}),
+      ...(labels.destinationLabel ? { destinationLabel: labels.destinationLabel } : {}),
     };
     cacheDirty = true;
-    out.push(estimate(id, start, driven.minutes, driven.minutes !== null ? "ok" : driven.noRoute ? "noRoute" : "unavailable"));
+    out.push(estimate(id, start, driven.minutes, driven.minutes !== null ? "ok" : driven.noRoute ? "noRoute" : "unavailable", labels));
   }
   if (cacheDirty) await writeRoutesCache(env, prune(cache, now)).catch(() => undefined);
+  if (geoDirty.current) await writeGeocodeCache(env, pruneGeoCache(geoCache, now)).catch(() => undefined);
   return out;
 }
 
 function prune(cache: RouteCache, now: Date): RouteCache {
   const kept: RouteCache = {};
   for (const [key, entry] of Object.entries(cache)) {
+    // Drives from before vague addresses were resolved (no "v2|" key) matched the wrong town.
+    if (!key.startsWith("v2|")) continue;
     if (now.getTime() - new Date(entry.at).getTime() < 24 * 60 * 60 * 1000) kept[key] = entry;
   }
   return kept;

@@ -340,7 +340,8 @@ export const commands: Record<string, Command> = {
     const events = args.events;
     if (!Array.isArray(events)) throw invalidInput("events must be a list");
     const here = typeof args.here === "string" ? args.here : null;
-    return routes.leaveTimes(ctx.env, events as LeaveQuery[], here);
+    const near = typeof args.near === "string" ? args.near : null;
+    return routes.leaveTimes(ctx.env, events as LeaveQuery[], here, near);
   },
   async routes_key_status(ctx) {
     const configured = !!ctx.env.MINUTEMAN_ROUTES_API_KEY?.trim();
