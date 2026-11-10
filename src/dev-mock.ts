@@ -759,8 +759,9 @@ export function install(inApp = false): void {
           const origin = (event.leaveFrom ?? "").trim() || fallback;
           if (!origin) return { ...blank, status: "noOrigin" };
           if (!routesKey) return { ...blank, status: "noKey" };
-          // Like Google with a street and no town: a same-named street far away.
-          if (!/,|\b\d{5}\b/.test(origin)) return { ...blank, minutes: 550, status: "implausible" };
+          // A street with no town is not guessed: it can match one far away.
+          // "@lat,lng" (where you are) has a comma, so it still gets a drive.
+          if (!/,|\b\d{5}\b/.test(origin)) return { ...blank, status: "vague" };
           // Shorter from where you are, so the two are easy to tell apart.
           const minutes = origin.startsWith("@") ? 12 : 25;
           return { id: event.id, start: event.start, minutes, leaveAt: new Date(startMs - minutes * 60_000).toISOString(), status: "ok" };

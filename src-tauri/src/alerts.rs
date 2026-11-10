@@ -154,7 +154,12 @@ async fn time_to_leave(app: &AppHandle, items: &[AgendaItem], now: DateTime<Loca
         if buffers.is_empty() {
             continue;
         }
-        let here = if prefs.leave_from_here { here_now(app).await } else { None };
+        // Where you are, when location is already allowed: it tells same-named
+        // streets apart. Asking here would prompt, so a first request waits
+        // until Settings turns "where I am" on (or the Mac already agreed).
+        let located = if prefs.leave_from_here || location_already_granted() { here_now(app).await } else { None };
+        let here = if prefs.leave_from_here { located.clone() } else { None };
+        let bias = located.as_deref().and_then(crate::leave::parse_spot);
         let origin = crate::leave::pick_origin(item.leave_from.as_deref(), here.as_deref(), &prefs.leave_from);
         let arrive = start.with_timezone(&Utc);
         let answer = crate::leave::resolve(
@@ -165,13 +170,14 @@ async fn time_to_leave(app: &AppHandle, items: &[AgendaItem], now: DateTime<Loca
             origin.as_deref(),
             has_key,
             allow_device,
+            bias,
             || crate::device_drive(app, place, start),
         )
         .await;
         // The automatic alert skips a drive so short you're already there.
         // One the event asked for still fires. A drive too long to be right
         // (an address matched in the wrong town) never alerts.
-        if answer.status == crate::leave::TravelStatus::Implausible {
+        if matches!(answer.status, crate::leave::TravelStatus::Implausible | crate::leave::TravelStatus::Vague) {
             continue;
         }
         let Some(minutes) =
@@ -192,6 +198,18 @@ async fn time_to_leave(app: &AppHandle, items: &[AgendaItem], now: DateTime<Loca
 /// event when the alert comes due. 120 days covers a quarter: an exact alert
 /// on an event further out than that isn't seen until the event itself is.
 const LOOK_AHEAD_DAYS: i64 = 120;
+
+/// Location was allowed earlier, so asking again won't show a prompt.
+fn location_already_granted() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        crate::travel::access() == crate::travel::Access::Granted
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        false
+    }
+}
 
 /// Today's items and the ones far enough ahead that a reminder can come due
 /// now: fetched if possible (and saved for offline use), otherwise as saved

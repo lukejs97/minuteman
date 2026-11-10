@@ -7,6 +7,7 @@
 //   leaveSettings       default leave-from address and the Routes caps
 //   routesUsage         how many Routes attempts have been made (the free-tier cap)
 //   routesCache         recent drive times, so a refresh doesn't ask again
+//   geocodeCache        vague addresses already matched (OpenStreetMap), so a refresh doesn't ask again
 //   placesUsage         how many TomTom place searches have been made (places.ts)
 //   pushSubscriptions   encrypted list of phones and browsers with alerts on (push.ts)
 //   pushKey             encrypted key the site signs its alerts with (push.ts)
@@ -18,6 +19,7 @@
 // accounts. Tokens never leave the server; browsers only get a session cookie.
 import type { Interaction } from "../../src/api";
 import type { Usage } from "../../src/routes-budget";
+import type { GeoCache } from "./nominatim";
 import { decrypt, encrypt, randomToken, sha256 } from "./crypto";
 import type { Env } from "./env";
 
@@ -145,6 +147,10 @@ export interface RouteCacheEntry {
   noRoute?: boolean;
   /** Where you were, for a drive from where you are. */
   spot?: { latitude: number; longitude: number };
+  /** The place a vague leave-from address was matched to. */
+  originLabel?: string;
+  /** The place a vague destination was matched to. */
+  destinationLabel?: string;
 }
 
 export type RouteCache = Record<string, RouteCacheEntry>;
@@ -156,6 +162,18 @@ export async function readRoutesCache(env: Env): Promise<RouteCache> {
 
 export async function writeRoutesCache(env: Env, cache: RouteCache): Promise<void> {
   await writeEncrypted(env, "routesCache", JSON.stringify(cache));
+}
+
+/** Vague addresses already matched to a point. */
+export async function readGeocodeCache(env: Env): Promise<GeoCache> {
+  const json = await readEncrypted(env, "geocodeCache");
+  if (!json) return {};
+  const parsed = JSON.parse(json) as unknown;
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as GeoCache) : {};
+}
+
+export async function writeGeocodeCache(env: Env, cache: GeoCache): Promise<void> {
+  await writeEncrypted(env, "geocodeCache", JSON.stringify(cache));
 }
 
 /** Starts a session; returns the value for the browser's cookie. */

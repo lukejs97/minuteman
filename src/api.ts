@@ -614,7 +614,9 @@ export type LeaveStatus =
   | "noRoute"
   | "limited"
   /** Google's drive is too long to be right (an address in the wrong town): minutes, but no leave time. */
-  | "implausible";
+  | "implausible"
+  /** The address doesn't name a town, and nothing nearby says which street it is. */
+  | "vague";
 
 /** A drive to one event. Mirrors `LeaveEstimate` in lib.rs. */
 export interface LeaveEstimate {
@@ -625,6 +627,10 @@ export interface LeaveEstimate {
   /** When to set off to arrive as the event starts (ISO), when known. */
   leaveAt: string | null;
   status: LeaveStatus;
+  /** Where a vague leave-from address was matched, so a wrong town is visible. */
+  originLabel?: string | null;
+  /** Where a vague destination was matched. */
+  destinationLabel?: string | null;
 }
 
 /** Where a Routes API key was found. The key itself never comes back. */
@@ -634,9 +640,13 @@ export interface RoutesKeyStatus {
 }
 
 /** Drives for these events. A missing key or address is a status, not an error. */
-/** `here`: where you are (a spotOrigin), used when Settings says to start from there. */
-export const leaveTimes = (events: LeaveQuery[], here: string | null = null) =>
-  invoke<LeaveEstimate[]>("leave_times", { events, here });
+/**
+ * `here`: where you are (a spotOrigin), used when Settings says to start from there.
+ * `near`: that point even when the drive starts from an address, so a street
+ * with no town isn't matched in another state. Null when location isn't already allowed.
+ */
+export const leaveTimes = (events: LeaveQuery[], here: string | null = null, near: string | null = null) =>
+  invoke<LeaveEstimate[]>("leave_times", { events, here, near });
 export const routesKeyStatus = () => invoke<RoutesKeyStatus>("routes_key_status");
 
 /** Routes attempts used today and this month. Mirrors `UsageSnapshot` in leave.rs. */

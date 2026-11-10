@@ -1,4 +1,5 @@
 mod agenda;
+mod anchor;
 #[cfg(target_os = "macos")]
 mod apple;
 #[cfg(desktop)]
@@ -948,6 +949,7 @@ async fn leave_times(
     state: State<'_, AppState>,
     events: Vec<LeaveQuery>,
     here: Option<String>,
+    near: Option<String>,
 ) -> Result<Vec<LeaveEstimate>> {
     use chrono::{DateTime, Utc};
     use futures::StreamExt;
@@ -958,14 +960,17 @@ async fn leave_times(
     let allow_device = settings.uses_device_location();
     let default_from = settings.leave_from.clone();
     // Where the page found you, when Settings says to start from there.
-    let here = here.filter(|_| settings.leave_from_here);
+    let from = here.clone().filter(|_| settings.leave_from_here);
+    // The same point, when it's already allowed, used only to tell same-named streets apart.
+    let bias = near.as_deref().and_then(leave::parse_spot).or_else(|| here.as_deref().and_then(leave::parse_spot));
     let queries = events.into_iter().take(40).map(|event| {
         let http = http.clone();
         let app = app.clone();
         let default_from = default_from.clone();
-        let here = here.clone();
+        let from = from.clone();
+        let bias = bias;
         async move {
-            let origin = leave::pick_origin(event.leave_from.as_deref(), here.as_deref(), &default_from);
+            let origin = leave::pick_origin(event.leave_from.as_deref(), from.as_deref(), &default_from);
             let answer = match DateTime::parse_from_rfc3339(&event.start) {
                 Ok(start) => {
                     let place = event.location.clone();
@@ -978,13 +983,18 @@ async fn leave_times(
                         origin.as_deref(),
                         has_key,
                         allow_device,
+                        bias,
                         || device_drive(&app, &place, start.with_timezone(&chrono::Local)),
                     )
                     .await
                 }
-                Err(_) => {
-                    leave::TravelAnswer { minutes: None, leave_at: None, status: leave::TravelStatus::Unavailable }
-                }
+                Err(_) => leave::TravelAnswer {
+                    minutes: None,
+                    leave_at: None,
+                    status: leave::TravelStatus::Unavailable,
+                    origin_label: None,
+                    destination_label: None,
+                },
             };
             LeaveEstimate {
                 id: event.id,
@@ -992,6 +1002,8 @@ async fn leave_times(
                 minutes: answer.minutes,
                 leave_at: answer.leave_at,
                 status: answer.status,
+                origin_label: answer.origin_label,
+                destination_label: answer.destination_label,
             }
         }
     });
@@ -1031,6 +1043,10 @@ struct LeaveEstimate {
     minutes: Option<u32>,
     leave_at: Option<String>,
     status: leave::TravelStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    origin_label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    destination_label: Option<String>,
 }
 
 /// Whether a Routes API key is available, and where it came from. The key

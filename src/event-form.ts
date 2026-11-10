@@ -30,6 +30,7 @@ import { enablePlaceSuggestions, findPlace, type PlaceSuggestion } from "./place
 import { parseEvent, parseTask, REPEAT_RULES, type Repeat } from "./quick-parse";
 import { describeRecurrence, endAfter } from "./recurrence";
 import { RepeatEditor } from "./repeat-editor";
+import { looksComplete } from "./routes-budget";
 import {
   addDays,
   floatingZone,
@@ -434,10 +435,11 @@ class Form {
     const address = prefs?.leaveFrom?.trim() ?? "";
     this.leaveFrom.placeholder = prefs?.leaveFromHere ? "Where you are" : address || "Set a default in Settings";
     const traffic = key?.configured ? "" : " Live traffic isn't set up, so leave-by times stay hidden until it is.";
+    const warn = address && !looksComplete(address) ? " Add the town and ZIP. A street alone can match one with the same name far away." : "";
     this.leaveHint.textContent = prefs?.leaveFromHere
-      ? `Starts from where you are when this is empty${address ? ` (or “${address}” if your location isn't available)` : ""}.${traffic}`
+      ? `Starts from where you are when this is empty${address ? ` (or “${address}” if your location isn't available)` : ""}.${warn}${traffic}`
       : address
-        ? `Uses “${address}” from Settings when this is empty.${traffic}`
+        ? `Uses “${address}” from Settings when this is empty.${warn}${traffic}`
         : `Set a default address in Settings, or type one here.${traffic}`;
   }
 
