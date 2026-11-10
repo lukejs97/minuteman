@@ -576,6 +576,8 @@ export const setFlyoutDetached = (detached: boolean) => invoke<void>("set_flyout
 /** Settings the Rust side keeps (mirrors `Prefs` in src-tauri/src/prefs.rs). */
 export interface Preferences {
   menuBarNext: boolean;
+  /** Alert at a Todoist task's time. On unless turned off. */
+  taskAlerts?: boolean;
   timeToLeave: boolean;
   /** Default starting address for leave-by times. Empty means none. */
   leaveFrom: string;

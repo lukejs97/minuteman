@@ -146,6 +146,8 @@ export async function openSettings(actions: SettingsActions): Promise<void> {
   void addTravelRow(rows, openScreen);
   // Place search's TomTom backup, for places OpenStreetMap doesn't know.
   void addPlacesRow(rows, openScreen);
+  // Alerts at a Todoist task's time, where alerts come (the apps, and phones with alerts on).
+  void addTaskAlertsRow(rows);
 
   // The desktop app: the menu bar, and on a Mac, Apple's apps and location.
   // (To preview them in a browser during `npm run dev`, add ?desktop.)
@@ -730,6 +732,22 @@ async function openAppleCalendars(actions: SettingsActions, back?: () => void): 
   } catch (e) {
     list.append(el("p", "error", errorMessage(e)));
   }
+}
+
+/** Task alerts: a Todoist task with a time alerts at that time, as events' reminders do. */
+async function addTaskAlertsRow(rows: HTMLElement): Promise<void> {
+  const prefs = await getPreferences().catch(() => null);
+  if (!prefs) return;
+  const note = el("span", "settings-note", "At a Todoist task's time, if it has one");
+  const box = toggle("Task alerts", prefs.taskAlerts !== false, async (on, input) => {
+    try {
+      await setPreferences({ ...(await getPreferences()), taskAlerts: on });
+    } catch (e) {
+      input.checked = !on;
+      note.textContent = errorMessage(e);
+    }
+  });
+  rows.append(settingsRow("Task alerts", note, box));
 }
 
 /** Place search: OpenStreetMap, and TomTom for places it doesn't know (with a key). */

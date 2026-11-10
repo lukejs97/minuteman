@@ -100,6 +100,8 @@ export interface LeaveSettings {
   leaveFromHere?: boolean;
   routesDailyLimit: number;
   routesMonthlyLimit: number;
+  /** Alert at a Todoist task's time (reminders.ts). On unless turned off. */
+  taskAlerts?: boolean;
 }
 
 export async function readLeaveSettings(env: Env): Promise<LeaveSettings> {
@@ -110,6 +112,7 @@ export async function readLeaveSettings(env: Env): Promise<LeaveSettings> {
     leaveFromHere: parsed.leaveFromHere === true,
     routesDailyLimit: typeof parsed.routesDailyLimit === "number" ? parsed.routesDailyLimit : 80,
     routesMonthlyLimit: typeof parsed.routesMonthlyLimit === "number" ? parsed.routesMonthlyLimit : 2500,
+    taskAlerts: parsed.taskAlerts !== false,
   };
 }
 

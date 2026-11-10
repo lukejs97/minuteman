@@ -14,6 +14,8 @@ use serde::{Deserialize, Serialize};
 pub struct Prefs {
     /// Show the next event's name and time beside the menu bar icon (macOS).
     pub menu_bar_next: bool,
+    /// Alert at a Todoist task's time (tasks with a time of day, not done).
+    pub task_alerts: bool,
     /// Alert when it's time to leave for events with a place that don't set
     /// their own leave alert. With a leave-from address this uses Routes;
     /// on a Mac with no address it uses the Mac's location.
@@ -45,6 +47,7 @@ impl Default for Prefs {
     fn default() -> Self {
         Prefs {
             menu_bar_next: true,
+            task_alerts: true,
             time_to_leave: false,
             leave_from: String::new(),
             leave_from_here: false,

@@ -1,6 +1,7 @@
 //! Desktop only: pop-up alerts before events start, at the reminder times set
 //! on each event in Google Calendar (or its calendar's defaults), and at any
-//! exact time Minuteman stored on the event. They come from this side, not the
+//! exact time Minuteman stored on the event; and at a Todoist task's time
+//! (Settings → Task alerts; Apple's reminders alert from Apple's apps). They come from this side, not the
 //! web page, so they keep coming while the app sits in the menu bar with its
 //! window closed. The same loop keeps the next event's name beside the menu
 //! bar icon up to date.
@@ -99,7 +100,9 @@ pub fn start(app: AppHandle) {
             };
             let missed_in_demo = from < now - LATEST;
             last_check = now;
-            let alerts: Vec<_> = due(&upcoming, from, now).into_iter().filter(|(key, ..)| sent.insert(key.clone())).collect();
+            let tasks = prefs::get().task_alerts;
+            let alerts: Vec<_> =
+                due(&upcoming, from, now, tasks).into_iter().filter(|(key, ..)| sent.insert(key.clone())).collect();
             if missed_in_demo && alerts.len() > MISSED_SHOWN_ONE_BY_ONE {
                 // Many: one notice for them all, rather than a pile.
                 let titles: Vec<&str> = alerts.iter().map(|(_, title, _)| title.as_str()).collect();
@@ -226,10 +229,25 @@ async fn load(app: &AppHandle) -> Option<Vec<AgendaItem>> {
 }
 
 /// The alerts due after `from`, up to and including `now`: a key to show each
-/// once, the title, and the text.
-fn due(items: &[AgendaItem], from: DateTime<Local>, now: DateTime<Local>) -> Vec<(String, String, String)> {
+/// once, the title, and the text. With `tasks`, a Todoist task with a time
+/// of day (not done) alerts at that time.
+fn due(items: &[AgendaItem], from: DateTime<Local>, now: DateTime<Local>, tasks: bool) -> Vec<(String, String, String)> {
     let mut alerts = Vec::new();
     for item in items {
+        if item.kind == ItemKind::Task {
+            if tasks
+                && item.source == crate::agenda::Source::Todoist
+                && !item.all_day
+                && !item.completed
+                && let Some(at) = event_start(item)
+                && at > from
+                && at <= now
+            {
+                let key = format!("task|{}|{}", item.id, item.start);
+                alerts.push((key, item.title.clone(), task_text(item, at)));
+            }
+            continue;
+        }
         if item.kind != ItemKind::Event {
             continue;
         }
@@ -344,6 +362,12 @@ fn alert_text(item: &AgendaItem, start: DateTime<Local>, minutes: u32) -> String
     [Some(when), Some(time), item.location.clone()].into_iter().flatten().collect::<Vec<_>>().join(" · ")
 }
 
+/// "Task · 9:00 AM · Errands": a task's alert, at its time.
+fn task_text(item: &AgendaItem, at: DateTime<Local>) -> String {
+    let list = Some(item.list_name.clone()).filter(|name| !name.is_empty());
+    [Some("Task".to_string()), Some(at.format("%-I:%M %p").to_string()), list].into_iter().flatten().collect::<Vec<_>>().join(" · ")
+}
+
 fn format_hours(minutes: u32) -> String {
     const WEEK: u32 = 7 * 24 * 60;
     const DAY: u32 = 24 * 60;
@@ -405,12 +429,12 @@ mod tests {
     fn alerts_fall_due_once_in_their_window() {
         let now = Local::now();
         let items = [event(now + TimeDelta::minutes(10), vec![10, 30, 0])];
-        let alerts = due(&items, now - TimeDelta::seconds(30), now);
+        let alerts = due(&items, now - TimeDelta::seconds(30), now, true);
         assert_eq!(alerts.len(), 1);
         assert!(alerts[0].2.starts_with("In 10 min · "));
         assert!(alerts[0].2.ends_with(" · Room 4"));
         // The 30-minute one was due 20 minutes ago, before this window.
-        assert!(due(&items, now, now + TimeDelta::seconds(30)).is_empty());
+        assert!(due(&items, now, now + TimeDelta::seconds(30), true).is_empty());
     }
 
     #[test]
@@ -461,19 +485,19 @@ mod tests {
         let exact = (now - TimeDelta::seconds(10)).to_rfc3339();
         let mut item = event(start, vec![0, 1]);
         item.alert_at = vec![exact.clone()];
-        let alerts = due(std::slice::from_ref(&item), now - TimeDelta::seconds(90), now);
+        let alerts = due(std::slice::from_ref(&item), now - TimeDelta::seconds(90), now, true);
         assert_eq!(alerts.len(), 3);
         // The same exact time on two occurrences of one series is one alert.
         let other = AgendaItem { id: "google:cal:2".into(), series_id: Some("series".into()), ..item.clone() };
         item.series_id = Some("series".into());
-        let both = due(&[item, other], now - TimeDelta::seconds(90), now);
+        let both = due(&[item, other], now - TimeDelta::seconds(90), now, true);
         let exact_keys: Vec<_> = both.iter().filter(|(key, _, _)| key.starts_with("at|")).map(|(key, _, _)| key.clone()).collect();
         assert_eq!(exact_keys.len(), 2);
         assert_eq!(exact_keys[0], exact_keys[1]);
         // Ten minutes ago is outside this window.
         let mut late = event(now, vec![]);
         late.alert_at = vec![(now - TimeDelta::minutes(10)).to_rfc3339()];
-        assert!(due(&[late], now - TimeDelta::seconds(30), now).is_empty());
+        assert!(due(&[late], now - TimeDelta::seconds(30), now, true).is_empty());
     }
 
     #[test]
@@ -484,9 +508,34 @@ mod tests {
         item.all_day = true;
         item.start = midnight.date_naive().to_string();
         item.location = None;
-        let alerts = due(std::slice::from_ref(&item), midnight - TimeDelta::seconds(1), now);
+        let alerts = due(std::slice::from_ref(&item), midnight - TimeDelta::seconds(1), now, true);
         assert_eq!(alerts.len(), 1);
         assert!(alerts[0].2.starts_with("Now · "));
         assert!(!alerts[0].2.contains("AM") && !alerts[0].2.contains("PM"));
+    }
+
+    #[test]
+    fn a_todoist_task_alerts_at_its_time() {
+        let now = Local::now();
+        let at = now - TimeDelta::seconds(10);
+        let mut task = event(at, Vec::new());
+        task.kind = ItemKind::Task;
+        task.source = Source::Todoist;
+        task.title = "Pay rent".into();
+        task.list_name = "Errands".into();
+        task.location = None;
+        let alerts = due(std::slice::from_ref(&task), now - TimeDelta::seconds(30), now, true);
+        assert_eq!(alerts.len(), 1);
+        assert_eq!(alerts[0].1, "Pay rent");
+        assert!(alerts[0].2.starts_with("Task · ") && alerts[0].2.ends_with(" · Errands"), "{}", alerts[0].2);
+        // Turned off in Settings, done, all day, or one of Apple's reminders: none.
+        assert!(due(std::slice::from_ref(&task), now - TimeDelta::seconds(30), now, false).is_empty());
+        let mut done = task.clone();
+        done.completed = true;
+        let mut all_day = task.clone();
+        all_day.all_day = true;
+        let mut apple = task.clone();
+        apple.source = Source::Apple;
+        assert!(due(&[done, all_day, apple], now - TimeDelta::seconds(30), now, true).is_empty());
     }
 }

@@ -163,7 +163,9 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
   come back to it.
 - **Alerts** at each event's reminder times from Google Calendar, also with
   the window closed. An event can have several, including an exact time and
-  "before leaving".
+  "before leaving". A Todoist task with a time alerts at that time
+  (Settings → **Task alerts** turns that off); Apple's reminders alert from
+  Apple's own apps.
 - **Alerts on your phone** (Settings → Alerts on this device, on the
   website): the same alerts, sent by Minuteman's server even while it's
   closed. On an iPhone, add Minuteman to the Home Screen (Share → Add to

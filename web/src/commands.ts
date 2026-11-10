@@ -313,6 +313,7 @@ export const commands: Record<string, Command> = {
     const limits = clampLimits(leave.routesDailyLimit, leave.routesMonthlyLimit);
     const prefs: Preferences = {
       menuBarNext: true,
+      taskAlerts: leave.taskAlerts !== false,
       timeToLeave: false,
       leaveFrom: leave.leaveFrom,
       leaveFromHere: !!leave.leaveFromHere,
@@ -333,6 +334,7 @@ export const commands: Record<string, Command> = {
       leaveFromHere: prefs.leaveFromHere === true,
       routesDailyLimit: limits.daily,
       routesMonthlyLimit: limits.monthly,
+      taskAlerts: prefs.taskAlerts !== false,
     });
     return null;
   },

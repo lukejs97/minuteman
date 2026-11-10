@@ -4,6 +4,7 @@
 // and the Mac alike:
 //
 // - an event's reminders ("10 minutes before") and exact-time alerts;
+// - a Todoist task with a time of day, at that time (Settings → Task alerts);
 // - "before leaving" alerts, from the drive time in traffic (routes.ts, with
 //   its caps and cache), starting from the address in Settings.
 //
@@ -20,6 +21,7 @@ import { decrypt, encrypt } from "./crypto";
 import type { Env } from "./env";
 import { type PushSubscription, readSubscriptions, sendToAll } from "./push";
 import { leaveTimes } from "./routes";
+import { readLeaveSettings } from "./store";
 import { addDays, dayOf, midnight } from "./zone";
 
 const MINUTE = 60_000;
@@ -45,6 +47,8 @@ interface Due {
   minutes: number;
   /** A "before leaving" alert: the drive, the time to leave and the buffer. */
   leave?: { drive: number; leaveAt: number; buffer: number; place: string };
+  /** A task's alert, at its time: its project. */
+  task?: { list: string };
 }
 
 /** Sends every alert due in the minute up to `now` (the cron's time). */
@@ -58,8 +62,11 @@ export async function sendDueAlerts(env: Env, now: number): Promise<void> {
   const from = now - MINUTE;
 
   const near = await load(ctx, addDays(today, -1), addDays(today, NEAR_DAYS)).catch(() => null);
+  const tasks = (await readLeaveSettings(env).catch(() => null))?.taskAlerts !== false;
   const due = new Map<string, Due>();
-  for (const item of near?.items ?? []) for (const alert of triggers(item, zone)) if (alert.at > from && alert.at <= now) due.set(alert.key, alert);
+  for (const item of near?.items ?? []) {
+    for (const alert of triggers(item, zone, tasks)) if (alert.at > from && alert.at <= now) due.set(alert.key, alert);
+  }
 
   // Further ahead: from the last look (`lookAhead`, every 30 minutes).
   const upcoming = await readUpcoming(env);
@@ -88,8 +95,19 @@ export async function lookAhead(env: Env, now: number): Promise<void> {
   await writeUpcoming(env, { checked: now, alerts });
 }
 
-/** An event's reminders and exact-time alerts, as alerts.rs `due` finds them. */
-export function triggers(item: AgendaItem, zone: string): Due[] {
+/**
+ * An event's reminders and exact-time alerts, as alerts.rs `due` finds them;
+ * with `tasks`, a Todoist task with a time (not done) at that time.
+ */
+export function triggers(item: AgendaItem, zone: string, tasks = false): Due[] {
+  if (item.kind === "task") {
+    if (!tasks || item.source !== "todoist" || item.allDay || item.completed) return [];
+    const at = Date.parse(item.start);
+    if (Number.isNaN(at)) return [];
+    return [
+      { key: `task|${item.id}|${item.start}`, at, title: item.title, start: item.start, allDay: false, location: null, minutes: 0, task: { list: item.listName } },
+    ];
+  }
   if (item.kind !== "event") return [];
   const start = item.allDay ? midnight(item.start.slice(0, 10), zone).getTime() : Date.parse(item.start);
   if (Number.isNaN(start)) return [];
@@ -158,6 +176,7 @@ export function bodyFor(alert: Due, zone: string): string {
     const spare = buffer === 0 ? "" : ` · ${buffer} min to spare`;
     return `${drive} min drive · leave by ${time(leaveAt)}${spare} · starts ${time(Date.parse(alert.start))} · ${place}`;
   }
+  if (alert.task) return ["Task", time(Date.parse(alert.start)), alert.task.list].filter(Boolean).join(" · ");
   const m = alert.minutes;
   const when = m === 0 ? "Now" : m < 60 ? `In ${m} min` : `In ${hours(m)}`;
   const at = alert.allDay
