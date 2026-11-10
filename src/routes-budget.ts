@@ -189,9 +189,24 @@ export function joinAddress(parts: AddressParts): string {
   return [parts.street.trim(), parts.town.trim(), last].filter(Boolean).join(", ");
 }
 
+/**
+ * One line, as an address is written. Apple Maps and contacts copy a place
+ * on several lines ("10 Mill Park Ct" / "Greenville, SC 29611"). A one-line
+ * field keeps only the first of those, so the town has to be joined in first.
+ */
+function joinLines(address: string): string {
+  return address
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split("\n")
+    .map((part) => part.trim().replace(/,+$/, ""))
+    .filter(Boolean)
+    .join(", ");
+}
+
 /** The other way, for an address saved as one line. Anything unclear stays in the street. */
 export function splitAddress(address: string): AddressParts {
-  const parts = address
+  const parts = joinLines(address)
     .split(",")
     .map((part) => part.trim())
     .filter(Boolean);
@@ -199,12 +214,118 @@ export function splitAddress(address: string): AddressParts {
   if (parts.length > 3 && /^(united states( of america)?|usa?)$/i.test(parts[parts.length - 1])) parts.pop();
   const empty = { street: "", town: "", state: "", zip: "" };
   if (parts.length === 0) return empty;
+  // "10 Mill Park Ct, Greenville, SC, 29611"
+  if (
+    parts.length >= 4 &&
+    /^[A-Za-z]{2}$/.test(parts[parts.length - 2]) &&
+    /^\d{5}(?:-\d{4})?$/.test(parts[parts.length - 1])
+  ) {
+    return {
+      street: parts.slice(0, -3).join(", "),
+      town: parts[parts.length - 3],
+      state: parts[parts.length - 2].toUpperCase(),
+      zip: parts[parts.length - 1],
+    };
+  }
   const tail = /^(.*?)\s*(\d{5}(?:-\d{4})?)?$/.exec(parts[parts.length - 1])!;
   if (parts.length >= 3) {
-    return { street: parts.slice(0, -2).join(", "), town: parts[parts.length - 2], state: tail[1], zip: tail[2] ?? "" };
+    const state = tail[1].trim();
+    return {
+      street: parts.slice(0, -2).join(", "),
+      town: parts[parts.length - 2],
+      state: /^[A-Za-z]{2}$/.test(state) ? state.toUpperCase() : state,
+      zip: tail[2] ?? "",
+    };
   }
-  if (parts.length === 2) return { ...empty, street: parts[0], town: parts[1] };
+  // "10 Mill Park Ct, Greenville SC 29611" — the town, state and ZIP in one part.
+  if (parts.length === 2) {
+    const city = /^(.*\S)\s+([A-Za-z]{2})\s+(\d{5}(?:-\d{4})?)$/.exec(parts[1]);
+    if (city) return { street: parts[0], town: city[1], state: city[2].toUpperCase(), zip: city[3] };
+    return { ...empty, street: parts[0], town: parts[1] };
+  }
   return { ...empty, street: parts[0] };
+}
+
+/** A street, a town, and a state or ZIP: enough to put in the four boxes. */
+export function hasLocality(parts: AddressParts): boolean {
+  return Boolean(parts.street.trim() && parts.town.trim() && (parts.state.trim() || parts.zip.trim()));
+}
+
+/**
+ * What a one-line place field should keep from a paste. Null when the
+ * clipboard is already one line (the field can take it as it is). A second
+ * line is the town: without this, the field is left with only the street.
+ */
+export function pastedPlaceText(clipboard: string): string | null {
+  if (!/[\r\n]/.test(clipboard)) return null;
+  const joined = joinAddress(splitAddress(clipboard));
+  const first = joinLines((clipboard.split(/\r\n|\r|\n/)[0] ?? "").trim());
+  if (!joined || joined === first) return null;
+  return joined;
+}
+
+/** "Road" and "Rd" are the same word, so a suggestion can be the street already typed. */
+const STREET_SUFFIX: Record<string, string> = {
+  road: "rd", rd: "rd", drive: "dr", dr: "dr", street: "st", st: "st", avenue: "ave", av: "ave", ave: "ave",
+  court: "ct", ct: "ct", lane: "ln", ln: "ln", circle: "cir", cir: "cir", boulevard: "blvd", blvd: "blvd",
+  highway: "hwy", hwy: "hwy", place: "pl", pl: "pl", parkway: "pkwy", pkwy: "pkwy", terrace: "ter", ter: "ter",
+  trail: "trl", trl: "trl", way: "wy", wy: "wy", north: "n", n: "n", south: "s", s: "s", east: "e", e: "e", west: "w", w: "w",
+};
+
+function streetWords(text: string): string[] {
+  return text
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean)
+    .map((word) => STREET_SUFFIX[word] ?? word);
+}
+
+/** Every word of `shortStreet` is already in `address` ("Court" for "Ct"). */
+function streetWithin(shortStreet: string, address: string): boolean {
+  const want = streetWords(shortStreet);
+  if (want.length === 0) return false;
+  const have = new Set(streetWords(address));
+  return want.every((word) => have.has(word));
+}
+
+/**
+ * The address to put in a one-line field when a suggestion is chosen.
+ * The bold first line of a suggestion is only its name or its street. A hit
+ * that stops there must not replace a town, state and ZIP already typed.
+ */
+export function keptAddress(typed: string, pickedLine: string, pickedStreet: string): string {
+  const had = joinLines(typed).trim();
+  const picked = pickedLine.trim();
+  if (!picked) return had;
+  if (!looksComplete(had) || looksComplete(picked)) return picked;
+  if (streetWithin(pickedStreet || picked, had)) return had;
+  return picked;
+}
+
+/**
+ * The four Leave from boxes after a suggestion is chosen. A full hit fills
+ * all four (the place's name stays with the street). A hit that is only the
+ * street leaves a town the user already typed or pasted where it was.
+ */
+export function keptLeaveFrom(
+  typedStreet: string,
+  current: AddressParts,
+  picked: { line: string; street: string; name: string | null },
+): AddressParts {
+  const fromLine = splitAddress(picked.line);
+  const street = (fromLine.street || [picked.name, picked.street].filter(Boolean).join(", ") || current.street).trim();
+  const pickedWhole = looksComplete(picked.line) && Boolean(fromLine.town || fromLine.state || fromLine.zip);
+  if (pickedWhole) return { street, town: fromLine.town, state: fromLine.state, zip: fromLine.zip };
+  // The hit stops at the street. Keep a town already typed, including one
+  // still sitting in the street box as "10 Mill Park Ct, Greenville, SC 29611".
+  const typed = splitAddress(typedStreet);
+  if (hasLocality(typed) && streetWithin(picked.street || picked.name || street, typedStreet)) return typed;
+  return {
+    street: street || current.street,
+    town: fromLine.town || current.town || typed.town,
+    state: fromLine.state || current.state || typed.state,
+    zip: fromLine.zip || current.zip || typed.zip,
+  };
 }
 
 export function resolveOrigin(eventOverride: string | null | undefined, defaultAddress: string): string | null {
