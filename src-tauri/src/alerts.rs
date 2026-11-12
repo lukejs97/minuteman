@@ -533,6 +533,39 @@ mod tests {
     }
 
     #[test]
+    fn the_macs_copy_of_a_google_birthday_goes() {
+        use crate::agenda::{birthday_name, drop_doubled_birthdays};
+        assert_eq!(birthday_name("Paul Revere’s 40th Birthday").as_deref(), Some("paul revere"));
+        assert_eq!(birthday_name("Paul Revere's birthday").as_deref(), Some("paul revere"));
+        assert_eq!(birthday_name("Hancock's 102nd Birthday").as_deref(), Some("hancock"));
+        assert_eq!(birthday_name("Birthday party"), None);
+        assert_eq!(birthday_name("birthday"), None);
+        assert_eq!(birthday_name("Mom birthday"), None);
+
+        let day = |title: &str, source: Source, date: &str| {
+            let mut item = event(Local::now(), Vec::new());
+            item.title = title.into();
+            item.source = source;
+            item.all_day = true;
+            item.start = date.into();
+            item
+        };
+        let mut items = vec![
+            day("Paul Revere's birthday", Source::Google, "1775-01-01"),
+            day("Paul Revere’s 40th Birthday", Source::Apple, "1775-01-01"),
+            // Only on the Mac (a contact not in Google), or another day: kept.
+            day("Rachel Revere’s 30th Birthday", Source::Apple, "1775-12-27"),
+            day("Paul Revere’s 40th Birthday", Source::Apple, "1775-01-02"),
+        ];
+        drop_doubled_birthdays(&mut items);
+        let left: Vec<(&str, &str)> = items.iter().map(|i| (i.title.as_str(), i.start.as_str())).collect();
+        assert_eq!(
+            left,
+            [("Paul Revere's birthday", "1775-01-01"), ("Rachel Revere’s 30th Birthday", "1775-12-27"), ("Paul Revere’s 40th Birthday", "1775-01-02")]
+        );
+    }
+
+    #[test]
     fn a_todoist_task_alerts_at_its_time() {
         let now = Local::now();
         let at = now - TimeDelta::seconds(10);

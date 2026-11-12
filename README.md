@@ -192,7 +192,9 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
   app (iCloud, Exchange, anything added on the Mac) and reminders with a due
   date, alongside the rest. Tick reminders off here; other changes happen in
   Apple's apps for now. Calendars from your Google accounts start switched off
-  (Settings → Choose calendars…), so they aren't shown twice.
+  (Settings → Choose calendars…), so they aren't shown twice. The Mac's
+  Birthdays calendar is too: a birthday Google already shows (from Google
+  Contacts, in your main calendar) isn't shown again from the Mac.
 - **Offline:** opens straight away with what it last loaded, and shows (and
   searches) it without internet.
 - **Demo mode** (Settings → Demo mode): made-up events, tasks and people

@@ -269,9 +269,49 @@ pub async fn load(
 
     #[cfg(target_os = "macos")]
     add_apple(from, to, &signed_in, &mut items, &mut warnings, &mut loaded).await;
+    drop_doubled_birthdays(&mut items);
 
     items.sort_by_cached_key(|item| (start_timestamp(item), !item.all_day, item.title.clone()));
     Ok(Agenda { accounts: signed_in, items, warnings, offline_since: None, loaded })
+}
+
+/// Whose birthday a title says, folded: "Paul Revere’s 40th Birthday" (the
+/// Mac's Birthdays calendar) and "Paul Revere's birthday" (Google's, made
+/// from Google Contacts) are both "paul revere". None for anything else.
+pub fn birthday_name(title: &str) -> Option<String> {
+    let lower = title.trim().replace('’', "'").to_lowercase();
+    let mut words: Vec<&str> = lower.split_whitespace().collect();
+    if words.pop()? != "birthday" {
+        return None;
+    }
+    // "40th", "1st", "102nd": the age the Mac adds.
+    if words.last().is_some_and(|w| w.starts_with(|c: char| c.is_ascii_digit()) && ["st", "nd", "rd", "th"].iter().any(|end| w.ends_with(end))) {
+        words.pop();
+    }
+    let last = words.pop()?.strip_suffix("'s")?;
+    words.push(last);
+    let name = words.join(" ");
+    (!name.trim().is_empty()).then_some(name)
+}
+
+/// The Mac's Birthdays calendar makes an event for each contact's birthday,
+/// and so does Google (in the main calendar) for Google Contacts: for a
+/// Google contact on the Mac, the same birthday twice. Google's is kept (its
+/// reminders are yours to set); the Mac's goes.
+pub fn drop_doubled_birthdays(items: &mut Vec<AgendaItem>) {
+    let google: std::collections::HashSet<(String, String)> = items
+        .iter()
+        .filter(|item| item.source == Source::Google && item.all_day)
+        .filter_map(|item| Some((item.start.clone(), birthday_name(&item.title)?)))
+        .collect();
+    if google.is_empty() {
+        return;
+    }
+    items.retain(|item| {
+        !(item.source == Source::Apple
+            && item.all_day
+            && birthday_name(&item.title).is_some_and(|name| google.contains(&(item.start.clone(), name))))
+    });
 }
 
 /// The Mac's Calendar and Reminders apps' items, if turned on in Settings.
