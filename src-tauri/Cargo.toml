@@ -39,12 +39,15 @@ chrono-tz = "0.10"
 thiserror = "2"
 
 # Desktop only: pop-up alerts before events (on iPhone they'd need to be
-# scheduled ahead with iOS instead); the quick-add keyboard shortcut; and
-# opening at login.
+# scheduled ahead with iOS instead); the quick-add keyboard shortcut;
+# opening at login; and only one copy running.
 [target.'cfg(not(any(target_os = "ios", target_os = "android")))'.dependencies]
 tauri-plugin-notification = "2"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-autostart = "2"
+# Opening Minuteman again (the Start menu, a shortcut) shows the one that's
+# running, rather than starting another with a second tray icon.
+tauri-plugin-single-instance = "2"
 
 # Mac only: Apple Calendar and Reminders (EventKit), and travel times for
 # "time to leave" alerts (Core Location, MapKit).

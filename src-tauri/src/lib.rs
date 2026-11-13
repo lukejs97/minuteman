@@ -1187,7 +1187,13 @@ pub fn run() {
         .build()
         .expect("failed to build HTTP client");
 
-    let builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
+    let builder = tauri::Builder::default();
+    // First, as it must be: opened again while running (the Start menu, a
+    // shortcut), the running one shows its window, and no second copy starts
+    // (with a second tray icon).
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| desktop::show_main(app)));
+    let builder = builder.plugin(tauri_plugin_opener::init());
     #[cfg(desktop)]
     let builder = builder
         .plugin(tauri_plugin_notification::init())
