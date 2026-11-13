@@ -1277,6 +1277,8 @@ async function start(): Promise<void> {
   if (isTauri()) {
     // Opened again (⌥⌘K, the menu, a guest's name): to the box, with the query if any.
     void listen<string | null>("contacts-shown", (event) => showQuery(event.payload));
+    // Contacts' menu bar icon → New Contact…, with the window already open.
+    void listen("contacts-new", () => newContact());
   }
   try {
     if (!(await authStatus())) return showSignedOut();
@@ -1287,6 +1289,8 @@ async function start(): Promise<void> {
   listBox.replaceChildren(el("p", "empty", "Loading…"));
   await load();
   showQuery(query);
+  // Opened by Contacts' menu bar icon → New Contact….
+  if (window.__MINUTEMAN_CONTACTS_NEW__) newContact();
 }
 
 void start();

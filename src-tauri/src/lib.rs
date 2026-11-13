@@ -828,6 +828,11 @@ fn set_preferences(app: AppHandle, cache: State<'_, AgendaCache>, preferences: p
     }
     #[cfg(not(target_os = "macos"))]
     let _ = app;
+    // Contacts' menu bar icon, and (Mac) its app, as switched in Settings.
+    #[cfg(desktop)]
+    desktop::set_contacts_tray(&app, preferences.contacts_menu_bar);
+    #[cfg(target_os = "macos")]
+    desktop::sync_contacts_launcher(&app, preferences.contacts_launcher);
     let mut preferences = preferences;
     preferences.routes_daily_limit = preferences.routes_daily_limit.min(leave::MAX_DAILY);
     preferences.routes_monthly_limit = preferences.routes_monthly_limit.min(leave::MAX_MONTHLY);
@@ -1192,7 +1197,7 @@ pub fn run() {
     // shortcut), the running one shows its window, and no second copy starts
     // (with a second tray icon).
     #[cfg(desktop)]
-    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| desktop::show_main(app)));
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| desktop::opened_again(app, &args)));
     let builder = builder.plugin(tauri_plugin_opener::init());
     #[cfg(desktop)]
     let builder = builder

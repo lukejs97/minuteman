@@ -182,7 +182,9 @@ async function addDesktopRows(
     return; // an older Rust side: nothing to show
   }
   const save = async (change: Partial<Preferences>) => {
-    prefs = { ...prefs, ...change };
+    // The latest, not as they were when Settings opened: another row (Task
+    // alerts, Leave from) may have changed them since.
+    prefs = { ...(await getPreferences().catch(() => prefs)), ...change };
     await setPreferences(prefs);
   };
 
@@ -209,6 +211,22 @@ async function addDesktopRows(
       menuBar,
     ),
   );
+
+  // Contacts as an app of its own: its own icon, and (Mac) its own app.
+  const contactsIcon = toggle("Contacts icon", prefs.contactsMenuBar !== false, (on) => save({ contactsMenuBar: on }));
+  rows.append(
+    settingsRow(
+      "Contacts icon",
+      el("span", "settings-note", isMac() ? "A second menu bar icon, for Contacts" : "A second icon by the clock, for Contacts"),
+      contactsIcon,
+    ),
+  );
+  if (isMac()) {
+    const launcher = toggle("Minuteman Contacts app", prefs.contactsLauncher !== false, (on) => save({ contactsLauncher: on }));
+    rows.append(
+      settingsRow("Contacts app", el("span", "settings-note", "Minuteman Contacts, in your Applications folder"), launcher),
+    );
+  }
   if (!isMac()) return;
 
   // Time to leave: events that don't set their own leave alert. An address

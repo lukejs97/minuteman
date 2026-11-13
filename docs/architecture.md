@@ -92,6 +92,27 @@ Desktop only (`#[cfg(desktop)]`), in `desktop.rs` and `alerts.rs`:
   `desktop::setup` then hides the main window, so it starts in the menu bar.
 - `tauri-plugin-global-shortcut` registers ⌥⌘N, which shows the flyout
   and emits `flyout-new` to open New event in it.
+- `tauri-plugin-single-instance` (registered first): opening Minuteman again
+  while it runs passes the new launch's arguments to the running copy
+  (`desktop::opened_again`), which shows Contacts for `--contacts`, else the
+  main window; the second copy exits, so there's one tray icon.
+- Contacts as an app of its own: a second tray icon (`CONTACTS_TRAY`,
+  `icons/contacts-tray.png`, drawn by `icons/source/contacts-icon.py`, which
+  also makes `contacts.icns` and `contacts.ico`): click opens Contacts; its
+  menu has Open Contacts, New Contact… (`show_new_contact`: the window's
+  `__MINUTEMAN_CONTACTS_NEW__`, or a `contacts-new` event when it's open),
+  Open Minuteman and Quit. `Prefs.contacts_menu_bar` adds or removes it
+  (`set_contacts_tray`, on the main thread). Started with `--contacts`, the
+  main window stays hidden and Contacts opens. Windows: the installer hook
+  `windows/hooks.nsh` (`bundle.windows.nsis.installerHooks`) adds a "Minuteman
+  Contacts" Start menu shortcut, `--contacts` with `contacts.ico` (a bundle
+  resource), and removes it on uninstall. Mac: `sync_contacts_launcher`
+  writes `~/Applications/Minuteman Contacts.app` at start
+  (`Prefs.contacts_launcher`): an `LSUIElement` bundle whose script runs
+  Minuteman's binary with `--contacts` when Minuteman is running (the plugin
+  hands it over) or `open -a … --args --contacts` when it isn't, and
+  `contacts.icns`; it's rewritten when Minuteman moves, removed (only if its
+  identifier is ours) when switched off, and skipped for development builds.
 - Closing the main window hides it (`CloseRequested` → `prevent_close`);
   `RunEvent::Reopen` (Dock click) shows it again.
 - `sync.ts`: each window emits `agenda-changed` after a change, and the

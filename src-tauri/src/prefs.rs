@@ -16,6 +16,10 @@ pub struct Prefs {
     pub menu_bar_next: bool,
     /// Alert at a Todoist task's time (tasks with a time of day, not done).
     pub task_alerts: bool,
+    /// A second menu bar (notification area) icon that opens Contacts.
+    pub contacts_menu_bar: bool,
+    /// Mac: a "Minuteman Contacts" app in ~/Applications that opens Contacts.
+    pub contacts_launcher: bool,
     /// Alert when it's time to leave for events with a place that don't set
     /// their own leave alert. With a leave-from address this uses Routes;
     /// on a Mac with no address it uses the Mac's location.
@@ -48,6 +52,8 @@ impl Default for Prefs {
         Prefs {
             menu_bar_next: true,
             task_alerts: true,
+            contacts_menu_bar: true,
+            contacts_launcher: true,
             time_to_leave: false,
             leave_from: String::new(),
             leave_from_here: false,

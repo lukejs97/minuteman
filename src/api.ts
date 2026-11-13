@@ -578,6 +578,10 @@ export interface Preferences {
   menuBarNext: boolean;
   /** Alert at a Todoist task's time. On unless turned off. */
   taskAlerts?: boolean;
+  /** Desktop: Contacts' own menu bar (notification area) icon. On unless turned off. */
+  contactsMenuBar?: boolean;
+  /** Mac: the "Minuteman Contacts" app in ~/Applications. On unless turned off. */
+  contactsLauncher?: boolean;
   timeToLeave: boolean;
   /** Default starting address for leave-by times. Empty means none. */
   leaveFrom: string;

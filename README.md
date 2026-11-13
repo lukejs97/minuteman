@@ -104,8 +104,13 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
   to a year ahead.
 - **Contacts**, Minuteman's Cardhop: your Google contacts in a window of their
   own (the person button, `C`, the menu bar icon's menu, or `⌥⌘K` / Ctrl+Alt+K
-  from any app; on a phone or the website, its own page). One box does
-  everything, and the line under it says what Enter will do:
+  from any app; on a phone or the website, its own page). It's also like an
+  app of its own: **its own menu bar icon** (on Windows, by the clock), whose
+  click opens Contacts and whose menu has New Contact…; **Minuteman
+  Contacts** in the Start menu (Windows) or your Applications folder (Mac),
+  which opens just Contacts, or Contacts in the Minuteman already running.
+  Settings → **Contacts icon** (and on a Mac, **Contacts app**) turns them
+  off. One box does everything, and the line under it says what Enter will do:
   - type a name, company, email or part of a number to **find** someone;
   - type someone new, like "Abigail Adams abigail@example.com 555-0100 Writer
     at Braintree birthday November 22", to **add** them (phones, emails,
