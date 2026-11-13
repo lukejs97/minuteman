@@ -3,7 +3,8 @@ square with a gold rim) with a minuteman: an ivory figure in a tricorn hat,
 a red cross-strap (his cartridge box's sling) and a gold musket with its
 bayonet fixed, shouldered. The menu bar / tray image
 (contacts-tray.png, 72 px, as tray.png), the Mac launcher's contacts.icns and
-the Windows Start menu shortcut's contacts.ico.
+the Windows Start menu shortcut's contacts.ico, and the website's home
+screen icons for the Contacts page (public/contacts-*.png).
 
     python3 src-tauri/icons/source/contacts-icon.py   (needs Pillow)
 """
@@ -21,9 +22,12 @@ IVORY = (246, 239, 222)
 RED = (184, 50, 58)
 
 
-def draw(size: int, margin: float) -> Image.Image:
+def draw(size: int, margin: float, full: bool = False) -> Image.Image:
+    """The icon, `size` across. `full`: the whole square navy, no rim or round
+    corners (a phone rounds them itself), the figure inside the middle 80%,
+    as the website's home screen icons are."""
     big = 4 * size  # drawn larger, for smooth edges
-    m = margin * big
+    m = 0 if full else margin * big
     box = (m, m, big - m, big - m)
     radius = 0.22 * (big - 2 * m)
     rim = 0.035 * (big - 2 * m)
@@ -36,8 +40,9 @@ def draw(size: int, margin: float) -> Image.Image:
         color = tuple(round(a + (b - a) * t) for a, b in zip(NAVY_TOP, NAVY_BOTTOM)) + (255,)
         for x in range(big):
             pixels[x, y] = color
-    mask = Image.new("L", (big, big), 0)
-    ImageDraw.Draw(mask).rounded_rectangle(box, radius, fill=255)
+    mask = Image.new("L", (big, big), 255 if full else 0)
+    if not full:
+        ImageDraw.Draw(mask).rounded_rectangle(box, radius, fill=255)
     out = Image.new("RGBA", (big, big), (0, 0, 0, 0))
     out.paste(gradient, (0, 0), mask)
 
@@ -45,9 +50,12 @@ def draw(size: int, margin: float) -> Image.Image:
     person = Image.new("RGBA", (big, big), (0, 0, 0, 0))
     d = ImageDraw.Draw(person)
     inner = big - 2 * m
+    # Full bleed: the figure in the middle 80% (his shoulders still run off the bottom).
+    pad = 0.1 * big if full else m
+    figure = big - 2 * pad if full else inner
 
     def at(x: float, y: float) -> tuple[float, float]:
-        return (m + x * inner, m + y * inner)
+        return (pad + x * figure, pad + y * figure)
 
     # His musket, shouldered, behind him; then its bayonet.
     d.polygon([at(0.705, 0.86), at(0.745, 0.86), at(0.835, 0.17), at(0.80, 0.165)], fill=GOLD)
@@ -65,14 +73,16 @@ def draw(size: int, margin: float) -> Image.Image:
     )
     # The cross-strap.
     d.polygon([at(0.30, 0.72), at(0.36, 0.69), at(0.70, 0.98), at(0.64, 1.0)], fill=RED)
-    inside = Image.new("L", (big, big), 0)
-    ImageDraw.Draw(inside).rounded_rectangle(
-        (m + rim, m + rim, big - m - rim, big - m - rim), max(radius - rim, 1), fill=255
-    )
+    inside = Image.new("L", (big, big), 255 if full else 0)
+    if not full:
+        ImageDraw.Draw(inside).rounded_rectangle(
+            (m + rim, m + rim, big - m - rim, big - m - rim), max(radius - rim, 1), fill=255
+        )
     out.paste(person, (0, 0), ImageChops.multiply(person.getchannel("A"), inside))
 
     # The gold rim.
-    ImageDraw.Draw(out).rounded_rectangle(box, radius, outline=GOLD + (255,), width=round(rim))
+    if not full:
+        ImageDraw.Draw(out).rounded_rectangle(box, radius, outline=GOLD + (255,), width=round(rim))
     return out.resize((size, size), Image.LANCZOS)
 
 
@@ -92,4 +102,9 @@ if __name__ == "__main__":
     draw(72, 0.06).save(ICONS / "contacts-tray.png")
     write_icns(ICONS / "contacts.icns")
     draw(256, 0.02).save(ICONS / "contacts.ico", sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
-    print("wrote contacts-tray.png, contacts.icns, contacts.ico")
+    # The website's Contacts page, added to a phone's home screen (contacts.webmanifest).
+    public = ICONS.parent.parent / "public"
+    draw(180, 0, full=True).convert("RGB").save(public / "contacts-touch-icon.png")
+    draw(192, 0, full=True).convert("RGB").save(public / "contacts-192.png")
+    draw(512, 0, full=True).convert("RGB").save(public / "contacts-512.png")
+    print("wrote contacts-tray.png, contacts.icns, contacts.ico and public/contacts-*.png")

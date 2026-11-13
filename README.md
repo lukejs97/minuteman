@@ -110,7 +110,9 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
   Contacts** in the Start menu (Windows) or your Applications folder (Mac),
   which opens just Contacts, or Contacts in the Minuteman already running.
   Settings → **Contacts icon** (and on a Mac, **Contacts app**) turns them
-  off. One box does everything, and the line under it says what Enter will do:
+  off. On a phone, open Contacts on the website and add it to the Home
+  Screen (Share → **Add to Home Screen**): it's its own app, "MM Contacts",
+  with the minuteman icon, opening on Contacts. One box does everything, and the line under it says what Enter will do:
   - type a name, company, email or part of a number to **find** someone;
   - type someone new, like "Abigail Adams abigail@example.com 555-0100 Writer
     at Braintree birthday November 22", to **add** them (phones, emails,
