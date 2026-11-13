@@ -181,6 +181,12 @@ pub fn sync_contacts_launcher(app: &AppHandle, on: bool) {
     let Ok(exe) = std::env::current_exe() else { return };
     // …/Minuteman.app/Contents/MacOS/Minuteman: only an installed app.
     let Some(bundle) = exe.ancestors().nth(3).filter(|p| p.extension().is_some_and(|e| e == "app")) else { return };
+    // Not one opened from its disk image, or run from Downloads without being
+    // moved (macOS runs that from a hidden copy): the launcher would point
+    // there, and break once that's gone. The installed one keeps it right.
+    if launched_from_elsewhere(&bundle.to_string_lossy()) {
+        return;
+    }
     let Some(name) = exe.file_name().and_then(|n| n.to_str()) else { return };
     let script = launcher_script(&exe.to_string_lossy(), name, &bundle.to_string_lossy());
     let plist = launcher_plist(app.package_info().version.to_string().as_str());
@@ -245,6 +251,14 @@ fn remove_launcher(launcher: &std::path::Path) {
     if is_our_launcher(launcher) {
         let _ = std::fs::remove_dir_all(launcher);
     }
+}
+
+/// Whether Minuteman is running from a disk image (/Volumes/…) or from
+/// macOS's hidden copy of an app not yet moved out of Downloads
+/// (App Translocation), rather than from where it's installed.
+#[cfg(any(target_os = "macos", test))]
+fn launched_from_elsewhere(bundle: &str) -> bool {
+    bundle.starts_with("/Volumes/") || bundle.contains("/AppTranslocation/")
 }
 
 /// The launcher's bundle identifier: how it's known to be this app's to replace or remove.
@@ -643,6 +657,9 @@ mod launcher_tests {
         // A path with a quote in it stays one argument.
         let odd = launcher_script("/Users/o'neil/Minuteman.app/Contents/MacOS/Minuteman", "Minuteman", "/Users/o'neil/Minuteman.app");
         assert!(odd.contains("'/Users/o'\\''neil/Minuteman.app/Contents/MacOS/Minuteman'"), "{odd}");
+        assert!(launched_from_elsewhere("/Volumes/Minuteman/Minuteman.app"));
+        assert!(launched_from_elsewhere("/private/var/folders/x/T/AppTranslocation/ABC/d/Minuteman.app"));
+        assert!(!launched_from_elsewhere("/Applications/Minuteman.app"));
         let plist = launcher_plist("1.2.3");
         assert!(plist.contains(LAUNCHER_ID) && plist.contains("<key>LSUIElement</key><true/>") && plist.contains(">1.2.3<"));
     }
