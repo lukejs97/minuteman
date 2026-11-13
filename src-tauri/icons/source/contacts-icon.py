@@ -1,5 +1,7 @@
 """Draws Minuteman Contacts' icons, in the app icon's style (a navy rounded
-square with a gold rim) with an ivory person: the menu bar / tray image
+square with a gold rim) with a minuteman: an ivory figure in a tricorn hat,
+a red cross-strap (his cartridge box's sling) and a gold musket with its
+bayonet fixed, shouldered. The menu bar / tray image
 (contacts-tray.png, 72 px, as tray.png), the Mac launcher's contacts.icns and
 the Windows Start menu shortcut's contacts.ico.
 
@@ -9,7 +11,7 @@ import io
 import struct
 from pathlib import Path
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageChops, ImageDraw
 
 ICONS = Path(__file__).resolve().parent.parent
 S = 1024  # drawn at this size, then made smaller
@@ -39,25 +41,35 @@ def draw(size: int, margin: float) -> Image.Image:
     out = Image.new("RGBA", (big, big), (0, 0, 0, 0))
     out.paste(gradient, (0, 0), mask)
 
-    # The person: a head, and shoulders cut off by the square.
+    # The minuteman, drawn on the square's inside (0 to 1 across and down).
     person = Image.new("RGBA", (big, big), (0, 0, 0, 0))
     d = ImageDraw.Draw(person)
     inner = big - 2 * m
-    cx = big / 2
-    head_r = 0.17 * inner
-    head_cy = m + 0.40 * inner
-    d.ellipse((cx - head_r, head_cy - head_r, cx + head_r, head_cy + head_r), fill=IVORY)
-    body_w, body_top = 0.36 * inner, m + 0.64 * inner
-    d.ellipse((cx - body_w, body_top, cx + body_w, body_top + 0.75 * inner), fill=IVORY)
-    # A red star on the chest, as the logo's red star.
-    star_r = 0.055 * inner
-    sy = body_top + 0.17 * inner
-    d.regular_polygon((cx, sy, star_r), 5, rotation=0, fill=RED)
+
+    def at(x: float, y: float) -> tuple[float, float]:
+        return (m + x * inner, m + y * inner)
+
+    # His musket, shouldered, behind him; then its bayonet.
+    d.polygon([at(0.705, 0.86), at(0.745, 0.86), at(0.835, 0.17), at(0.80, 0.165)], fill=GOLD)
+    d.polygon([at(0.80, 0.165), at(0.835, 0.17), at(0.835, 0.07), at(0.822, 0.07)], fill=IVORY)
+    # Shoulders, cut off by the square, and his head.
+    d.ellipse([at(0.20, 0.66), at(0.80, 1.36)], fill=IVORY)
+    d.ellipse([at(0.375, 0.39), at(0.605, 0.62)], fill=IVORY)
+    # Tricorn: a wide, low hat, the brim turned up into two side corners and
+    # a front point, the crown just showing above it.
+    d.ellipse([at(0.385, 0.215), at(0.595, 0.355)], fill=IVORY)
+    d.polygon(
+        [at(0.20, 0.335), at(0.27, 0.285), at(0.36, 0.265), at(0.49, 0.29), at(0.62, 0.265),
+         at(0.71, 0.285), at(0.78, 0.335), at(0.70, 0.36), at(0.49, 0.44), at(0.28, 0.36)],
+        fill=IVORY,
+    )
+    # The cross-strap.
+    d.polygon([at(0.30, 0.72), at(0.36, 0.69), at(0.70, 0.98), at(0.64, 1.0)], fill=RED)
     inside = Image.new("L", (big, big), 0)
     ImageDraw.Draw(inside).rounded_rectangle(
         (m + rim, m + rim, big - m - rim, big - m - rim), max(radius - rim, 1), fill=255
     )
-    out.paste(person, (0, 0), Image.composite(person.getchannel("A"), Image.new("L", (big, big), 0), inside))
+    out.paste(person, (0, 0), ImageChops.multiply(person.getchannel("A"), inside))
 
     # The gold rim.
     ImageDraw.Draw(out).rounded_rectangle(box, radius, outline=GOLD + (255,), width=round(rim))
