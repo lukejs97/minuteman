@@ -22,7 +22,13 @@ use crate::cache::AgendaCache;
 use crate::{desktop, prefs};
 
 const CHECK_EVERY: Duration = Duration::from_secs(30);
+/// Everything ahead (`LOOK_AHEAD_DAYS`) is loaded again this often…
 const RELOAD_EVERY: TimeDelta = TimeDelta::minutes(5);
+/// …and the next `NEAR_DAYS` this often, so the menu bar and alerts follow a
+/// change made elsewhere (Google Calendar, a phone) as soon as the main
+/// window does.
+const NEAR_EVERY: TimeDelta = TimeDelta::minutes(1);
+const NEAR_DAYS: i64 = 2;
 /// After Demo mode, up to this many alerts it held come one by one; more
 /// come as one notice.
 const MISSED_SHOWN_ONE_BY_ONE: usize = 5;
@@ -68,6 +74,7 @@ pub fn start(app: AppHandle) {
         // Today's and tomorrow's items.
         let mut upcoming: Vec<AgendaItem> = Vec::new();
         let mut loaded_at: Option<DateTime<Local>> = None;
+        let mut near_at: Option<DateTime<Local>> = None;
         let mut last_check = Local::now();
         // Alerts already shown: item, its start, and minutes before.
         let mut sent = HashSet::new();
@@ -76,11 +83,19 @@ pub fn start(app: AppHandle) {
         loop {
             let now = Local::now();
             let stale = STALE.swap(false, Ordering::Relaxed);
-            if (stale || loaded_at.is_none_or(|at| now - at > RELOAD_EVERY))
-                && let Some(items) = load(&app).await
-            {
-                upcoming = items;
-                loaded_at = Some(now);
+            let today = now.date_naive();
+            if stale || loaded_at.is_none_or(|at| now - at > RELOAD_EVERY) {
+                if let Some(items) = load(&app, today, today + TimeDelta::days(LOOK_AHEAD_DAYS)).await {
+                    upcoming = items;
+                    loaded_at = Some(now);
+                    near_at = Some(now);
+                }
+            } else if near_at.is_none_or(|at| now - at > NEAR_EVERY) {
+                let near_to = today + TimeDelta::days(NEAR_DAYS);
+                if let Some(near) = load(&app, today, near_to).await {
+                    replace_between(&mut upcoming, today, near_to, near);
+                    near_at = Some(now);
+                }
             }
             // Demo mode: nothing real is shown meanwhile. What comes due
             // waits, and comes once it's off (`last_check` stays put).
@@ -118,10 +133,12 @@ pub fn start(app: AppHandle) {
                     let _ = app.notification().builder().title(title).body(body).show();
                 }
             }
+            // The menu bar first: the drives below can wait on traffic and
+            // location lookups, and shouldn't hold it up.
             let prefs = prefs::get();
-            time_to_leave(&app, &upcoming, now, &mut sent).await;
             let next = if prefs.menu_bar_next { menu_bar_text(&upcoming, now) } else { None };
             desktop::set_menu_bar_text(&app, next);
+            time_to_leave(&app, &upcoming, now, &mut sent).await;
             tokio::select! {
                 _ = tokio::time::sleep(CHECK_EVERY) => {}
                 _ = wake().notified() => {}
@@ -233,10 +250,8 @@ async fn here_now(app: &AppHandle) -> Option<String> {
     spot
 }
 
-async fn load(app: &AppHandle) -> Option<Vec<AgendaItem>> {
+async fn load(app: &AppHandle, today: NaiveDate, to: NaiveDate) -> Option<Vec<AgendaItem>> {
     let (state, cache) = (app.state::<AppState>(), app.state::<AgendaCache>());
-    let today = Local::now().date_naive();
-    let to = today + TimeDelta::days(LOOK_AHEAD_DAYS);
     match agenda::load(&state.http, &state.google_auth, today, to).await {
         Ok(agenda) => {
             cache.store(today, to, &agenda.loaded, &agenda.items);
@@ -244,6 +259,17 @@ async fn load(app: &AppHandle) -> Option<Vec<AgendaItem>> {
         }
         Err(_) => cache.between(today, to).map(|(items, _)| items),
     }
+}
+
+/// Puts `fresh` (just loaded for `from` to `to`) in place of what `items`
+/// had there: anything touching those days is replaced, the rest kept.
+fn replace_between(items: &mut Vec<AgendaItem>, from: NaiveDate, to: NaiveDate, fresh: Vec<AgendaItem>) {
+    let (start, end) = (agenda::local_midnight(from).timestamp(), agenda::local_midnight(to).timestamp());
+    items.retain(|item| {
+        let (s, e) = agenda::item_span(item);
+        !(s < end && e > start)
+    });
+    items.extend(fresh);
 }
 
 /// The alerts due after `from`, up to and including `now`: a key to show each
@@ -530,6 +556,33 @@ mod tests {
         assert_eq!(alerts.len(), 1);
         assert!(alerts[0].2.starts_with("Now · "));
         assert!(!alerts[0].2.contains("AM") && !alerts[0].2.contains("PM"));
+    }
+
+    #[test]
+    fn an_event_starting_during_another_shows_in_the_menu_bar() {
+        let now = Local::now();
+        let mut work = event(now - TimeDelta::hours(3), Vec::new());
+        work.title = "Work".into();
+        work.end = Some((now + TimeDelta::hours(2)).to_rfc3339());
+        let mut call = event(now + TimeDelta::seconds(90), Vec::new());
+        call.id = "google:cal:2".into();
+        call.title = "Call".into();
+        assert_eq!(menu_bar_text(&[work.clone(), call], now).as_deref(), Some("Call in 2 min"));
+        assert!(menu_bar_text(&[work], now).is_some_and(|text| text.starts_with("Work until ")));
+    }
+
+    #[test]
+    fn the_next_days_are_swapped_for_fresh_ones() {
+        let today = Local::now().date_naive();
+        let at = |days: i64, title: &str| {
+            let mut item = event(crate::agenda::local_midnight(today + TimeDelta::days(days)) + TimeDelta::hours(9), Vec::new());
+            item.title = title.into();
+            item
+        };
+        let mut items = vec![at(0, "Old today"), at(1, "Old tomorrow"), at(10, "Later")];
+        replace_between(&mut items, today, today + TimeDelta::days(2), vec![at(0, "New today")]);
+        let titles: Vec<&str> = items.iter().map(|i| i.title.as_str()).collect();
+        assert_eq!(titles, ["Later", "New today"]);
     }
 
     #[test]

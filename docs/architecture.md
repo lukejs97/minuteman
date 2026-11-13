@@ -505,8 +505,12 @@ Minuteman's Cardhop: a second page, `contacts.html` (Vite builds both pages,
   when nothing is reachable. 50 results each side of now.
 - **Alerts** (`alerts.rs`): a background task checks every 30 s today's and
   tomorrow's timed events against their popup reminders (the event's own,
-  or the calendar's defaults), reloading every 5 minutes or after a change
-  made in the app. Alerts more than 2 minutes late are skipped (after
+  or the calendar's defaults), reloading everything ahead (120 days) every
+  5 minutes or after a change made in the app, and the next 2 days every
+  minute (`NEAR_EVERY`, `replace_between`), so a change made elsewhere
+  reaches the menu bar text and alerts as soon as the main window. The menu
+  bar text is set before the time-to-leave drives, whose traffic and
+  location lookups can take a while. Alerts more than 2 minutes late are skipped (after
   sleep). It runs in Rust, so it keeps going with no window open. Desktop
   only via `tauri-plugin-notification`; iPhone alerts would need scheduling
   ahead with iOS.
