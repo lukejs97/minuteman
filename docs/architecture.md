@@ -107,7 +107,9 @@ Desktop only (`#[cfg(desktop)]`), in `desktop.rs` and `alerts.rs`:
   `windows/hooks.nsh` (`bundle.windows.nsis.installerHooks`) adds a "Minuteman
   Contacts" Start menu shortcut, `--contacts` with `contacts.ico` (a bundle
   resource), and removes it on uninstall. Mac: `sync_contacts_launcher`
-  writes `~/Applications/Minuteman Contacts.app` at start
+  writes `/Applications/Minuteman Contacts.app` at start (or, if the
+  account can't write there, `~/Applications`, and removes one of its own
+  from `~/Applications` once it's in `/Applications`)
   (`Prefs.contacts_launcher`): an `LSUIElement` bundle whose script runs
   Minuteman's binary with `--contacts` when Minuteman is running (the plugin
   hands it over) or `open -a … --args --contacts` when it isn't, and

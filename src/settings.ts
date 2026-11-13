@@ -224,7 +224,7 @@ async function addDesktopRows(
   if (isMac()) {
     const launcher = toggle("Minuteman Contacts app", prefs.contactsLauncher !== false, (on) => save({ contactsLauncher: on }));
     rows.append(
-      settingsRow("Contacts app", el("span", "settings-note", "Minuteman Contacts, in your Applications folder"), launcher),
+      settingsRow("Contacts app", el("span", "settings-note", "Minuteman Contacts, in Applications (keep it in the Dock for Contacts)"), launcher),
     );
   }
   if (!isMac()) return;

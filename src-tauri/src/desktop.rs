@@ -159,22 +159,22 @@ pub fn set_contacts_tray(app: &AppHandle, on: bool) {
     });
 }
 
-/// Mac: "Minuteman Contacts" in ~/Applications (Launchpad, Spotlight, the
-/// Dock if you put it there), a little app that opens Contacts: in the
-/// Minuteman that's running (it passes `--contacts` to it, as the Windows
-/// Start menu shortcut does), or by starting Minuteman with just Contacts.
-/// Written when Minuteman starts (so it follows where Minuteman is), and
-/// removed when switched off in Settings. Not for a development build.
+/// Mac: "Minuteman Contacts" in /Applications, beside Minuteman (or, if this
+/// account can't write there, ~/Applications), a little app that opens
+/// Contacts: in the Minuteman that's running (it passes `--contacts` to it,
+/// as the Windows Start menu shortcut does), or by starting Minuteman with
+/// just Contacts. Kept in the Dock, it's a Contacts button there. Written
+/// when Minuteman starts (so it follows where Minuteman is), and removed
+/// when switched off in Settings. Not for a development build.
 #[cfg(target_os = "macos")]
 pub fn sync_contacts_launcher(app: &AppHandle, on: bool) {
-    let Some(home) = std::env::var_os("HOME") else { return };
-    let launcher = std::path::Path::new(&home).join("Applications").join("Minuteman Contacts.app");
+    const NAME: &str = "Minuteman Contacts.app";
+    let shared = std::path::PathBuf::from("/Applications").join(NAME);
+    let personal = std::env::var_os("HOME").map(|home| std::path::Path::new(&home).join("Applications").join(NAME));
     if !on {
-        // Only one this made (its own identifier), never something else by that name.
-        let ours = std::fs::read_to_string(launcher.join("Contents/Info.plist"))
-            .is_ok_and(|plist| plist.contains(LAUNCHER_ID));
-        if ours {
-            let _ = std::fs::remove_dir_all(&launcher);
+        remove_launcher(&shared);
+        if let Some(personal) = &personal {
+            remove_launcher(personal);
         }
         return;
     }
@@ -184,26 +184,66 @@ pub fn sync_contacts_launcher(app: &AppHandle, on: bool) {
     let Some(name) = exe.file_name().and_then(|n| n.to_str()) else { return };
     let script = launcher_script(&exe.to_string_lossy(), name, &bundle.to_string_lossy());
     let plist = launcher_plist(app.package_info().version.to_string().as_str());
-    let contents = launcher.join("Contents");
-    let current = std::fs::read_to_string(contents.join("MacOS/launcher")).ok();
-    if current.as_deref() == Some(script.as_str()) && contents.join("Resources/contacts.icns").exists() {
-        return;
-    }
-    let written = (|| -> std::io::Result<()> {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::create_dir_all(contents.join("MacOS"))?;
-        std::fs::create_dir_all(contents.join("Resources"))?;
-        std::fs::write(contents.join("Info.plist"), plist)?;
-        let path = contents.join("MacOS/launcher");
-        std::fs::write(&path, script)?;
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))?;
-        if let Ok(icon) = app.path().resource_dir().map(|dir| dir.join("contacts.icns")) {
-            std::fs::copy(icon, contents.join("Resources/contacts.icns"))?;
+    let icon = app.path().resource_dir().ok().map(|dir| dir.join("contacts.icns"));
+    match write_launcher(&shared, &script, &plist, icon.as_deref()) {
+        // In /Applications: one made earlier in ~/Applications goes.
+        Ok(()) => {
+            if let Some(personal) = &personal {
+                remove_launcher(personal);
+            }
         }
-        Ok(())
-    })();
-    if let Err(e) = written {
-        eprintln!("Couldn't write Minuteman Contacts.app: {e}");
+        Err(e) => match &personal {
+            Some(personal) => {
+                if let Err(e) = write_launcher(personal, &script, &plist, icon.as_deref()) {
+                    eprintln!("Couldn't write Minuteman Contacts.app: {e}");
+                }
+            }
+            None => eprintln!("Couldn't write Minuteman Contacts.app: {e}"),
+        },
+    }
+}
+
+/// Writes the launcher at `launcher`, unless it's already as it should be.
+/// Something else by that name (not one this made) is left alone.
+#[cfg(target_os = "macos")]
+fn write_launcher(
+    launcher: &std::path::Path,
+    script: &str,
+    plist: &str,
+    icon: Option<&std::path::Path>,
+) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let contents = launcher.join("Contents");
+    if launcher.exists() && !is_our_launcher(launcher) {
+        return Err(std::io::Error::new(std::io::ErrorKind::AlreadyExists, "another app has that name"));
+    }
+    let current = std::fs::read_to_string(contents.join("MacOS/launcher")).ok();
+    if current.as_deref() == Some(script) && contents.join("Resources/contacts.icns").exists() {
+        return Ok(());
+    }
+    std::fs::create_dir_all(contents.join("MacOS"))?;
+    std::fs::create_dir_all(contents.join("Resources"))?;
+    std::fs::write(contents.join("Info.plist"), plist)?;
+    let path = contents.join("MacOS/launcher");
+    std::fs::write(&path, script)?;
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))?;
+    if let Some(icon) = icon {
+        std::fs::copy(icon, contents.join("Resources/contacts.icns"))?;
+    }
+    Ok(())
+}
+
+/// Whether `launcher` is one this made (its own identifier).
+#[cfg(target_os = "macos")]
+fn is_our_launcher(launcher: &std::path::Path) -> bool {
+    std::fs::read_to_string(launcher.join("Contents/Info.plist")).is_ok_and(|plist| plist.contains(LAUNCHER_ID))
+}
+
+/// Removes the launcher at `launcher` if it's one this made; never something else by that name.
+#[cfg(target_os = "macos")]
+fn remove_launcher(launcher: &std::path::Path) {
+    if is_our_launcher(launcher) {
+        let _ = std::fs::remove_dir_all(launcher);
     }
 }
 

@@ -107,7 +107,8 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
   from any app; on a phone or the website, its own page). It's also like an
   app of its own: **its own menu bar icon** (on Windows, by the clock), whose
   click opens Contacts and whose menu has New Contact…; **Minuteman
-  Contacts** in the Start menu (Windows) or your Applications folder (Mac),
+  Contacts** in the Start menu (Windows) or Applications (Mac; keep it in
+  the Dock for a Contacts button there),
   which opens just Contacts, or Contacts in the Minuteman already running.
   Settings → **Contacts icon** (and on a Mac, **Contacts app**) turns them
   off. On a phone, open Contacts on the website and add it to the Home

@@ -18,7 +18,7 @@ pub struct Prefs {
     pub task_alerts: bool,
     /// A second menu bar (notification area) icon that opens Contacts.
     pub contacts_menu_bar: bool,
-    /// Mac: a "Minuteman Contacts" app in ~/Applications that opens Contacts.
+    /// Mac: a "Minuteman Contacts" app in /Applications (or ~/Applications) that opens Contacts.
     pub contacts_launcher: bool,
     /// Alert when it's time to leave for events with a place that don't set
     /// their own leave alert. With a leave-from address this uses Routes;
