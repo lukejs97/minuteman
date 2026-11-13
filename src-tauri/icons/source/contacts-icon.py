@@ -61,7 +61,8 @@ def draw(size: int, margin: float, full: bool = False) -> Image.Image:
     d.polygon([at(0.705, 0.86), at(0.745, 0.86), at(0.835, 0.17), at(0.80, 0.165)], fill=GOLD)
     d.polygon([at(0.80, 0.165), at(0.835, 0.17), at(0.835, 0.07), at(0.822, 0.07)], fill=IVORY)
     # Shoulders, cut off by the square, and his head.
-    d.ellipse([at(0.20, 0.66), at(0.80, 1.36)], fill=IVORY)
+    body = [at(0.20, 0.66), at(0.80, 1.36)]
+    d.ellipse(body, fill=IVORY)
     d.ellipse([at(0.375, 0.39), at(0.605, 0.62)], fill=IVORY)
     # Tricorn: a wide, low hat, the brim turned up into two side corners and
     # a front point, the crown just showing above it.
@@ -71,8 +72,13 @@ def draw(size: int, margin: float, full: bool = False) -> Image.Image:
          at(0.71, 0.285), at(0.78, 0.335), at(0.70, 0.36), at(0.49, 0.44), at(0.28, 0.36)],
         fill=IVORY,
     )
-    # The cross-strap.
-    d.polygon([at(0.30, 0.72), at(0.36, 0.69), at(0.70, 0.98), at(0.64, 1.0)], fill=RED)
+    # The cross-strap: from his shoulder across his chest, on him to the
+    # edge of his body (or of the square), however much of him shows.
+    strap = Image.new("L", (big, big), 0)
+    ImageDraw.Draw(strap).polygon([at(0.30, 0.72), at(0.36, 0.69), at(1.18, 1.38), at(1.12, 1.40)], fill=255)
+    on_him = Image.new("L", (big, big), 0)
+    ImageDraw.Draw(on_him).ellipse(body, fill=255)
+    person.paste(RED + (255,), (0, 0), ImageChops.multiply(strap, on_him))
     inside = Image.new("L", (big, big), 255 if full else 0)
     if not full:
         ImageDraw.Draw(inside).rounded_rectangle(
