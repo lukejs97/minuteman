@@ -227,9 +227,10 @@ main.contacts-main {
 }
 
 /* What they'd get, in full (wrapping), not cut off. */
+/* One change a line: "Add address: 10 Union St". */
 .update-row .contact-row-detail,
 .new-contact-row .contact-row-detail {
-  white-space: normal;
+  white-space: pre-line;
 }
 
 .update-button {

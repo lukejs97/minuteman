@@ -105,6 +105,8 @@ let log: Interaction[] = [];
 let intent: Intent = { kind: "empty" };
 /** Someone picked with ↑ ↓ from "Add to…": Enter adds the details to them. */
 let picked: string | null = null;
+/** What was in the box when last read (see update). */
+let lastTyped = "";
 /** The person whose card is open. */
 let selectedId: string | null = null;
 /** The people in the list as drawn, in order, for ↑ and ↓. */
@@ -252,12 +254,19 @@ function showSignedOut(): void {
 function update(): void {
   if (!list) return;
   intent = interpret(input.value, list.contacts, new Date());
-  picked = null;
   // Typing someone's name shows their card, as in Cardhop. Details for a
   // new contact: none chosen, "New contact" marked as what Enter does.
-  const best = intentContact(intent);
-  if (best) selectedId = best.id;
-  else if (intent.kind === "add") selectedId = null;
+  // Only when what's typed changed: drawn again after a save (the same
+  // search still in the box), the card stays on whoever you'd chosen,
+  // rather than going to the first match.
+  const typed = input.value !== lastTyped;
+  lastTyped = input.value;
+  if (typed) {
+    picked = null;
+    const best = intentContact(intent);
+    if (best) selectedId = best.id;
+    else if (intent.kind === "add") selectedId = null;
+  }
   drawHint();
   drawList();
   drawCard();
@@ -399,8 +408,9 @@ function summary(details: ParsedContact): string {
     name,
     details.nickname ? `“${details.nickname}”` : null,
     work,
-    ...[...details.phones, ...details.emails, ...details.addresses, ...details.urls].map(labeledText),
-    ...details.relations.map((r) => `${labelText(r.label, "related").toLowerCase()} ${r.value}`),
+    ...(["phones", "emails", "addresses", "urls", "relations"] as const).flatMap((kind) =>
+      details[kind].map((v) => `${kindWords(kind, v.label)} ${v.value}`),
+    ),
     birthday,
     details.notes ? `note: ${details.notes}` : null,
   ]
@@ -408,22 +418,8 @@ function summary(details: ParsedContact): string {
     .join(" · ");
 }
 
-const labeledText = (v: Labeled) => (v.label ? `${labelText(v.label, v.label).toLowerCase()} ${v.value}` : v.value);
-
-/** The details in `details` that `contact` doesn't have yet, in words ("mobile 484 · wife Abigail Adams"). */
-function additions(contact: Contact, details: ParsedContact): string[] {
-  const draft = additionDraft(contact, details);
-  const added = (kind: "phones" | "emails" | "addresses" | "urls" | "relations") => (draft[kind] ?? []).slice(contact[kind].length);
-  const work = draft.organization !== undefined ? workText(draft.jobTitle || null, draft.organization || null) : null;
-  return [
-    ...[...added("phones"), ...added("emails"), ...added("addresses"), ...added("urls")].map(labeledText),
-    ...added("relations").map((r) => (r.label ? `${labelText(r.label, r.label).toLowerCase()} ${r.value}` : r.value)),
-    ...(work ? [work] : []),
-    ...(draft.nickname ? [`“${draft.nickname}”`] : []),
-    ...(draft.birthdays ? [`born ${birthdayText(details.birthday!)}`] : []),
-    ...(details.notes ? [`note: ${details.notes}`] : []),
-  ];
-}
+/** What adding `details` to `contact` would change, in words (see planChanges). */
+const additions = (contact: Contact, details: ParsedContact): string[] => planChanges(contact, details).changes;
 
 /** "Printer at the Gazette", "Printer", "at the Gazette". */
 const workText = (job: string | null, company: string | null) =>
@@ -605,7 +601,7 @@ function newContactRow(details: ParsedContact, first: boolean): HTMLElement {
 function updateRow(contact: Contact, details: ParsedContact): HTMLElement {
   const added = additions(contact, details);
   const line = el("div", "update-row");
-  const person = row(contact, added.length ? `+ ${added.join(" · ")}` : "Already has these");
+  const person = row(contact, added.length ? added.join("\n") : "Already has these");
   const button = el("button", "pill-button update-button", "Update");
   button.type = "button";
   button.disabled = added.length === 0;
@@ -821,17 +817,55 @@ function draftFrom(details: ParsedContact): ContactDraft {
   };
 }
 
+type ListKind = "phones" | "emails" | "addresses" | "urls" | "relations";
+
+/** What each kind of detail is called: "address", "email", "phone"… */
+const KIND_NAMES: Record<ListKind, string> = {
+  phones: "phone",
+  emails: "email",
+  addresses: "address",
+  urls: "website",
+  relations: "related",
+};
+
+/** "home address", "mobile" (a phone's label says it), "work email", "spouse". */
+function kindWords(kind: ListKind, label: string | null): string {
+  const named = label ? labelText(label, label).toLowerCase() : "";
+  if (kind === "phones") return named || "phone";
+  if (kind === "relations") return named || "related";
+  return named ? `${named} ${KIND_NAMES[kind]}` : KIND_NAMES[kind];
+}
+
 /**
- * What adding `details` to `contact` changes: new numbers, emails,
- * addresses, websites and people added to theirs; the job, company,
- * nickname or birthday where different (a birthday only if they have none);
- * a note added to their notes.
+ * What adding `details` to `contact` changes, as a draft for Google and in
+ * words ("Add address: 10 Union St", "Change mobile to 484 (was 555-0100)").
+ *
+ * A number, email, address or website typed with a label ("home", "work",
+ * "mobile"…) takes the place of theirs with that label; without one, it's
+ * added beside what they have. People they're related to are added. The
+ * job, company and nickname are set where different; a birthday only if
+ * they have none; a note is added to their notes.
  */
-function additionDraft(contact: Contact, details: ParsedContact): ContactDraft {
+function planChanges(contact: Contact, details: ParsedContact): { draft: ContactDraft; changes: string[] } {
   const draft: ContactDraft = {};
-  const merge = (kind: "phones" | "emails" | "addresses" | "urls" | "relations", type: "phone" | "email" | "other") => {
-    const extra = newValues(details[kind], contact[kind], type);
-    if (extra.length) draft[kind] = [...contact[kind], ...extra];
+  const changes: string[] = [];
+  const merge = (kind: ListKind, type: "phone" | "email" | "other") => {
+    const values = [...contact[kind]];
+    let changed = false;
+    for (const value of newValues(details[kind], contact[kind], type)) {
+      const label = value.label?.toLowerCase();
+      const same = kind === "relations" || !label ? -1 : values.findIndex((v) => v.label?.toLowerCase() === label);
+      const words = kindWords(kind, value.label);
+      if (same >= 0) {
+        changes.push(`Change ${words} to ${value.value} (was ${values[same].value})`);
+        values[same] = { ...values[same], value: value.value };
+      } else {
+        changes.push(`Add ${words}: ${value.value}`);
+        values.push(value);
+      }
+      changed = true;
+    }
+    if (changed) draft[kind] = values;
   };
   merge("phones", "phone");
   merge("emails", "email");
@@ -843,16 +877,28 @@ function additionDraft(contact: Contact, details: ParsedContact): ContactDraft {
     // Both go together to Google: keep the one not typed.
     draft.organization = details.organization ?? contact.organization ?? "";
     draft.jobTitle = details.jobTitle ?? (details.organization ? "" : (contact.jobTitle ?? ""));
+    const was = workText(contact.jobTitle, contact.organization);
+    const now = workText(draft.jobTitle || null, draft.organization || null);
+    changes.push(was ? `Change work to ${now} (was ${was})` : `Add work: ${now}`);
   }
-  if (differs(details.nickname, contact.nickname)) draft.nickname = details.nickname!;
-  if (details.birthday && !contact.birthday) draft.birthdays = [details.birthday];
-  if (details.notes) draft.notes = withNote(contact.notes, details.notes);
-  return draft;
+  if (differs(details.nickname, contact.nickname)) {
+    draft.nickname = details.nickname!;
+    changes.push(contact.nickname ? `Change nickname to “${details.nickname}” (was “${contact.nickname}”)` : `Add nickname: “${details.nickname}”`);
+  }
+  if (details.birthday && !contact.birthday) {
+    draft.birthdays = [details.birthday];
+    changes.push(`Add birthday: ${birthdayText(details.birthday)}`);
+  }
+  if (details.notes) {
+    draft.notes = withNote(contact.notes, details.notes);
+    changes.push(`Add note: ${details.notes}`);
+  }
+  return { draft, changes };
 }
 
 /** Adds what's new in `details` to someone you have. */
 async function addDetails(contact: Contact, details: ParsedContact): Promise<void> {
-  const draft = additionDraft(contact, details);
+  const { draft } = planChanges(contact, details);
   if (Object.keys(draft).length === 0) return;
   input.disabled = true;
   try {

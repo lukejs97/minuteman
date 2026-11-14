@@ -145,12 +145,14 @@ const LOG_JOINER = /^(?:about|re|regarding|:)\s*/i;
 
 // ---------- Details of a new contact ----------
 
-const EMAIL = /(?:\b(work|home|personal|school|other)\s*:?\s+)?\b([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})\b/gi;
+/** An email, maybe after its label: "work jo@…", "work email jo@…", "email: jo@…". */
+const EMAIL =
+  /(?:\b(work|home|personal|school|other)(?:\s+e-?mail)?\s*:?\s+|\be-?mail\s*:?\s+)?\b([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})\b/gi;
 const EMAIL_LABELS: Record<string, string> = { personal: "home", school: "other" };
 
 /** A phone number: at least 7 digits, maybe a +, spaces, dots, dashes and brackets. */
 const PHONE =
-  /(?:\b(mobile|cell|cellphone|iphone|work|office|home|main|fax|pager|other)\s*:?\s+)?(?<![\w/-])(\+?\(?\d[\d\s().-]{5,}\d)(?![\w/-])/gi;
+  /(?:\b(mobile|cell|cellphone|iphone|work|office|home|main|fax|pager|other)(?:\s+(?:phone|number|no\.?|#))?\s*:?\s+|\b(?:phone|number|tel)\s*:?\s+)?(?<![\w/-])(\+?\(?\d[\d\s().-]{5,}\d)(?![\w/-])/gi;
 const PHONE_LABELS: Record<string, string> = {
   cell: "mobile",
   cellphone: "mobile",
@@ -192,7 +194,8 @@ const WORK = /(?:,\s*|\s+)(?:(?:works?\s+)?(?:at|@)|of|from)\s+([\p{Lu}0-9&][\p{
  */
 const LOOSE_ADDRESS =
   /(?:\b(home|work|other)\s*(?:address)?\s*:?\s+|\b(?:address|lives at|lives on)\s*:?\s+)?\b(\d{1,6}[A-Za-z]?\s+\p{L}[^\s,]*(?:[\s,]+[\p{L}\d][^\s,]*){0,9})\s*$/iu;
-const SHORT_PHONE = /(?:\b(mobile|cell|cellphone|iphone|work|office|home|main|fax|pager|other)\s*:?\s+)?(?<![\w/-])(\+?\d{3,6})(?![\w/-])/gi;
+const SHORT_PHONE =
+  /(?:\b(mobile|cell|cellphone|iphone|work|office|home|main|fax|pager|other)(?:\s+(?:phone|number|no\.?|#))?\s*:?\s+|\b(?:phone|number|tel)\s*:?\s+)?(?<![\w/-])(\+?\d{3,6})(?![\w/-])/gi;
 
 /** "wife Abigail Adams", "son John", "my boss: Paul Revere": how they're related, then who. */
 const RELATION =
