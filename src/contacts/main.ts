@@ -48,7 +48,7 @@ import { timeFormat } from "../time";
 import { avatar, isMac, renderCard, type CardActions } from "./card";
 import { openContactForm } from "./form";
 import { squarePhoto } from "./photo";
-import { openCalendar } from "./open";
+import { openCalendar, separateApps } from "./open";
 import { describeLatest, historyOf, KIND_WORDS, latestByContact, recentContacts } from "./history";
 import {
   bestToKeep,
@@ -1113,6 +1113,11 @@ function showEvent(item: AgendaItem): void {
 // ---------- Setting up ----------
 
 function setUp(): void {
+  // MM Contacts on a Home Screen: no switch to the calendar, an app of its own
+  // there; see open.ts.
+  if (separateApps("contacts")) {
+    for (const node of document.querySelectorAll<HTMLElement>("#calendar, .dock-switch")) node.hidden = true;
+  }
   document.querySelector("#calendar")!.addEventListener("click", () => openCalendar());
   document.querySelector("#refresh")!.addEventListener("click", () => void load());
   document.querySelector("#new-contact")!.addEventListener("click", newContact);

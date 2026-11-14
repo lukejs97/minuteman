@@ -18,7 +18,7 @@ import {
 import { isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { boot } from "./boot";
-import { GO_TO_DAY, openContacts } from "./contacts/open";
+import { GO_TO_DAY, openContacts, separateApps } from "./contacts/open";
 import { openDetails, showItemMenu } from "./details";
 import { setUpDockMenu } from "./dock-menu";
 import { el, setItemMenu } from "./dom";
@@ -592,6 +592,11 @@ function setUpControls(): void {
   document.querySelector("#new-event")!.addEventListener("click", () => newEvent());
   document.querySelector("#search")!.addEventListener("click", searchEvents);
   document.querySelector("#settings")!.addEventListener("click", showSettings);
+  // The calendar's own Home Screen app: no switch to Contacts, which is an app
+  // of its own there (MM Contacts); see contacts/open.ts.
+  if (separateApps("calendar")) {
+    for (const node of document.querySelectorAll<HTMLElement>("#contacts, .dock-switch")) node.hidden = true;
+  }
   document.querySelector("#contacts")!.addEventListener("click", () => openContacts());
   document.querySelector("#dock-new")!.addEventListener("click", () => newEvent());
   document.querySelector("#dock-search")!.addEventListener("click", searchEvents);
@@ -616,7 +621,7 @@ function setUpControls(): void {
     else if (key === "n") newEvent();
     else if (key === "/") searchEvents();
     else if (key === ",") showSettings();
-    else if (key === "c") openContacts();
+    else if (key === "c" && !separateApps("calendar")) openContacts();
     else if (e.key === "ArrowLeft") step(-1);
     else if (e.key === "ArrowRight") step(1);
     else return;
@@ -719,7 +724,10 @@ async function start(): Promise<void> {
   if (askedDay && /^\d{4}-\d{2}-\d{2}$/.test(askedDay)) {
     state.view = "day";
     state.anchor = firstDay("day", parseDate(askedDay));
-    history.replaceState(null, "", location.pathname);
+    // Only the date goes: `from` (opened from Contacts in its Home Screen app) stays.
+    const kept = new URLSearchParams(location.search);
+    kept.delete("date");
+    history.replaceState(null, "", kept.size ? `${location.pathname}?${kept}` : location.pathname);
   }
   try {
     if (await authStatus()) showCalendar();

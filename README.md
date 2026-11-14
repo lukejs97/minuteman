@@ -113,7 +113,11 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
   Settings → **Contacts icon** (and on a Mac, **Contacts app**) turns them
   off. On a phone, open Contacts on the website and add it to the Home
   Screen (Share → **Add to Home Screen**): it's its own app, "MM Contacts",
-  with the minuteman icon, opening on Contacts. One box does everything, and the line under it says what Enter will do:
+  with the minuteman icon, opening on Contacts. As Home Screen apps, the
+  calendar and MM Contacts leave out their switch to each other; a guest's
+  name or a birthday still opens the other page there, with a way back. In a
+  browser tab the switch moves between the two pages as always, and in the
+  desktop apps each has its own window. One box does everything, and the line under it says what Enter will do:
   - type a name, company, email or part of a number to **find** someone;
   - type someone new, like "Abigail Adams abigail@example.com 555-0100 Writer
     at Braintree birthday November 22", to **add** them (phones, emails,
