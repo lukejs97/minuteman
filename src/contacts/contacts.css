@@ -193,6 +193,59 @@ main.contacts-main {
   background: var(--surface);
 }
 
+/* Typed details (as Cardhop): "New contact", then "Add to…" someone the name fits. */
+.avatar.new-contact-badge {
+  font-size: 20px;
+  font-weight: 500;
+  background: var(--accent);
+}
+
+/* What Enter does, marked as a chosen row is. */
+.new-contact-row.enter-does {
+  color: #fff;
+  background: var(--accent);
+}
+
+.new-contact-row.enter-does .contact-row-detail {
+  color: rgb(255 255 255 / 0.85);
+}
+
+.new-contact-row.enter-does .new-contact-badge {
+  color: var(--accent);
+  background: #fff;
+}
+
+.update-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.update-row > .contact-row {
+  flex: 1;
+  min-width: 0;
+}
+
+/* What they'd get, in full (wrapping), not cut off. */
+.update-row .contact-row-detail,
+.new-contact-row .contact-row-detail {
+  white-space: normal;
+}
+
+.update-button {
+  flex: none;
+  min-height: 34px;
+  margin-right: 4px;
+  color: var(--on-accent);
+  border-color: transparent;
+  background: var(--accent);
+}
+
+.update-button:disabled {
+  color: var(--muted);
+  background: var(--surface);
+}
+
 .contact-row[aria-selected="true"] {
   color: var(--on-accent);
   background: var(--accent);

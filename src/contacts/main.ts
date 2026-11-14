@@ -103,6 +103,8 @@ let list: ContactList | undefined;
 /** What's logged with people (interactions.rs), oldest first. */
 let log: Interaction[] = [];
 let intent: Intent = { kind: "empty" };
+/** Someone picked with ↑ ↓ from "Add to…": Enter adds the details to them. */
+let picked: string | null = null;
 /** The person whose card is open. */
 let selectedId: string | null = null;
 /** The people in the list as drawn, in order, for ↑ and ↓. */
@@ -250,11 +252,14 @@ function showSignedOut(): void {
 function update(): void {
   if (!list) return;
   intent = interpret(input.value, list.contacts, new Date());
-  drawHint();
-  drawList();
-  // Typing someone's name shows their card, as in Cardhop.
+  picked = null;
+  // Typing someone's name shows their card, as in Cardhop. Details for a
+  // new contact: none chosen, "New contact" marked as what Enter does.
   const best = intentContact(intent);
   if (best) selectedId = best.id;
+  else if (intent.kind === "add") selectedId = null;
+  drawHint();
+  drawList();
   drawCard();
 }
 
@@ -282,6 +287,13 @@ const ACTION_WORDS: Record<Action, string> = {
   note: "Add a note to",
   map: "Map",
 };
+
+/** Who Enter adds the details to: someone picked with ↑ ↓, else the one named in full (null: a new contact). */
+function pickedCandidate(i: Intent): Contact | null {
+  if (i.kind !== "add" && i.kind !== "update") return null;
+  if (picked) return i.candidates.find((c) => c.id === picked) ?? null;
+  return i.kind === "update" ? i.contact : null;
+}
 
 /** The line under the box: what Enter does. Clicking it does it too. */
 function drawHint(): void {
@@ -335,13 +347,16 @@ function drawHint(): void {
       break;
     }
     case "add":
-      text = "Add a new contact";
-      detail = summary(intent.details);
-      if (usableAccounts().length > 1) detail += ` · to ${usableAccounts()[0]}`;
-      break;
     case "update": {
-      text = `Add to ${displayName(intent.contact)}`;
-      const added = additions(intent.contact, intent.details);
+      const chosen = pickedCandidate(intent);
+      if (!chosen) {
+        text = "Add a new contact";
+        detail = summary(intent.details);
+        if (usableAccounts().length > 1) detail += ` · to ${usableAccounts()[0]}`;
+        break;
+      }
+      text = `Add to ${displayName(chosen)}`;
+      const added = additions(chosen, intent.details);
       detail = added.length ? added.join(" · ") : "They already have these details";
       doable = added.length > 0;
       break;
@@ -378,13 +393,14 @@ function describeTarget(action: Action, contact: Contact): string {
 /** What a new contact will have: "Jane Doe · Designer at Acme · jane@example.com". */
 function summary(details: ParsedContact): string {
   const name = [details.givenName, details.familyName].filter(Boolean).join(" ");
-  const work = details.jobTitle && details.organization ? `${details.jobTitle} at ${details.organization}` : (details.jobTitle ?? details.organization);
-  const birthday = details.birthday ? `born ${details.birthday.month}/${details.birthday.day}${details.birthday.year ? `/${details.birthday.year}` : ""}` : null;
+  const work = workText(details.jobTitle, details.organization);
+  const birthday = details.birthday ? `born ${birthdayText(details.birthday)}` : null;
   return [
     name,
     details.nickname ? `“${details.nickname}”` : null,
     work,
     ...[...details.phones, ...details.emails, ...details.addresses, ...details.urls].map(labeledText),
+    ...details.relations.map((r) => `${labelText(r.label, "related").toLowerCase()} ${r.value}`),
     birthday,
     details.notes ? `note: ${details.notes}` : null,
   ]
@@ -394,19 +410,31 @@ function summary(details: ParsedContact): string {
 
 const labeledText = (v: Labeled) => (v.label ? `${labelText(v.label, v.label).toLowerCase()} ${v.value}` : v.value);
 
-/** The details in `details` that `contact` doesn't have yet, in words. */
+/** The details in `details` that `contact` doesn't have yet, in words ("mobile 484 · wife Abigail Adams"). */
 function additions(contact: Contact, details: ParsedContact): string[] {
+  const draft = additionDraft(contact, details);
+  const added = (kind: "phones" | "emails" | "addresses" | "urls" | "relations") => (draft[kind] ?? []).slice(contact[kind].length);
+  const work = draft.organization !== undefined ? workText(draft.jobTitle || null, draft.organization || null) : null;
   return [
-    ...newValues(details.phones, contact.phones, "phone"),
-    ...newValues(details.emails, contact.emails, "email"),
-    ...newValues(details.addresses, contact.addresses, "other"),
-    ...newValues(details.urls, contact.urls, "other"),
-  ]
-    .map(labeledText)
-    .concat(details.organization && details.organization !== contact.organization ? [`works at ${details.organization}`] : [])
-    .concat(details.birthday && !contact.birthday ? ["birthday"] : [])
-    .concat(details.notes ? [`note: ${details.notes}`] : []);
+    ...[...added("phones"), ...added("emails"), ...added("addresses"), ...added("urls")].map(labeledText),
+    ...added("relations").map((r) => (r.label ? `${labelText(r.label, r.label).toLowerCase()} ${r.value}` : r.value)),
+    ...(work ? [work] : []),
+    ...(draft.nickname ? [`“${draft.nickname}”`] : []),
+    ...(draft.birthdays ? [`born ${birthdayText(details.birthday!)}`] : []),
+    ...(details.notes ? [`note: ${details.notes}`] : []),
+  ];
 }
+
+/** "Printer at the Gazette", "Printer", "at the Gazette". */
+const workText = (job: string | null, company: string | null) =>
+  job && company ? `${job} at ${company}` : job ? job : company ? `at ${company}` : null;
+
+const birthdayText = (b: { year: number | null; month: number; day: number }) =>
+  new Date(b.year ?? 2000, b.month - 1, b.day).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    ...(b.year ? { year: "numeric" } : {}),
+  });
 
 /** Showing Recents in full (Recent → Show all), as Cardhop's Recents tab. */
 let showingRecents = false;
@@ -468,13 +496,18 @@ function drawList(): void {
       people.push(c);
     }
     if (all.length === 0) sections.push(el("p", "empty", "No contacts yet. Type someone’s name and details above to add them."));
+  } else if (intent.kind === "add" || intent.kind === "update") {
+    // As Cardhop: a new contact with these details, or add them to someone
+    // the name fits ("Add to…"), each saying what they'd get.
+    const { details, candidates } = intent;
+    sections.push(heading("New contact"), newContactRow(details, intent.kind === "add"));
+    people = candidates;
+    if (candidates.length) {
+      sections.push(heading("Add to…"));
+      for (const c of candidates) sections.push(updateRow(c, details));
+    }
   } else {
-    people =
-      intent.kind === "search" || intent.kind === "action" || intent.kind === "log"
-        ? intent.matches
-        : intent.kind === "update"
-          ? [intent.contact]
-          : [];
+    people = intent.kind === "search" || intent.kind === "action" || intent.kind === "log" ? intent.matches : [];
     for (const c of people) sections.push(row(c));
   }
   listed = people;
@@ -550,11 +583,44 @@ function row(contact: Contact, note?: string): HTMLElement {
   return button;
 }
 
+/** "New contact": who they'd be, with what's typed; adds them. `first`: what Enter does. */
+function newContactRow(details: ParsedContact, first: boolean): HTMLElement {
+  const button = el("button", "contact-row new-contact-row");
+  button.type = "button";
+  if (first) button.classList.add("enter-does");
+  const name = [details.givenName, details.familyName].filter(Boolean).join(" ") || "New contact";
+  const text = el("span", "contact-row-text");
+  text.append(el("span", "contact-row-name", name));
+  const rest = summary({ ...details, givenName: "", familyName: "" });
+  if (rest) text.append(el("span", "contact-row-detail", rest));
+  button.append(el("span", "avatar avatar-small new-contact-badge", "+"), text);
+  button.addEventListener("click", () => void add(details));
+  return button;
+}
+
+/**
+ * Someone the name fits, with what they'd get ("+ mobile 484"), and
+ * Update to add it; their row opens their card, as any.
+ */
+function updateRow(contact: Contact, details: ParsedContact): HTMLElement {
+  const added = additions(contact, details);
+  const line = el("div", "update-row");
+  const person = row(contact, added.length ? `+ ${added.join(" · ")}` : "Already has these");
+  const button = el("button", "pill-button update-button", "Update");
+  button.type = "button";
+  button.disabled = added.length === 0;
+  button.title = added.length ? `Add to ${displayName(contact)}: ${added.join(", ")}` : "";
+  button.setAttribute("aria-label", `Update ${displayName(contact)}`);
+  button.addEventListener("click", () => void addDetails(contact, details));
+  line.append(person, button);
+  return line;
+}
+
 function select(contact: Contact, openCard: boolean): void {
   selectedId = contact.id;
   for (const r of listBox.querySelectorAll<HTMLElement>(".contact-row")) r.setAttribute("aria-selected", "false");
   const index = listed.findIndex((c) => c.id === contact.id);
-  const rows = listBox.querySelectorAll<HTMLElement>(".contact-row");
+  const rows = listBox.querySelectorAll<HTMLElement>(".contact-row:not(.new-contact-row)");
   rows[index]?.setAttribute("aria-selected", "true");
   rows[index]?.scrollIntoView({ block: "nearest" });
   drawCard();
@@ -701,11 +767,12 @@ async function perform(anchor: HTMLElement): Promise<void> {
       clearBox();
       return;
     case "add":
-      await add(current.details);
+    case "update": {
+      const chosen = pickedCandidate(current);
+      if (chosen) await addDetails(chosen, current.details);
+      else await add(current.details);
       return;
-    case "update":
-      await addDetails(current.contact, current.details);
-      return;
+    }
   }
 }
 
@@ -724,6 +791,7 @@ async function add(details: ParsedContact): Promise<void> {
   input.disabled = true;
   try {
     const contact = await createContact(account, draftFrom(details));
+    input.value = ""; // first, so the list redrawn shows them, not the typing
     saved(contact);
     record(contact, "added");
     input.value = "";
@@ -737,7 +805,7 @@ async function add(details: ParsedContact): Promise<void> {
 }
 
 function draftFrom(details: ParsedContact): ContactDraft {
-  const { givenName, familyName, nickname, organization, jobTitle, emails, phones, addresses, urls, birthday, notes } = details;
+  const { givenName, familyName, nickname, organization, jobTitle, emails, phones, addresses, urls, relations, birthday, notes } = details;
   return {
     givenName,
     familyName,
@@ -747,15 +815,21 @@ function draftFrom(details: ParsedContact): ContactDraft {
     phones,
     addresses,
     urls,
+    relations,
     birthdays: birthday ? [birthday] : [],
     ...(notes ? { notes: datedNote(notes) } : {}),
   };
 }
 
-/** Adds what's new in `details` to someone you have. */
-async function addDetails(contact: Contact, details: ParsedContact): Promise<void> {
+/**
+ * What adding `details` to `contact` changes: new numbers, emails,
+ * addresses, websites and people added to theirs; the job, company,
+ * nickname or birthday where different (a birthday only if they have none);
+ * a note added to their notes.
+ */
+function additionDraft(contact: Contact, details: ParsedContact): ContactDraft {
   const draft: ContactDraft = {};
-  const merge = (kind: "phones" | "emails" | "addresses" | "urls", type: "phone" | "email" | "other") => {
+  const merge = (kind: "phones" | "emails" | "addresses" | "urls" | "relations", type: "phone" | "email" | "other") => {
     const extra = newValues(details[kind], contact[kind], type);
     if (extra.length) draft[kind] = [...contact[kind], ...extra];
   };
@@ -763,16 +837,27 @@ async function addDetails(contact: Contact, details: ParsedContact): Promise<voi
   merge("emails", "email");
   merge("addresses", "other");
   merge("urls", "other");
-  if (details.organization && details.organization !== contact.organization) {
-    draft.organization = details.organization;
-    draft.jobTitle = details.jobTitle ?? contact.jobTitle ?? "";
+  merge("relations", "other");
+  const differs = (a: string | null, b: string | null) => Boolean(a) && a!.toLowerCase() !== (b ?? "").toLowerCase();
+  if (differs(details.organization, contact.organization) || differs(details.jobTitle, contact.jobTitle)) {
+    // Both go together to Google: keep the one not typed.
+    draft.organization = details.organization ?? contact.organization ?? "";
+    draft.jobTitle = details.jobTitle ?? (details.organization ? "" : (contact.jobTitle ?? ""));
   }
+  if (differs(details.nickname, contact.nickname)) draft.nickname = details.nickname!;
   if (details.birthday && !contact.birthday) draft.birthdays = [details.birthday];
   if (details.notes) draft.notes = withNote(contact.notes, details.notes);
+  return draft;
+}
+
+/** Adds what's new in `details` to someone you have. */
+async function addDetails(contact: Contact, details: ParsedContact): Promise<void> {
+  const draft = additionDraft(contact, details);
   if (Object.keys(draft).length === 0) return;
   input.disabled = true;
   try {
     const result = await updateContact(contactRef(contact), draft);
+    input.value = ""; // first, so the list redrawn shows them, not the typing
     saved(result);
     const added = changedWords({ ...draft, notes: undefined });
     if (added.length) record(result, "edited", `added ${added.join(", ")}`);
@@ -1256,6 +1341,12 @@ function setUp(): void {
       const at = listed.findIndex((c) => c.id === selectedId);
       const next = e.key === "ArrowDown" ? Math.min(at + 1, listed.length - 1) : Math.max(at - 1, 0);
       select(listed[next], false);
+      // In "Add to…", Enter now adds to them.
+      if (intent.kind === "add" || intent.kind === "update") {
+        picked = listed[next].id;
+        drawHint();
+        listBox.querySelector(".new-contact-row")?.classList.remove("enter-does");
+      }
     }
   });
 

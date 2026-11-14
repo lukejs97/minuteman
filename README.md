@@ -122,8 +122,16 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
   - type someone new, like "Abigail Adams abigail@example.com 555-0100 Writer
     at Braintree birthday November 22", to **add** them (phones, emails,
     addresses, websites, a nickname in brackets, "note: …" are all picked out);
-  - type someone you have with something new ("Paul Revere mobile 555-0101") to
-    **add it to them**;
+  - type someone's name with something new to **add it to them**, as
+    Cardhop does: a number ("Paul 555-0101", even a short one: "Paul 484"),
+    an email, a website, an address ("Paul 19 North Square", or just
+    "Paul 19 North"), someone they're related to ("Paul wife Rachel
+    Revere", "son Joshua", "boss Joseph Warren"), a job and company
+    ("silversmith at the North End"; "title Silversmith"), a nickname, a
+    birthday or a note. Under **New contact** (what Enter does) comes
+    **Add to…**: everyone the name fits, each saying what they'd get, with
+    **Update**. ↑ ↓ picks one for Enter; typed someone's whole name, Enter
+    adds to them;
   - or say what to do: "call Paul", "text Paul", "email Paul about the ride",
     "facetime Paul" (Mac), "map Paul", "note Paul: two if by sea" (a dated
     note), or "meet Paul tomorrow 3pm" (New event, with them invited);

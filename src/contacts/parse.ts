@@ -3,7 +3,9 @@
 //   a search          "sam", "acme", "555 01"
 //   a new contact     "Jane Doe jane@example.com 555-0100 Designer at Acme"
 //   more about someone you have
-//                     "Sam Lee mobile 555-0101" (adds the number to Sam)
+//                     "Sam Lee mobile 555-0101", "Sam 484", "Sam 12 Main",
+//                     "Sam wife Abigail", "Sam title Printer"… (offered for
+//                     everyone the name fits, as Cardhop's "Add to…")
 //   something to do   "call Sam", "text Sam", "email Sam about lunch",
 //                     "meet Sam tomorrow 3pm", "note Sam: likes jazz",
 //                     "map Sam", "facetime Sam"
@@ -28,6 +30,8 @@ export interface ParsedContact {
   phones: Labeled[];
   addresses: Labeled[];
   urls: Labeled[];
+  /** People they're related to: "wife Abigail Adams" → { value: "Abigail Adams", label: "spouse" }. */
+  relations: Labeled[];
   birthday: Birthday | null;
   notes: string | null;
 }
@@ -40,10 +44,14 @@ export type Intent =
   | { kind: "action"; action: Action; query: string; contact: Contact | null; matches: Contact[]; rest: string }
   /** Something done with someone, to log in their History. */
   | { kind: "log"; logKind: InteractionKind; query: string; contact: Contact | null; matches: Contact[]; rest: string }
-  /** A new contact. */
-  | { kind: "add"; details: ParsedContact }
-  /** More details for someone you have (named in full). */
-  | { kind: "update"; contact: Contact; details: ParsedContact };
+  /**
+   * Details for a new contact, or to add to someone you have: `candidates`
+   * are the people the name fits ("Sam" → Samuel Adams, Sam Adams), as
+   * Cardhop's "Add to…". Enter adds a new contact.
+   */
+  | { kind: "add"; details: ParsedContact; candidates: Contact[] }
+  /** The same, the name being someone's in full: Enter adds to `contact` (also first of `candidates`). */
+  | { kind: "update"; contact: Contact; details: ParsedContact; candidates: Contact[] };
 
 const VERBS: [RegExp, Action][] = [
   [/^(?:call|phone|ring|dial)$/i, "call"],
@@ -74,6 +82,9 @@ const JOINERS: Partial<Record<Action, RegExp>> = {
 /** The most words of a person's name looked for after a verb. */
 const MAX_NAME_WORDS = 4;
 
+/** The most people offered to add details to ("Add to…"). */
+const MAX_CANDIDATES = 6;
+
 /** Reads `text`, typed in the box, against `contacts`. */
 export function interpret(text: string, contacts: Contact[], now: Date): Intent {
   const trimmed = text.trim().replace(/\s+/g, " ");
@@ -83,14 +94,19 @@ export function interpret(text: string, contacts: Contact[], now: Date): Intent 
   if (action) return action;
 
   const matches = search(contacts, trimmed);
-  const { name, details, found } = parseDetails(trimmed, now);
   // Details nobody has yet ("Sam Lee sam@example.com" when Sam has that
-  // address is just a search).
+  // address is just a search). With a name and nothing found for all of
+  // it, read more freely: "Sam 484" is Sam's number, "Sam 12 Main" an address.
+  const { name, details, found } = parseDetails(trimmed, now, { loose: matches.length === 0 });
   if (found && matches.length === 0) {
-    // A name you already have, in full: add these details to them.
-    const named = name ? contacts.filter((c) => matchScore(c, name) === 100) : [];
-    if (named.length === 1) return { kind: "update", contact: named[0], details };
-    return { kind: "add", details };
+    // Everyone the name fits, to add these to; best first.
+    const candidates = name ? search(contacts, name).slice(0, MAX_CANDIDATES) : [];
+    // A name you already have, in full: Enter adds these details to them.
+    const named = candidates.filter((c) => matchScore(c, name) === 100);
+    if (named.length === 1) {
+      return { kind: "update", contact: named[0], details, candidates: [named[0], ...candidates.filter((c) => c !== named[0])] };
+    }
+    return { kind: "add", details, candidates };
   }
 
   const add = /[\p{L}]/u.test(trimmed) && !/[@/:]/.test(trimmed) ? details : null;
@@ -169,6 +185,37 @@ const NICKNAME = /(?:\b(?:aka|a\.k\.a\.|nickname)\s+([\p{L}'-]+)|\(([\p{L}'-]+)\
 /** "Designer at Acme", "CEO of Acme", "from Acme", "@ Acme": the job, then the company. */
 const WORK = /(?:,\s*|\s+)(?:(?:works?\s+)?(?:at|@)|of|from)\s+([\p{Lu}0-9&][\p{L}0-9&.'’-]*(?:\s+(?:[\p{Lu}0-9&][\p{L}0-9&.'’-]*|&|and|of))*)/u;
 
+/**
+ * With a name, read more freely (`loose`): a number then words, at the end,
+ * is an address without "Street" ("Sam 1700 Wade Hampton", "Ann 5 Elm,
+ * Concord"); a number on its own of 3 to 6 digits is a phone ("Sam 484").
+ */
+const LOOSE_ADDRESS =
+  /(?:\b(home|work|other)\s*(?:address)?\s*:?\s+|\b(?:address|lives at|lives on)\s*:?\s+)?\b(\d{1,6}[A-Za-z]?\s+\p{L}[^\s,]*(?:[\s,]+[\p{L}\d][^\s,]*){0,9})\s*$/iu;
+const SHORT_PHONE = /(?:\b(mobile|cell|cellphone|iphone|work|office|home|main|fax|pager|other)\s*:?\s+)?(?<![\w/-])(\+?\d{3,6})(?![\w/-])/gi;
+
+/** "wife Abigail Adams", "son John", "my boss: Paul Revere": how they're related, then who. */
+const RELATION =
+  /\b(?:my\s+|his\s+|her\s+|their\s+)?(wife|husband|spouse|partner|domestic partner|son|daughter|child|kid|mother|mom|mum|father|dad|parent|brother|sister|sibling|friend|cousin|relative|manager|boss|assistant|referred by)\s*(?:is\s+|:\s*)?\s+(\p{L}[\p{L}'’.-]*(?:\s+(?!(?:at|of|from|works?|and)\b)\p{L}[\p{L}'’.-]*){0,3})/iu;
+const RELATION_LABELS: Record<string, string> = {
+  wife: "spouse",
+  husband: "spouse",
+  "domestic partner": "domesticPartner",
+  son: "child",
+  daughter: "child",
+  kid: "child",
+  mom: "mother",
+  mum: "mother",
+  dad: "father",
+  sibling: "relative",
+  cousin: "relative",
+  boss: "manager",
+  "referred by": "referredBy",
+};
+
+/** "title Printer", "job: Silversmith", "role Courier": a job title on its own. */
+const TITLE = /\b(?:job\s+title|title|job|role|position)\s*:?\s+([^,;]+?)(?=\s*(?:$|[,;]|\s(?:at|of|from|@)\s))/i;
+
 /** Words that start a job title, so "Jane Doe Designer at Acme" is Jane Doe, Designer. */
 const JOB_WORDS = new Set(
   (
@@ -184,7 +231,11 @@ const JOB_WORDS = new Set(
 const PARTICLES = new Set(["van", "von", "der", "den", "de", "del", "della", "la", "le", "da", "di", "du", "dos", "bin", "al", "st", "st."]);
 
 /** Everything recognised in `text`, the name left over, and whether any detail (not just a name) was found. */
-export function parseDetails(text: string, now: Date): { name: string; details: ParsedContact; found: boolean } {
+export function parseDetails(
+  text: string,
+  now: Date,
+  { loose = false }: { loose?: boolean } = {},
+): { name: string; details: ParsedContact; found: boolean } {
   let rest = text;
   const take = (match: RegExpExecArray) => {
     rest = `${rest.slice(0, match.index)} ${rest.slice(match.index + match[0].length)}`;
@@ -233,6 +284,36 @@ export function parseDetails(text: string, now: Date): { name: string; details: 
     take(match as RegExpExecArray);
   }
 
+  // Read freely (see LOOSE_ADDRESS), only with words before for a name.
+  const named = (match: RegExpExecArray) => /\p{L}/u.test(rest.slice(0, match.index));
+  if (loose) {
+    const place = LOOSE_ADDRESS.exec(rest);
+    if (place && named(place)) {
+      addresses.push({ value: place[2].trim().replace(/\s*,\s*/g, ", "), label: place[1]?.toLowerCase() ?? null });
+      take(place);
+    }
+    for (const match of [...rest.matchAll(SHORT_PHONE)].reverse()) {
+      if (!named(match as RegExpExecArray)) continue;
+      const label = match[1]?.toLowerCase() ?? null;
+      phones.unshift({ value: match[2], label: label ? (PHONE_LABELS[label] ?? label) : null });
+      take(match as RegExpExecArray);
+    }
+  }
+
+  const relations: Labeled[] = [];
+  for (let match = RELATION.exec(rest); match; match = RELATION.exec(rest)) {
+    const kind = match[1].toLowerCase();
+    relations.push({ value: capitalized(match[2].trim()), label: RELATION_LABELS[kind] ?? kind });
+    take(match);
+  }
+
+  let jobTitle: string | null = null;
+  const titled = TITLE.exec(rest);
+  if (titled) {
+    jobTitle = titled[1].trim();
+    take(titled);
+  }
+
   let nickname: string | null = null;
   const aka = NICKNAME.exec(rest);
   if (aka) {
@@ -242,7 +323,6 @@ export function parseDetails(text: string, now: Date): { name: string; details: 
 
   // The job and company: "Jane Doe, Designer at Acme" or "Jane Doe Designer at Acme".
   let organization: string | null = null;
-  let jobTitle: string | null = null;
   const work = WORK.exec(rest);
   let before = rest;
   if (work) {
@@ -255,14 +335,24 @@ export function parseDetails(text: string, now: Date): { name: string; details: 
     const comma = before.indexOf(",");
     if (comma >= 0) {
       name = tidy(before.slice(0, comma));
-      jobTitle = tidy(before.slice(comma + 1)) || null;
+      jobTitle = jobTitle ?? (tidy(before.slice(comma + 1)) || null);
     } else {
       // The job starts at a word like "Designer" or "CEO"; without one, it's all name.
       const words = name.split(" ").filter(Boolean);
       const job = words.findIndex((w, i) => i > 0 && JOB_WORDS.has(w.toLowerCase().replace(/[.,]$/, "")));
-      if (job > 0) {
-        jobTitle = words.slice(job).join(" ");
-        name = words.slice(0, job).join(" ");
+      // Or the words in small letters after a name in capitals: "Sam Adams brewer at…".
+      // ("de", "van"… are the name's: "Marquis de Lafayette at…" is all name.)
+      const lower = (w: string) => w === w.toLowerCase();
+      const small = words.findIndex(
+        (_, i) =>
+          i > 0 &&
+          words.slice(0, i).every((n) => !lower(n) || PARTICLES.has(n)) &&
+          words.slice(i).every((n) => lower(n) && !PARTICLES.has(n)),
+      );
+      const start = job > 0 ? job : small;
+      if (start > 0 && !jobTitle) {
+        jobTitle = words.slice(start).join(" ");
+        name = words.slice(0, start).join(" ");
       }
     }
     // What's left after the company (rare) joins the name's leftovers.
@@ -273,9 +363,7 @@ export function parseDetails(text: string, now: Date): { name: string; details: 
   }
 
   // Typed all in small letters ("john appleseed"): capitalised, as names are.
-  if (name === name.toLowerCase()) {
-    name = name.replace(/\p{L}[\p{L}'’-]*/gu, (w) => (PARTICLES.has(w) ? w : w[0].toUpperCase() + w.slice(1)));
-  }
+  if (name === name.toLowerCase()) name = capitalized(name);
   const [givenName, familyName] = splitName(name);
   const details: ParsedContact = {
     givenName,
@@ -287,14 +375,30 @@ export function parseDetails(text: string, now: Date): { name: string; details: 
     phones,
     addresses,
     urls,
+    relations,
     birthday,
     notes,
   };
   const found = Boolean(
-    emails.length || phones.length || addresses.length || urls.length || birthday || notes || organization || nickname,
+    emails.length ||
+      phones.length ||
+      addresses.length ||
+      urls.length ||
+      relations.length ||
+      birthday ||
+      notes ||
+      organization ||
+      jobTitle ||
+      nickname,
   );
   return { name, details, found };
 }
+
+/** "john appleseed" → "John Appleseed" (as typed, if any capitals: "McGee" stays). */
+const capitalized = (name: string) =>
+  name === name.toLowerCase()
+    ? name.replace(/\p{L}[\p{L}'’-]*/gu, (w) => (PARTICLES.has(w) ? w : w[0].toUpperCase() + w.slice(1)))
+    : name;
 
 const tidy = (s: string) =>
   s
