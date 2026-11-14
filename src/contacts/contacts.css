@@ -904,6 +904,11 @@ main.contacts-main {
   .contact-card {
     padding-bottom: calc(24px + 50px + 12px + 46px + 16px + env(safe-area-inset-bottom));
   }
+
+  /* Typing: clear of the keyboard and the box above it, so the last result shows. */
+  .keyboard-open .contacts-list {
+    padding-bottom: calc(var(--keyboard, 0px) + 8px + 46px + 16px);
+  }
 }
 
 /* ---------- Photos, duplicates and sharing ---------- */

@@ -1314,13 +1314,32 @@ function showSettings(): void {
 function keepBoxAboveKeyboard(): void {
   const viewport = window.visualViewport;
   if (!viewport) return;
+  let frame = 0;
+  let resets = 0;
   const place = () => {
     const covered = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
     body.style.setProperty("--keyboard", `${covered}px`);
     body.classList.toggle("keyboard-open", covered > 80);
+    // Tapping the box, low down where the keyboard comes up, makes iOS push
+    // the whole page up to keep it in view: the header went off the top,
+    // the results with it, and the box could end up under the keyboard.
+    // The box has now moved above the keyboard, so put the page back.
+    // (Only for the box, a few times a tap, never fighting iOS for long.)
+    const pushed = window.scrollY > 0 || viewport.offsetTop > 0;
+    if (covered > 80 && phone.matches && document.activeElement === input && pushed && resets < 3) {
+      resets += 1;
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => window.scrollTo(0, 0));
+    }
   };
   viewport.addEventListener("resize", place);
   viewport.addEventListener("scroll", place);
+  window.addEventListener("scroll", place, { passive: true });
+  // The keyboard's last move doesn't always send an event: look again as it settles.
+  input.addEventListener("focus", () => {
+    resets = 0;
+    for (const wait of [100, 300, 600]) window.setTimeout(place, wait);
+  });
   // iOS can leave the never-scrolling page scrolled after the keyboard goes
   // (see keepPageInPlace in main.ts): put it back.
   input.addEventListener("blur", () => window.setTimeout(() => window.scrollTo(0, 0), 100));
