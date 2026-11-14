@@ -677,11 +677,71 @@ main.contacts-main {
   max-width: 7em;
 }
 
-@media (max-width: 480px) {
-  .labeled-row .labeled-label {
-    width: 5.5em;
+/* Wider than an event's form: room for a whole email or address. */
+.contact-form {
+  width: min(640px, calc(100vw - 32px));
+}
+
+/*
+ * Phones: the form in one column, each part's name above it, and each phone,
+ * email, address… the full width, its label (Mobile, Home…) and × on a line
+ * above it, so what's in it can be read.
+ */
+@media (max-width: 640px) {
+  .contact-form .form-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
   }
 
+  .contact-form .form-label {
+    justify-self: start;
+    margin-top: 12px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .contact-form .form-label:first-child {
+    margin-top: 0;
+  }
+
+  .labeled-list {
+    gap: 12px;
+  }
+
+  .labeled-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    grid-template-areas:
+      "label . remove"
+      "value value value";
+    gap: 2px 6px;
+    align-items: center;
+  }
+
+  /* The label as words over the field ("Mobile ⌄"), not a second box. */
+  .labeled-row .labeled-label {
+    grid-area: label;
+    width: auto;
+    max-width: 100%;
+    min-height: 34px;
+    padding: 2px 4px 2px 2px;
+    border-color: transparent;
+    font-weight: 600;
+    color: var(--accent);
+    background: transparent;
+  }
+
+  .labeled-row .labeled-value {
+    grid-area: value;
+    width: 100%;
+  }
+
+  .labeled-row .labeled-remove {
+    grid-area: remove;
+  }
+}
+
+@media (max-width: 480px) {
   .contact-card {
     padding: 16px 16px calc(24px + env(safe-area-inset-bottom));
   }

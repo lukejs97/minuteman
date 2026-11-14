@@ -144,7 +144,9 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
   stay in view at its bottom as it scrolls; on a phone they're a bar
   floating at the bottom, with **Back** to the list, in thumb's reach (above
   the keyboard while you type a note). In the contact form, **Add phone**,
-  **Add address**, **Add related person**… are whole rows to tap.
+  **Add address**, **Add related person**… are whole rows to tap, and on a
+  phone each number, email and address gets the form's full width (its
+  label, Mobile, Home…, above it).
   - **Photos:** Edit → Photo → **Choose…**, then frame it in **Adjust
     photo**: drag it into the circle, zoom (pinch, scroll, the slider, or
     + and −) and **Rotate**. **Adjust…** (or clicking the photo) frames a

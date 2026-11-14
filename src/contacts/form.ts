@@ -276,7 +276,7 @@ class LabeledList {
       if (this.kind === "urls") input.inputMode = "url";
       if (this.suggestions) input.setAttribute("list", this.suggestions);
     } else {
-      input.rows = 2;
+      input.rows = 3; // street, town, country: all of it in view
       // Places only: not other people's addresses.
       enablePlaceSuggestions(input, undefined, { contacts: false });
     }
