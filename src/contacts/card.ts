@@ -420,20 +420,41 @@ function eventList(title: string, items: AgendaItem[], actions: CardActions): HT
   return box;
 }
 
+/** Icons for the card's buttons, in the phone's bar at the bottom. */
+const FOOTER_ICONS = {
+  back: '<path d="M15 5l-7 7 7 7" />',
+  share: '<path d="M12 15V4M8 8l4-4 4 4" /><path d="M6 11v8.5a1.5 1.5 0 0 0 1.5 1.5h9a1.5 1.5 0 0 0 1.5-1.5V11" />',
+  google: '<path d="M14 4h6v6M20 4l-8.5 8.5" /><path d="M18 14v5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 4 19V7.5A1.5 1.5 0 0 1 5.5 6H10" />',
+  remove: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 12.5A1.5 1.5 0 0 0 8.5 21h7a1.5 1.5 0 0 0 1.5-1.5L18 7M9 7V4.5h6V7" />',
+  edit: '<path d="M14.5 5.5l4 4L8 20H4v-4z" /><path d="M12.5 7.5l4 4" />',
+};
+
+/**
+ * The card's buttons: Delete, Open in Google Contacts, Share…, Edit. Under
+ * the card on a computer (kept in view as it scrolls); on a phone, a bar
+ * floating at the bottom, in thumb's reach, with Back to the list first.
+ * Each has its words, and an icon and a short name for that bar.
+ */
 function footer(contact: Contact, actions: CardActions): HTMLElement {
   const buttons = el("div", "dialog-buttons card-buttons");
-  const remove = el("button", "text-button danger", "Delete");
-  remove.addEventListener("click", () => actions.remove(contact));
-  const google = el("button", "text-button", "Open in Google Contacts");
+  const button = (className: string, words: string, short: string, icon: string, run: (b: HTMLButtonElement) => void) => {
+    const b = el("button", `${className} card-button`);
+    b.type = "button";
+    b.innerHTML = svg(icon, 22);
+    b.append(el("span", "card-button-words", words), el("span", "card-button-short", short));
+    b.addEventListener("click", () => run(b));
+    return b;
+  };
+  const back = button("text-button card-button-back", "‹ Contacts", "Back", FOOTER_ICONS.back, () => actions.back());
+  const remove = button("text-button danger", "Delete", "Delete", FOOTER_ICONS.remove, () => actions.remove(contact));
   const id = contact.resourceName.replace(/^people\//, "");
-  google.addEventListener("click", () =>
+  const google = button("text-button", "Open in Google Contacts", "Google", FOOTER_ICONS.google, () =>
     openUrl(`https://contacts.google.com/person/${encodeURIComponent(id)}?authuser=${encodeURIComponent(contact.account)}`),
   );
-  const share = el("button", "text-button", "Share…");
+  google.title = "Open in Google Contacts";
+  const share = button("text-button", "Share…", "Share", FOOTER_ICONS.share, (b) => actions.share(contact, b));
   share.title = "Send their contact card, or copy it";
-  share.addEventListener("click", () => actions.share(contact, share));
-  const edit = el("button", "primary-button", "Edit");
-  edit.addEventListener("click", () => actions.edit(contact));
-  buttons.append(remove, google, share, edit);
+  const edit = button("primary-button", "Edit", "Edit", FOOTER_ICONS.edit, () => actions.edit(contact));
+  buttons.append(back, remove, google, share, edit);
   return buttons;
 }

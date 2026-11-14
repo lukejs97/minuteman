@@ -140,6 +140,11 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
   changed), upcoming birthdays and Favorites sit at the top of the list;
   Recent's **Show all** opens **Recents**, as Cardhop's: everything done
   with someone, by day, and × takes someone out of it (their History stays). Settings opens from here too.
+  A card's **Delete**, **Open in Google Contacts**, **Share…** and **Edit**
+  stay in view at its bottom as it scrolls; on a phone they're a bar
+  floating at the bottom, with **Back** to the list, in thumb's reach (above
+  the keyboard while you type a note). In the contact form, **Add phone**,
+  **Add address**, **Add related person**… are whole rows to tap.
   - **Photos:** Edit → Photo → **Choose…**, then frame it in **Adjust
     photo**: drag it into the circle, zoom (pinch, scroll, the slider, or
     + and −) and **Rotate**. **Adjust…** (or clicking the photo) frames a

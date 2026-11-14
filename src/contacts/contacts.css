@@ -464,8 +464,118 @@ main.contacts-main {
   display: none;
 }
 
+/*
+ * The card's buttons (Delete, Open in Google Contacts, Share…, Edit). On a
+ * computer: under the card, kept in view at the bottom of the pane as it
+ * scrolls. On a phone: a bar floating at the bottom (below).
+ */
 .card-buttons {
-  margin-top: 24px;
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  margin: 24px -24px 0;
+  padding: 12px 24px calc(12px + env(safe-area-inset-bottom));
+  background: var(--bg);
+  box-shadow: 0 -10px 12px -12px rgb(0 0 0 / 0.35);
+}
+
+.card-button svg,
+.card-button-short,
+.card-button-back {
+  display: none;
+}
+
+/* Delete apart from the rest, on the left (Back, before it, shows only on a phone). */
+.card-buttons .danger {
+  margin-right: auto;
+}
+
+/* The card's own bottom padding goes under the buttons, not after them. */
+.contact-card:has(> .card-buttons) {
+  padding-bottom: 0;
+}
+
+@media (max-width: 640px) {
+  /* The card open: its bar takes the bottom; the box and the buttons for the list step aside. */
+  .card-open .contacts-input,
+  .card-open .dock,
+  .card-open .card-back {
+    display: none !important;
+  }
+
+  .card-buttons {
+    position: fixed;
+    z-index: 20;
+    left: calc(16px + env(safe-area-inset-left));
+    right: calc(16px + env(safe-area-inset-right));
+    bottom: 24px;
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 2px;
+    margin: 0;
+    padding: 6px;
+    border-radius: 22px;
+    background: var(--chrome);
+    box-shadow: 0 4px 16px rgb(0 0 0 / 0.28);
+  }
+
+  /* Typing a note: just above the keyboard. */
+  .keyboard-open .card-buttons {
+    bottom: calc(var(--keyboard, 0px) + 8px);
+  }
+
+  .card-button,
+  .card-button.primary-button,
+  .card-button.text-button {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    min-width: 0;
+    min-height: 54px;
+    margin: 0;
+    padding: 6px 2px 5px;
+    border: none;
+    border-radius: 16px;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.1;
+    color: var(--on-chrome);
+    background: transparent;
+  }
+
+  .card-button svg,
+  .card-button-short {
+    display: block;
+  }
+
+  .card-button-words {
+    display: none;
+  }
+
+  .card-button.danger {
+    color: #ff9a9f;
+  }
+
+  /* Edit, the one most often wanted, in the accent like the dock's +. */
+  .card-button.primary-button {
+    color: var(--on-accent);
+    background: var(--accent);
+  }
+
+  .card-button:active {
+    background: rgb(255 255 255 / 0.12);
+  }
+
+  .card-button.primary-button:active {
+    filter: brightness(1.15);
+    background: var(--accent);
+  }
+
+  .card-open .contact-card {
+    padding-bottom: calc(24px + 66px + 24px + env(safe-area-inset-bottom));
+  }
 }
 
 /* ---------- The form ---------- */
@@ -475,9 +585,54 @@ main.contacts-main {
   align-items: stretch;
 }
 
-.labeled-list > .link-button {
-  align-self: flex-start;
-  font-size: 13px;
+/* "Add phone", "Add related person"…: a row as tall as a field, easy to tap. */
+.labeled-add {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 40px;
+  padding: 6px 12px 6px 8px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: left;
+  color: var(--text);
+  background: transparent;
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .labeled-add:hover {
+    border-style: solid;
+    background: var(--surface);
+  }
+
+  .labeled-remove:hover {
+    color: var(--accent);
+    background: var(--surface);
+  }
+}
+
+.labeled-add:active {
+  background: var(--surface);
+  filter: brightness(0.97);
+}
+
+.labeled-add-badge {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  font-size: 19px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--on-accent);
+  background: var(--accent);
 }
 
 .labeled-row {
@@ -499,9 +654,23 @@ main.contacts-main {
   font-size: 16px;
 }
 
+/* Remove: a round button the size of a fingertip, red once pressed or hovered. */
 .labeled-remove {
+  display: grid;
   flex: none;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 22px;
+  line-height: 1;
   color: var(--muted);
+}
+
+.labeled-remove:active {
+  color: var(--accent);
+  background: var(--surface);
 }
 
 .birthday-year {
@@ -510,7 +679,7 @@ main.contacts-main {
 
 @media (max-width: 480px) {
   .labeled-row .labeled-label {
-    width: 6.5em;
+    width: 5.5em;
   }
 
   .contact-card {

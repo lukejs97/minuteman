@@ -250,8 +250,10 @@ class LabeledList {
     /** A <datalist> of suggestions for the values. */
     private suggestions?: string,
   ) {
-    this.add = el("button", "link-button", LIST_NAMES[kind][1]);
+    // A whole row to tap, "+" in a badge as on the dock's New button.
+    this.add = el("button", "labeled-add");
     this.add.type = "button";
+    this.add.append(el("span", "labeled-add-badge", "+"), el("span", undefined, LIST_NAMES[kind][1]));
     this.add.addEventListener("click", () => this.addRow({ value: "", label: LABEL_CHOICES[kind][0] }).focus());
     this.node.append(this.add);
     for (const value of values) this.addRow(value);

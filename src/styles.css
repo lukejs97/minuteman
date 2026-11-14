@@ -1735,11 +1735,13 @@ body.dimmed::after {
   padding: 7px 16px;
 }
 
-/* Edit forms (New / Edit event or task, a contact, Settings' screens): Save
-   and Cancel stay in view at the bottom as the form scrolls, over its
-   bottom padding, with a soft edge above them. */
+/* Edit forms (New / Edit event or task, a contact, Settings' screens) and
+   an event's details: Save and Cancel, or Edit, Delete…, stay in view at
+   the bottom as it scrolls, over its bottom padding, with a soft edge
+   above them. */
 .event-form .dialog-buttons,
-.dialog.settings form .dialog-buttons {
+.dialog.settings form .dialog-buttons,
+.details > .dialog-buttons {
   position: sticky;
   bottom: -16px;
   z-index: 2;
@@ -1890,10 +1892,26 @@ body.dimmed::after {
   white-space: nowrap;
 }
 
-/* "‹ Settings" at the top of Settings' own screens. */
+/* "‹ Settings" at the top of Settings' own screens; on a phone, at the
+   bottom, first of the buttons there. */
 .settings-back {
   margin: -6px 0 2px -8px;
   font-size: 14px;
+}
+
+.settings-back-bottom {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .back-at-bottom .settings-back {
+    display: none;
+  }
+
+  .dialog-buttons .settings-back-bottom {
+    display: inline-block;
+    margin-right: auto;
+  }
 }
 
 /* Settings → Weather: "Use current location", the search box, and the places found. */

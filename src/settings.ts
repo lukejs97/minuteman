@@ -902,12 +902,25 @@ function openPlacesSettings(back: (() => void) | undefined, onChange: (on: boole
 /** "‹ Settings", back to Settings from one of its screens (if opened from there). */
 function backTo(dialog: HTMLDialogElement, back?: () => void): HTMLElement[] {
   if (!back) return [];
-  const button = el("button", "text-button settings-back", "‹ Settings");
-  button.addEventListener("click", () => {
-    back(); // first, so the dimmed background stays
-    dialog.close();
+  const make = (className: string) => {
+    const button = el("button", `text-button ${className}`, "‹ Settings");
+    button.type = "button";
+    button.addEventListener("click", () => {
+      back(); // first, so the dimmed background stays
+      dialog.close();
+    });
+    return button;
+  };
+  // On a phone, the same at the start of the buttons at the bottom, in
+  // thumb's reach, instead (once the screen has been put together).
+  queueMicrotask(() => {
+    const rows = dialog.querySelectorAll(".dialog-buttons");
+    const row = rows[rows.length - 1];
+    if (!row) return;
+    row.prepend(make("settings-back-bottom"));
+    dialog.classList.add("back-at-bottom");
   });
-  return [button];
+  return [make("settings-back")];
 }
 
 /**
