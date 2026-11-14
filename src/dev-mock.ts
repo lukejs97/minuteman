@@ -314,6 +314,7 @@ function sampleInteractions(): Interaction[] {
   const id = (name: string) => `paul.revere@example.com/people/c${name}`;
   return [
     { contactId: id("samueladams"), kind: "met", at: ago(24 * 9), detail: "ale at the Green Dragon" },
+    { contactId: id("drjosephwarren"), kind: "edited", at: ago(30), detail: "address, phone" },
     { contactId: id("benjaminfranklin"), kind: "email", at: ago(24 * 4), detail: "the printing press" },
     { contactId: id("rachelrevere"), kind: "call", at: ago(26), detail: null },
     { contactId: id("samueladams"), kind: "call", at: ago(3), detail: null },
@@ -800,7 +801,8 @@ export function install(inApp = false): void {
         return null;
       }
       case "interactions":
-        return interactions;
+        // A copy, as the app and the website send one: not the list itself.
+        return interactions.map((entry) => ({ ...entry }));
       case "log_interaction": {
         const { interaction } = args as { interaction: Omit<Interaction, "at"> };
         const entry = { ...interaction, at: new Date().toISOString() };

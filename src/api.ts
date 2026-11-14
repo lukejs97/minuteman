@@ -360,7 +360,7 @@ export const contactRef = (contact: Contact): ContactRef => ({
 });
 
 /** What can be logged with someone (see src-tauri/src/interactions.rs). */
-export type InteractionKind = "call" | "message" | "email" | "facetime" | "meeting" | "met" | "note" | "added";
+export type InteractionKind = "call" | "message" | "email" | "facetime" | "meeting" | "met" | "note" | "added" | "edited" | "hidden";
 
 /** Something you did with someone. Mirrors `Interaction` in src-tauri/src/interactions.rs. */
 export interface Interaction {

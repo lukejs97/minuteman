@@ -16,11 +16,41 @@ function dimBehindDialogs(): void {
     showModal.call(this);
     this.addEventListener("close", () => queueMicrotask(update), { once: true });
     update();
+    followKeyboard(this);
   };
   // A dialog taken off the page while open (not closed first) mustn't leave the dimming behind.
   new MutationObserver(() => document.body.classList.contains("dimmed") && update()).observe(document.body, {
     childList: true,
   });
+}
+
+/**
+ * Phones: how much of the screen's bottom the on-screen keyboard covers, on
+ * an open dialog: --keyboard (0 without one), and --above-keyboard (only
+ * while it's up), so an edit form can sit just above it, Save and Cancel in
+ * view, and a search box at its edge (styles.css).
+ */
+function followKeyboard(dialog: HTMLDialogElement): void {
+  const viewport = window.visualViewport;
+  if (!viewport) return;
+  const place = () => {
+    const covered = Math.max(0, Math.round(window.innerHeight - (viewport.offsetTop + viewport.height)));
+    dialog.style.setProperty("--keyboard", `${covered}px`);
+    // A little left over is the browser's bars, not a keyboard.
+    if (covered > 80) dialog.style.setProperty("--above-keyboard", `${covered + 8}px`);
+    else dialog.style.removeProperty("--above-keyboard");
+  };
+  place();
+  viewport.addEventListener("resize", place);
+  viewport.addEventListener("scroll", place);
+  dialog.addEventListener(
+    "close",
+    () => {
+      viewport.removeEventListener("resize", place);
+      viewport.removeEventListener("scroll", place);
+    },
+    { once: true },
+  );
 }
 
 export async function boot(): Promise<void> {

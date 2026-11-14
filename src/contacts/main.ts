@@ -49,7 +49,16 @@ import { avatar, isMac, renderCard, type CardActions } from "./card";
 import { openContactForm } from "./form";
 import { squarePhoto } from "./photo";
 import { openCalendar, separateApps } from "./open";
-import { describeLatest, historyOf, KIND_WORDS, latestByContact, recentContacts } from "./history";
+import {
+  changedWords,
+  describeEntry,
+  describeLatest,
+  historyOf,
+  KIND_WORDS,
+  latestByContact,
+  recentContacts,
+  recentsByDay,
+} from "./history";
 import {
   bestToKeep,
   cardText,
@@ -395,9 +404,13 @@ function additions(contact: Contact, details: ParsedContact): string[] {
     .concat(details.notes ? [`note: ${details.notes}`] : []);
 }
 
+/** Showing Recents in full (Recent → Show all), as Cardhop's Recents tab. */
+let showingRecents = false;
+
 function drawList(): void {
   const all = contacts();
   const typed = input.value.trim() !== "";
+  if (!typed && showingRecents) return drawRecents(all);
   let people: Contact[];
   const sections: HTMLElement[] = [];
   if (!typed) {
@@ -415,7 +428,13 @@ function drawList(): void {
     const recent = recentContacts(all, log);
     if (recent.length) {
       const latest = latestByContact(log);
-      sections.push(heading("Recent"));
+      sections.push(
+        heading("Recent", "Show all", () => {
+          showingRecents = true;
+          drawList();
+          listBox.scrollTop = 0;
+        }),
+      );
       for (const c of recent) sections.push(row(c, describeLatest(latest.get(c.id)!, today)));
       people.push(...recent);
     }
@@ -459,10 +478,57 @@ function drawList(): void {
   listBox.querySelector("[aria-selected=true]")?.scrollIntoView({ block: "nearest" });
 }
 
-function heading(text: string): HTMLElement {
+function heading(text: string, action?: string, run?: () => void): HTMLElement {
   const node = el("h3", "list-heading", text);
   node.setAttribute("role", "presentation");
+  if (action && run) {
+    const button = el("button", "link-button list-heading-action", action);
+    button.type = "button";
+    button.addEventListener("click", run);
+    node.append(button);
+  }
   return node;
+}
+
+/**
+ * Recents in full, as Cardhop's: each thing done with someone (called,
+ * messaged, emailed, met, a note, added, edited…), latest first, by day.
+ * Click one for their card; × takes them out of Recents (their History stays).
+ */
+function drawRecents(all: Contact[]): void {
+  const now = new Date();
+  const byId = new Map(all.map((c) => [c.id, c]));
+  const top = el("div", "recents-top");
+  const back = el("button", "text-button", "‹ Contacts");
+  back.type = "button";
+  back.addEventListener("click", () => {
+    showingRecents = false;
+    drawList();
+  });
+  top.append(back, el("h3", "recents-title", "Recents"));
+  const sections: HTMLElement[] = [top];
+  const people: Contact[] = [];
+  const days = recentsByDay(all, log, now);
+  for (const { day, entries } of days) {
+    sections.push(heading(day));
+    for (const entry of entries) {
+      const contact = byId.get(entry.contactId);
+      if (!contact) continue;
+      const when = new Date(entry.at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+      const line = el("div", "recent-line");
+      const remove = el("button", "icon-button recent-remove", "×");
+      remove.type = "button";
+      remove.title = `Remove ${displayName(contact)} from Recents`;
+      remove.setAttribute("aria-label", remove.title);
+      remove.addEventListener("click", () => record(contact, "hidden"));
+      line.append(row(contact, `${describeEntry(entry)} · ${when}`), remove);
+      sections.push(line);
+      people.push(contact);
+    }
+  }
+  if (!days.length) sections.push(el("p", "empty", "Nothing yet. Calls, messages, emails, notes and edits you make here show up in Recents."));
+  listed = people;
+  listBox.replaceChildren(...sections);
 }
 
 function row(contact: Contact, note?: string): HTMLElement {
@@ -702,7 +768,10 @@ async function addDetails(contact: Contact, details: ParsedContact): Promise<voi
   if (Object.keys(draft).length === 0) return;
   input.disabled = true;
   try {
-    saved(await updateContact(contactRef(contact), draft));
+    const result = await updateContact(contactRef(contact), draft);
+    saved(result);
+    const added = changedWords({ ...draft, notes: undefined });
+    if (added.length) record(result, "edited", `added ${added.join(", ")}`);
     if (details.notes) record(contact, "note", details.notes);
     input.value = "";
   } catch (e) {
@@ -742,7 +811,18 @@ const byName = (a: Contact, b: Contact) =>
 
 const cardActions: CardActions = {
   perform: (action, contact, anchor) => act(action, contact, anchor),
-  edit: (contact) => openContactForm(contact, null, usableAccounts(), saved, contacts().map(displayName)),
+  edit: (contact) =>
+    openContactForm(
+      contact,
+      null,
+      usableAccounts(),
+      (result, warning, changed) => {
+        saved(result, warning);
+        // In Recents, as Cardhop's: "Edited: name, address".
+        if (changed?.length) record(result, "edited", changed.join(", "));
+      },
+      contacts().map(displayName),
+    ),
   async remove(contact) {
     const answer = await ask(`Delete ${displayName(contact)}?`, `They're deleted from ${contact.account}'s Google Contacts too.`, [
       ["delete", "Delete contact", true],
@@ -973,6 +1053,7 @@ function openPhotosReview(fileName: string, found: ReturnType<typeof matchFilePh
         const current = contacts().find((c) => c.id === contact.id) ?? contact;
         const result = await withRetry(() => setContactPhoto(contactRef(current), square));
         if (list) list = { ...list, contacts: list.contacts.map((c) => (c.id === result.id ? result : c)) };
+        record(result, "edited", "photo, from a contacts file");
         done++;
       } catch (e) {
         failed.push(`${displayName(contact)} (${errorMessage(e)})`);
@@ -1081,6 +1162,7 @@ function duplicateGroup(group: Contact[], dialog: HTMLDialogElement): HTMLElemen
       log = log.map((e) => (gone.has(e.contactId) ? { ...e, contactId: result.id } : e));
       if (list) list = { ...list, contacts: list.contacts.filter((c) => !gone.has(c.id)) };
       saved(result);
+      record(result, "edited", others.length === 1 ? "merged a duplicate" : `merged ${others.length} duplicates`);
       section.replaceChildren(el("p", "duplicate-result", `Merged into ${displayName(result)}.`));
       if (!dialog.querySelector(".duplicate-group button")) dialog.querySelector<HTMLButtonElement>(".primary-button")?.focus();
     } catch (e) {

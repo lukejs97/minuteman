@@ -134,10 +134,12 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
   with their age ("November 16, 1745 (age 280)"; click one to see that day
   in the calendar), the people they're related to (Spouse, Child, Friend…;
   click one to see their card), notes, upcoming events with them, and their **History**: calls, messages, emails and
-  FaceTimes started here, meetings set up, notes, what you log (the card's
-  **Log…**, or the box), and past events with them, latest first. **Recent**
-  (who you were last in touch with), upcoming birthdays and Favorites sit at
-  the top of the list. Settings opens from here too.
+  FaceTimes started here, meetings set up, notes, edits ("Edited: name,
+  address"), what you log (the card's **Log…**, or the box), and past events
+  with them, latest first. **Recent** (who you were last in touch with or
+  changed), upcoming birthdays and Favorites sit at the top of the list;
+  Recent's **Show all** opens **Recents**, as Cardhop's: everything done
+  with someone, by day, and × takes someone out of it (their History stays). Settings opens from here too.
   - **Photos:** Edit → Photo → **Choose…**, then frame it in **Adjust
     photo**: drag it into the circle, zoom (pinch, scroll, the slider, or
     + and −) and **Rotate**. **Adjust…** (or clicking the photo) frames a

@@ -878,3 +878,62 @@ button.photo-preview {
   margin: 8px 0 0;
   text-align: center;
 }
+
+/* ---------- Recents ---------- */
+
+/* "Recent … Show all": the heading with its link at the right. */
+.list-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.list-heading-action {
+  font-family: inherit;
+  font-size: 12px;
+}
+
+/* Recents in full: "‹ Contacts", the title. */
+.recents-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 4px 0;
+}
+
+.recents-title {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: 16px;
+}
+
+/* One thing done with someone, and × to take them out of Recents. */
+.recent-line {
+  display: flex;
+  align-items: center;
+}
+
+.recent-line .contact-row {
+  flex: 1;
+  min-width: 0;
+}
+
+.recent-remove {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  color: var(--muted);
+  opacity: 0;
+}
+
+.recent-line:hover .recent-remove,
+.recent-remove:focus-visible {
+  opacity: 1;
+}
+
+/* No hover on a phone: always there. */
+@media (hover: none) {
+  .recent-remove {
+    opacity: 1;
+  }
+}

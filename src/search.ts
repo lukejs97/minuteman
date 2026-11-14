@@ -85,28 +85,8 @@ export function openSearch(open: (item: AgendaItem) => void): void {
 
   dialog.append(bar, status, results);
   dialog.showModal();
+  // Phones: --keyboard keeps it just above the keyboard (boot.ts sets it on every dialog).
   input.focus();
-  followKeyboard(dialog);
-}
-
-/**
- * Phones: keeps `dialog` just above the on-screen keyboard, by setting
- * --keyboard to how much of the screen's bottom the keyboard covers.
- */
-function followKeyboard(dialog: HTMLDialogElement): void {
-  const viewport = window.visualViewport;
-  if (!viewport) return;
-  const place = () => {
-    const covered = window.innerHeight - (viewport.offsetTop + viewport.height);
-    dialog.style.setProperty("--keyboard", `${Math.max(0, Math.round(covered))}px`);
-  };
-  place();
-  viewport.addEventListener("resize", place);
-  viewport.addEventListener("scroll", place);
-  dialog.addEventListener("close", () => {
-    viewport.removeEventListener("resize", place);
-    viewport.removeEventListener("scroll", place);
-  });
 }
 
 function section(title: string, items: AgendaItem[], choose: (item: AgendaItem) => void): HTMLElement[] {

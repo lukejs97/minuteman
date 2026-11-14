@@ -19,7 +19,9 @@ const MAX_ENTRIES: usize = 5000;
 /// The longest detail kept (a note, an email's subject).
 const MAX_DETAIL: usize = 2000;
 /// What can be logged (see `KIND_WORDS` in src/contacts/history.ts).
-const KINDS: &[&str] = &["call", "message", "email", "facetime", "meeting", "met", "note", "added"];
+/// "edited": a change to them made here; "hidden": removed from Recents
+/// (their earlier entries leave Recents, and stay in their History).
+const KINDS: &[&str] = &["call", "message", "email", "facetime", "meeting", "met", "note", "added", "edited", "hidden"];
 
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]

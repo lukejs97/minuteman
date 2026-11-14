@@ -49,7 +49,7 @@ const text = (args: Args, name: string): string => {
 const flag = (args: Args, name: string) => args[name] === true;
 
 /** What can be logged, the most kept, and the longest detail: as in src-tauri/src/interactions.rs. */
-const INTERACTION_KINDS: InteractionKind[] = ["call", "message", "email", "facetime", "meeting", "met", "note", "added"];
+const INTERACTION_KINDS: InteractionKind[] = ["call", "message", "email", "facetime", "meeting", "met", "note", "added", "edited", "hidden"];
 const MAX_INTERACTIONS = 5000;
 const MAX_DETAIL = 2000;
 

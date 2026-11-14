@@ -15,6 +15,7 @@ import {
   type Labeled,
 } from "../api";
 import { el } from "../dom";
+import { changedWords } from "./history";
 import { labelText } from "./model";
 import { cropPhoto } from "./photo";
 import type { ParsedContact } from "./parse";
@@ -73,7 +74,7 @@ export function openContactForm(
   contact: Contact | null,
   start: ParsedContact | null,
   accounts: string[],
-  onSaved: (saved: Contact, warning?: string) => void,
+  onSaved: (saved: Contact, warning?: string, changed?: string[]) => void,
   names: string[] = [],
 ): void {
   const dialog = el("dialog", "dialog event-form contact-form");
@@ -192,7 +193,8 @@ export function openContactForm(
       warning = `Saved, but the photo couldn't be changed: ${errorMessage(err)}`;
     }
     dialog.close();
-    onSaved(saved, warning);
+    // What an edit changed, in words, for Recents ("name, address").
+    onSaved(saved, warning, contact ? changedWords(draft, photo.changed() && !warning) : undefined);
   });
   form.append(grid, people, error, buttons);
   dialog.append(title, form);
@@ -266,7 +268,10 @@ class LabeledList {
     const input =
       this.kind === "addresses" ? el("textarea", "text-input labeled-value") : el("input", "text-input labeled-value");
     if (input instanceof HTMLInputElement) {
-      input.type = this.kind === "emails" ? "email" : this.kind === "phones" ? "tel" : this.kind === "urls" ? "url" : "text";
+      // A website as Google keeps it, "poorrichard.example" too: not type="url",
+      // which turns down one without https:// and so stopped Save.
+      input.type = this.kind === "emails" ? "email" : this.kind === "phones" ? "tel" : "text";
+      if (this.kind === "urls") input.inputMode = "url";
       if (this.suggestions) input.setAttribute("list", this.suggestions);
     } else {
       input.rows = 2;
