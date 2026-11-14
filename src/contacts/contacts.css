@@ -519,9 +519,9 @@ main.contacts-main {
     box-shadow: 0 4px 16px rgb(0 0 0 / 0.28);
   }
 
-  /* Typing a note: just above the keyboard. */
+  /* Typing a note: just above the keyboard (see the page fitted above it, below). */
   .keyboard-open .card-buttons {
-    bottom: calc(var(--keyboard, 0px) + 8px);
+    bottom: 8px;
   }
 
   .card-button,
@@ -885,9 +885,20 @@ main.contacts-main {
     box-shadow: 0 4px 16px rgb(0 0 0 / 0.28);
   }
 
-  /* Typing: just above the keyboard (main.ts measures it); the buttons, under it, hide. */
+  /*
+   * Typing: the page fitted to what the keyboard leaves (main.ts measures
+   * it): moved to where that is, iOS having pushed the page up, and as tall.
+   * The transform also makes the floating box and bar keep to the page, so
+   * they sit just above the keyboard; the buttons, under it, hide.
+   */
+  body.keyboard-open {
+    height: var(--visible-height, 100%);
+    padding-bottom: 0;
+    transform: translateY(var(--visible-top, 0px));
+  }
+
   .keyboard-open .contacts-input {
-    bottom: calc(var(--keyboard, 0px) + 8px);
+    bottom: 8px;
   }
 
   .keyboard-open .dock {
@@ -905,9 +916,13 @@ main.contacts-main {
     padding-bottom: calc(24px + 50px + 12px + 46px + 16px + env(safe-area-inset-bottom));
   }
 
-  /* Typing: clear of the keyboard and the box above it, so the last result shows. */
+  /* Typing: clear of the box above the keyboard, so the last result shows. */
   .keyboard-open .contacts-list {
-    padding-bottom: calc(var(--keyboard, 0px) + 8px + 46px + 16px);
+    padding-bottom: calc(8px + 46px + 16px);
+  }
+
+  .keyboard-open .contact-card {
+    padding-bottom: calc(8px + 66px + 16px);
   }
 }
 

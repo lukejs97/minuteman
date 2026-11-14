@@ -1313,42 +1313,73 @@ function showSettings(): void {
 
 /**
  * Phones: the box floats above the buttons at the bottom, which the
- * keyboard covers. While it's open, the box sits just above the keyboard
- * instead (and the buttons hide). The keyboard's height is what the
- * visible part of the page lost at its bottom.
+ * keyboard covers. While the keyboard is up, the page is fitted to what's
+ * left above it: header at the top, the box just above the keyboard (the
+ * buttons hide), the list between.
+ *
+ * iOS doesn't make this easy: tapping the box, low down where the keyboard
+ * comes up, pushes the page up to keep it in view (the header went off the
+ * top), and window.innerHeight can shrink with the keyboard too, so it
+ * can't be measured against that. Instead: the tallest the visible part
+ * has been is the screen without a keyboard; well short of that, the
+ * keyboard is up, and the page is moved to where the visible part is now
+ * and made its height.
  */
 function keepBoxAboveKeyboard(): void {
   const viewport = window.visualViewport;
   if (!viewport) return;
+  const root = document.documentElement;
+  let full = viewport.height;
   let frame = 0;
-  let resets = 0;
   const place = () => {
-    const covered = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
-    body.style.setProperty("--keyboard", `${covered}px`);
-    body.classList.toggle("keyboard-open", covered > 80);
-    // Tapping the box, low down where the keyboard comes up, makes iOS push
-    // the whole page up to keep it in view: the header went off the top,
-    // the results with it, and the box could end up under the keyboard.
-    // The box has now moved above the keyboard, so put the page back.
-    // (Only for the box, a few times a tap, never fighting iOS for long.)
-    const pushed = window.scrollY > 0 || viewport.offsetTop > 0;
-    if (covered > 80 && phone.matches && document.activeElement === input && pushed && resets < 3) {
-      resets += 1;
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => window.scrollTo(0, 0));
+    const height = viewport.height;
+    const typingInDialog = document.activeElement?.closest("dialog");
+    if (!document.activeElement?.matches("input, textarea, select, [contenteditable]")) full = height;
+    full = Math.max(full, height);
+    const open = phone.matches && full - height > 120 && !typingInDialog;
+    const opening = open && !body.classList.contains("keyboard-open");
+    body.classList.toggle("keyboard-open", open);
+    // A card's note: up into view, clear of the buttons floating over the card's end.
+    const typing = document.activeElement;
+    if (opening && typing instanceof HTMLElement && typing.closest(".contacts-card-pane")) {
+      requestAnimationFrame(() => typing.scrollIntoView({ block: "center" }));
+    }
+    if (open) {
+      root.style.setProperty("--visible-top", `${Math.round(viewport.pageTop)}px`);
+      root.style.setProperty("--visible-height", `${Math.round(height)}px`);
+    } else {
+      root.style.removeProperty("--visible-top");
+      root.style.removeProperty("--visible-height");
     }
   };
-  viewport.addEventListener("resize", place);
-  viewport.addEventListener("scroll", place);
-  window.addEventListener("scroll", place, { passive: true });
-  // The keyboard's last move doesn't always send an event: look again as it settles.
-  input.addEventListener("focus", () => {
-    resets = 0;
-    for (const wait of [100, 300, 600]) window.setTimeout(place, wait);
+  const soon = () => {
+    cancelAnimationFrame(frame);
+    frame = requestAnimationFrame(place);
+  };
+  viewport.addEventListener("resize", soon);
+  viewport.addEventListener("scroll", soon);
+  window.addEventListener("scroll", soon, { passive: true });
+  window.addEventListener("resize", soon);
+  // Turned sideways (wider or narrower; a keyboard never changes the width): measure afresh.
+  let width = window.innerWidth;
+  window.addEventListener("resize", () => {
+    if (window.innerWidth === width) return;
+    width = window.innerWidth;
+    full = 0;
   });
-  // iOS can leave the never-scrolling page scrolled after the keyboard goes
-  // (see keepPageInPlace in main.ts): put it back.
-  input.addEventListener("blur", () => window.setTimeout(() => window.scrollTo(0, 0), 100));
+  // The keyboard's last move doesn't always send an event: look again as it settles.
+  document.addEventListener("focusin", () => {
+    for (const wait of [50, 150, 300, 600]) window.setTimeout(place, wait);
+  });
+  document.addEventListener("focusout", () => {
+    for (const wait of [50, 300]) window.setTimeout(place, wait);
+    // iOS can leave the never-scrolling page scrolled after the keyboard goes
+    // (see keepPageInPlace in main.ts): put it back.
+    window.setTimeout(() => {
+      if (!document.activeElement?.matches("input, textarea, select")) window.scrollTo(0, 0);
+    }, 100);
+  });
+  place();
 }
 
 /** "+": the New contact form, filled in from the box if it reads as someone new. */
