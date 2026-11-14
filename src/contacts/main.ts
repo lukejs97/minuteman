@@ -185,7 +185,11 @@ async function load(): Promise<void> {
   }
 }
 
-function show(loaded: ContactList): void {
+function show(fromGoogle: ContactList): void {
+  // In order by the name shown, as the letters go: Google lists people with
+  // no name (just a company or an email) after everyone else, which put a
+  // second "G" (say) at the end.
+  const loaded = { ...fromGoogle, contacts: [...fromGoogle.contacts].sort(byName) };
   // Nothing new: leave it be (and the list where you'd scrolled it).
   if (list && JSON.stringify(list) === JSON.stringify(loaded)) return;
   list = loaded;
@@ -806,8 +810,10 @@ function saved(contact: Contact, warning?: string): void {
   update();
 }
 
+/** A to Z by the name shown (a company or an email, without one), "#" (numbers, other scripts) last. */
 const byName = (a: Contact, b: Contact) =>
-  Number(!a.name) - Number(!b.name) || displayName(a).localeCompare(displayName(b), undefined, { sensitivity: "base" });
+  Number(indexLetter(a) === "#") - Number(indexLetter(b) === "#") ||
+  displayName(a).localeCompare(displayName(b), undefined, { sensitivity: "base" });
 
 const cardActions: CardActions = {
   perform: (action, contact, anchor) => act(action, contact, anchor),
