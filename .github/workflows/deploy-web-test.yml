@@ -1,0 +1,107 @@
+# Puts a branch on the test copy of the website (web/wrangler.test.jsonc),
+# minuteman-test.<your-subdomain>.workers.dev, to try it before it goes live.
+# Its own Worker and its own empty store: nothing on the live site changes.
+#
+# Runs on every push to a working branch (claude/… or test/…), and from the
+# Actions tab ("Deploy test site" → Run workflow → pick the branch). Never on
+# main: that's the live site (deploy-web.yml). The first run makes the test
+# site's store and its TOKEN_KEY. The test site also needs the Google web
+# client's ID and secret (the same as the live site's), added once in
+# Cloudflare → Workers & Pages → minuteman-test → Settings → Variables and
+# Secrets, and its address added to the Google web client's redirect URIs
+# (web/README.md, "A test copy").
+#
+# Needs the same CLOUDFLARE_API_TOKEN (and CLOUDFLARE_ACCOUNT_ID, if set) as
+# deploy-web.yml.
+
+name: Deploy test site
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["claude/**", "test/**"]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "site/**"
+      - "src-tauri/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-web-test
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Check the Cloudflare token is set
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::error::Add CLOUDFLARE_API_TOKEN under Settings → Secrets and variables → Actions (see deploy-web.yml)."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            web/package-lock.json
+
+      - run: npm ci
+
+      - run: npm ci
+        working-directory: web
+
+      # The test site's own store, made the first time; its id goes in the config.
+      - name: Find or make the test store
+        working-directory: web
+        run: |
+          if [ -n "$ACCOUNT_ID" ]; then export CLOUDFLARE_ACCOUNT_ID="$ACCOUNT_ID"; fi
+          find_id() {
+            npx wrangler kv namespace list 2>/dev/null | node -e '
+              let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => {
+                const list = JSON.parse(s.slice(s.indexOf("[")));
+                const hit = list.find((n) => n.title.toLowerCase().includes("minuteman-test-store"));
+                process.stdout.write(hit ? hit.id : "");
+              });'
+          }
+          ID=$(find_id)
+          if [ -z "$ID" ]; then
+            npx wrangler kv namespace create minuteman-test-store
+            ID=$(find_id)
+          fi
+          if [ -z "$ID" ]; then echo "::error::Couldn't find or make the test store."; exit 1; fi
+          sed -i "s/TEST_STORE_ID/$ID/" wrangler.test.jsonc
+
+      - name: Deploy the test site
+        working-directory: web
+        run: |
+          if [ -n "$ACCOUNT_ID" ]; then export CLOUDFLARE_ACCOUNT_ID="$ACCOUNT_ID"; fi
+          npm run build:site
+          npx wrangler deploy --config wrangler.test.jsonc
+
+      # Its own key for the stored tokens (never the live site's), made once.
+      - name: Check the test site's secrets
+        working-directory: web
+        run: |
+          if [ -n "$ACCOUNT_ID" ]; then export CLOUDFLARE_ACCOUNT_ID="$ACCOUNT_ID"; fi
+          SECRETS=$(npx wrangler secret list --config wrangler.test.jsonc 2>/dev/null || echo "[]")
+          if ! echo "$SECRETS" | grep -q '"TOKEN_KEY"'; then
+            node -e 'process.stdout.write(require("crypto").randomBytes(32).toString("base64"))' \
+              | npx wrangler secret put TOKEN_KEY --config wrangler.test.jsonc
+          fi
+          for name in GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET; do
+            if ! echo "$SECRETS" | grep -q "\"$name\""; then
+              echo "::warning::The test site has no $name yet: add it in Cloudflare → Workers & Pages → minuteman-test → Settings → Variables and Secrets (the same value as the live site's)."
+            fi
+          done

@@ -6,6 +6,7 @@
 import type { FoundPlace } from "../../src/api";
 import { charge, emptyUsage, pacificDate, type Usage } from "../../src/routes-budget";
 import type { Env } from "./env";
+import { chargeSite, personal } from "./shares";
 import { readRoutesUsage, writeRoutesUsage } from "./store";
 
 const DISCOVER_URL = "https://api.tomtom.com/maps/orbis/places/discover";
@@ -24,26 +25,31 @@ export interface Near {
   longitude: number;
 }
 
-/** Counts one attempt, saved before it's sent; false at the cap (or if it can't be saved). */
+/**
+ * Counts one attempt, saved before it's sent; false at the cap (or if it
+ * can't be saved): this person's (a share, if not the owner), then
+ * everyone's together, against the free tier's (shares.ts).
+ */
 async function spend(env: Env): Promise<boolean> {
   const usage = (await readRoutesUsage(env, USAGE_KEY)) ?? emptyUsage(new Date());
-  const next = charge(usage, pacificDate(new Date()), LIMITS);
+  const next = charge(usage, pacificDate(new Date()), personal(env, LIMITS));
   try {
     await writeRoutesUsage(env, next.usage, USAGE_KEY);
   } catch {
     return false;
   }
-  return next.kind === "allowed";
+  return next.kind === "allowed" && (await chargeSite(env, "site:placesUsage", LIMITS));
 }
 
 export async function placesUsage(env: Env): Promise<{ dayCount: number; dayLimit: number; monthCount: number; monthLimit: number }> {
   const usage: Usage = (await readRoutesUsage(env, USAGE_KEY)) ?? emptyUsage(new Date());
   const today = pacificDate(new Date());
+  const limits = personal(env, LIMITS);
   return {
     dayCount: usage.day === today ? usage.dayCount : 0,
-    dayLimit: PLACES_DAILY,
+    dayLimit: limits.daily,
     monthCount: usage.month === today.slice(0, 7) ? usage.monthCount : 0,
-    monthLimit: PLACES_MONTHLY,
+    monthLimit: limits.monthly,
   };
 }
 

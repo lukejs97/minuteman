@@ -12,11 +12,13 @@
 //   pushSubscriptions   encrypted list of phones and browsers with alerts on (push.ts)
 //   pushKey             encrypted key the site signs its alerts with (push.ts)
 //   pushUpcoming        encrypted alerts due in the next half hour, further ahead (reminders.ts)
-//   session:<hash>      a signed-in browser (only a hash of its cookie is kept)
+//   session:<hash>      a signed-in browser, and whose (only a hash of its cookie is kept)
 //   oauth:<state>       a Google sign-in in progress (10 minutes)
 //
-// One person per deployment: the site's owner, who can add several Google
-// accounts. Tokens never leave the server; browsers only get a session cookie.
+// Each of these but the last two is one person's: the site's owner, or
+// someone they invited, each in their own part of the store (users.ts), each
+// with several Google accounts if they like. Tokens never leave the server;
+// browsers only get a session cookie.
 import type { Interaction } from "../../src/api";
 import type { Usage } from "../../src/routes-budget";
 import type { GeoCache } from "./nominatim";
@@ -176,36 +178,47 @@ export async function writeGeocodeCache(env: Env, cache: GeoCache): Promise<void
   await writeEncrypted(env, "geocodeCache", JSON.stringify(cache));
 }
 
-/** Starts a session; returns the value for the browser's cookie. */
-export async function createSession(env: Env): Promise<string> {
+// Sessions and sign-ins in progress are the site's, not one person's: they
+// say whose they are, so they're kept in the whole store (`SITE`).
+const site = (env: Env) => env.SITE ?? env.STORE;
+
+/** Starts a session for `user` ("owner" or a person's id); returns the value for the browser's cookie. */
+export async function createSession(env: Env, user: string): Promise<string> {
   const token = randomToken();
-  await env.STORE.put(`session:${await sha256(token)}`, "1", { expirationTtl: SESSION_SECONDS });
+  // The metadata too, so someone's sessions can be found to end them (users.ts).
+  await site(env).put(`session:${await sha256(token)}`, user, { expirationTtl: SESSION_SECONDS, metadata: { user } });
   return token;
 }
 
-export async function hasSession(env: Env, token: string | null): Promise<boolean> {
-  if (!token) return false;
-  return (await env.STORE.get(`session:${await sha256(token)}`)) !== null;
+/** Whose session `token` is ("owner" or a person's id), or null if none. */
+export async function sessionUser(env: Env, token: string | null): Promise<string | null> {
+  if (!token) return null;
+  const value = await site(env).get(`session:${await sha256(token)}`);
+  if (value === null) return null;
+  // Sessions from before there were other people said "1": the owner's.
+  return value === "1" ? "owner" : value;
 }
 
 export async function endSession(env: Env, token: string | null): Promise<void> {
-  if (token) await env.STORE.delete(`session:${await sha256(token)}`);
+  if (token) await site(env).delete(`session:${await sha256(token)}`);
 }
 
 export interface PendingSignIn {
   verifier: string;
-  /** Adding an account from a signed-in browser (any account may be added). */
-  signedIn: boolean;
+  /** Adding an account from a signed-in browser: whose ("owner" or a person's id). */
+  adding: string | null;
 }
 
 export async function savePendingSignIn(env: Env, state: string, pending: PendingSignIn): Promise<void> {
-  await env.STORE.put(`oauth:${state}`, JSON.stringify(pending), { expirationTtl: 600 });
+  await site(env).put(`oauth:${state}`, JSON.stringify(pending), { expirationTtl: 600 });
 }
 
 export async function takePendingSignIn(env: Env, state: string): Promise<PendingSignIn | null> {
   const key = `oauth:${state}`;
-  const json = await env.STORE.get(key);
+  const json = await site(env).get(key);
   if (json === null) return null;
-  await env.STORE.delete(key);
-  return JSON.parse(json) as PendingSignIn;
+  await site(env).delete(key);
+  const parsed = JSON.parse(json) as Partial<PendingSignIn> & { signedIn?: boolean };
+  // One started just before this version: adding meant the owner's.
+  return { verifier: parsed.verifier ?? "", adding: parsed.adding ?? (parsed.signedIn ? "owner" : null) };
 }

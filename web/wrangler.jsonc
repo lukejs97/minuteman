@@ -22,8 +22,13 @@
   // Every minute: alerts due now, sent to phones and browsers; every 30
   // minutes: the look further ahead for them (reminders.ts, index.ts).
   "triggers": { "crons": ["* * * * *", "*/30 * * * *"] },
+  // This Worker itself: each person's alerts run as a request of their own
+  // (index.ts `alertsFor`), with their own limits. Keep the name the same as
+  // "name" above.
+  "services": [{ "binding": "SELF", "service": "minuteman" }],
   "vars": {
-    // Google accounts allowed to sign in to this site (comma-separated).
+    // The site owner's Google accounts (comma-separated): they sign in as the
+    // owner, and can invite others in Settings → People (src/users.ts).
     "ALLOWED_EMAILS": "lukesassa9@gmail.com"
   }
 }

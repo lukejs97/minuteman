@@ -29,6 +29,8 @@ on:
       - ".github/workflows/build-macos.yml"
       - ".github/workflows/build-windows.yml"
       - ".github/workflows/pages.yml"
+      - ".github/workflows/deploy-web-test.yml"
+      - "web/wrangler.test.jsonc"
 
 permissions:
   contents: read

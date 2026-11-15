@@ -380,6 +380,37 @@ export interface AppError {
 }
 
 export const authStatus = () => invoke<boolean>("auth_status");
+
+// ---------- People (the website only: web/src/users.ts) ----------
+
+/** Who's signed in on the website: its owner, or someone they invited (and the email they joined with). */
+export interface Me {
+  owner: boolean;
+  email: string | null;
+}
+
+/** Someone the site's owner invited, once they've joined. */
+export interface Person {
+  id: string;
+  email: string;
+  joined: string;
+  /** Their Google accounts here. */
+  accounts: string[];
+}
+
+export interface PeopleList {
+  people: Person[];
+  /** Emails invited who haven't signed in yet. */
+  invites: string[];
+}
+
+export const me = () => invoke<Me>("me");
+export const peopleList = () => invoke<PeopleList>("people_list");
+export const invitePerson = (email: string) => invoke<PeopleList>("people_invite", { email });
+export const uninvitePerson = (email: string) => invoke<PeopleList>("people_uninvite", { email });
+export const removePerson = (id: string) => invoke<PeopleList>("people_remove", { id });
+/** Someone invited: everything of theirs on the site, deleted, and their accounts given back to Google. */
+export const deleteMyData = () => invoke<void>("delete_my_data");
 /** Adds a Google account (or renews one already added); resolves to its email. */
 export const signIn = () => invoke<string>("sign_in");
 export const googleAccounts = () => invoke<string[]>("google_accounts");

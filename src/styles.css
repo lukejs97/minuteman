@@ -2806,6 +2806,47 @@ body.detached .fly-close {
   margin: 4px 0 8px;
 }
 
+/* Settings → People (the website's owner): who's joined, invites, and inviting. */
+.people-list {
+  margin: 4px 0 12px;
+}
+
+.people-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.people-row .settings-text {
+  flex: 1;
+  min-width: 0;
+}
+
+/* A long email breaks after its @ before anywhere else. */
+.people-row .settings-name {
+  overflow-wrap: break-word;
+}
+
+.people-sent:not(:empty) {
+  margin: 8px 0 0;
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.people-invite {
+  display: flex;
+  gap: 8px;
+}
+
+.people-invite .text-input {
+  flex: 1;
+  min-width: 0;
+}
+
 .settings-row {
   display: flex;
   align-items: center;

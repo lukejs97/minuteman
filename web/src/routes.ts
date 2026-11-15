@@ -25,6 +25,7 @@ import {
   type Usage,
 } from "../../src/routes-budget";
 import type { Env } from "./env";
+import { chargeSite, personal, siteRoutesLimits } from "./shares";
 import { cachedLookup, pruneGeoCache, type GeoCache } from "./nominatim";
 import { readGeocodeCache, readLeaveSettings, readRoutesCache, readRoutesUsage, writeGeocodeCache, writeRoutesCache, writeRoutesUsage, type RouteCache } from "./store";
 
@@ -44,7 +45,15 @@ async function spend(env: Env, usage: Usage, limits: { daily: number; monthly: n
   } catch {
     return { ok: false, usage: next.usage };
   }
-  return { ok: next.kind === "allowed", usage: next.usage };
+  if (next.kind !== "allowed") return { ok: false, usage: next.usage };
+  // Everyone's together, against the owner's caps (shares.ts).
+  return { ok: await chargeSite(env, "site:routesUsage", await siteRoutesLimits(env)), usage: next.usage };
+}
+
+/** This person's Routes caps: their Settings', or for someone not the owner, no more than their share. */
+export async function routesLimits(env: Env): Promise<{ daily: number; monthly: number }> {
+  const settings = await readLeaveSettings(env);
+  return personal(env, clampLimits(settings.routesDailyLimit, settings.routesMonthlyLimit));
 }
 
 /** Minutes, "noRoute" (Google found no drive: not worth asking again soon), or null (no answer). */
@@ -135,7 +144,7 @@ export async function leaveTimes(env: Env, events: LeaveQuery[], here: string | 
   const from = settings.leaveFromHere ? here : null;
   // The same point, when it's already allowed, used only to tell same-named streets apart.
   const device = parseSpot(near ?? "") ?? parseSpot(here ?? "");
-  const limits = clampLimits(settings.routesDailyLimit, settings.routesMonthlyLimit);
+  const limits = personal(env, clampLimits(settings.routesDailyLimit, settings.routesMonthlyLimit));
   const key = env.MINUTEMAN_ROUTES_API_KEY?.trim() ?? "";
   let usage = (await readRoutesUsage(env)) ?? emptyUsage(new Date());
   const cache = await readRoutesCache(env);

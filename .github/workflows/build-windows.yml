@@ -30,6 +30,7 @@ on:
       - ".vscode/**"
       - ".github/workflows/build-macos.yml"
       - ".github/workflows/deploy-web.yml"
+      - ".github/workflows/deploy-web-test.yml"
       - ".github/workflows/pages.yml"
 
 permissions:

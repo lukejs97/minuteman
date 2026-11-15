@@ -37,6 +37,7 @@ import { clampLimits, capped, emptyUsage, pacificDate, MAX_DAILY, MAX_MONTHLY } 
 import * as push from "./push";
 import * as reminders from "./reminders";
 import * as todoist from "./todoist";
+import * as users from "./users";
 
 type Args = Record<string, unknown>;
 type Command = (ctx: Context, args: Args) => Promise<unknown>;
@@ -82,6 +83,7 @@ export const commands: Record<string, Command> = {
   async remove_google_account(ctx, args) {
     const removed = await removeAccount(ctx.env, text(args, "email"));
     if (removed) {
+      await users.claimAccount(ctx.env, removed.email, null);
       google.forgetAccessToken(removed.email);
       await google.revoke(removed.refreshToken);
       await forgetInteractions(ctx, (id) => id.startsWith(`${removed.email}/`));
@@ -351,8 +353,7 @@ export const commands: Record<string, Command> = {
     return { configured, source: configured ? "environment" : "none" };
   },
   async routes_usage(ctx) {
-    const leave = await readLeaveSettings(ctx.env);
-    const limits = clampLimits(leave.routesDailyLimit, leave.routesMonthlyLimit);
+    const limits = await routes.routesLimits(ctx.env);
     const usage = (await readRoutesUsage(ctx.env)) ?? emptyUsage(new Date());
     const today = pacificDate(new Date());
     return {
@@ -387,7 +388,45 @@ export const commands: Record<string, Command> = {
   async set_routes_key() {
     throw invalidInput("On the website the Routes key is a Cloudflare secret, not something you paste here");
   },
+
+  // People (users.ts): the owner invites others; each may delete what's theirs.
+  async me(ctx) {
+    const owner = users.isOwner(ctx.env);
+    const person = owner ? null : (await users.readPeople(ctx.env)).find((p) => p.id === users.userOf(ctx.env));
+    return { owner, email: person?.email ?? null };
+  },
+  async people_list(ctx) {
+    ownerOnly(ctx);
+    return users.peopleList(ctx.env);
+  },
+  async people_invite(ctx, args) {
+    ownerOnly(ctx);
+    await users.invite(ctx.env, text(args, "email"));
+    return users.peopleList(ctx.env);
+  },
+  async people_uninvite(ctx, args) {
+    ownerOnly(ctx);
+    await users.uninvite(ctx.env, text(args, "email"));
+    return users.peopleList(ctx.env);
+  },
+  async people_remove(ctx, args) {
+    ownerOnly(ctx);
+    await users.removePerson(ctx.env, text(args, "id"), google.revoke);
+    return users.peopleList(ctx.env);
+  },
+  /** Someone the owner invited: everything of theirs here, gone, and their accounts given back to Google. */
+  async delete_my_data(ctx) {
+    if (users.isOwner(ctx.env)) {
+      throw invalidInput("This is your site: remove your Google accounts in Settings instead, or delete the site on Cloudflare");
+    }
+    await users.removePerson(ctx.env, users.userOf(ctx.env), google.revoke);
+    return null;
+  },
 };
+
+function ownerOnly(ctx: Context): void {
+  if (!users.isOwner(ctx.env)) throw invalidInput("Only the site's owner can do that");
+}
 
 /** The largest file that can be attached. */
 const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;

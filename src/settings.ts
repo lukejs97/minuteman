@@ -29,10 +29,18 @@ import {
   todoistConnect,
   todoistDisconnect,
   todoistStatus,
+  deleteMyData,
+  invitePerson,
+  me,
+  peopleList,
+  removePerson,
+  uninvitePerson,
+  type PeopleList,
 } from "./api";
 import { isDemo, setDemo } from "./demo";
 import { type PushState, pushState, sendTestPush, turnOffPush, turnOnPush } from "./push-client";
 import { el } from "./dom";
+import { ask } from "./details";
 import { refreshLeaveTimes } from "./leave";
 import { defaultMapProvider } from "./maps";
 import type { MapProvider } from "./preferences";
@@ -140,6 +148,10 @@ export async function openSettings(actions: SettingsActions): Promise<void> {
     signOut.addEventListener("click", async () => (await import("./web-bridge")).signOutHere());
     rows.append(settingsRow("This browser", el("span", "settings-note", "Other devices stay signed in"), signOut));
   }
+
+  // The website: the owner invites people (Settings → People); someone
+  // invited can delete everything of theirs here.
+  if (!isTauri() && !isDemo()) void addPeopleRow(rows, openScreen);
 
   // Leave-by: the default address. On the website the Routes key stays on the
   // server; the row still lets you set and see the address from a phone.
@@ -966,6 +978,150 @@ function alertsRow(): HTMLElement {
   });
   void pushState().then(show, () => show("unsupported"));
   return settingsRow("Alerts on this device", note, controls);
+}
+
+/**
+ * The website: for its owner, People (invite others, each to a Minuteman of
+ * their own here); for someone invited, deleting everything of theirs.
+ */
+async function addPeopleRow(rows: HTMLElement, openScreen: (open: (back: () => void) => unknown) => void): Promise<void> {
+  const who = await me().catch(() => null);
+  if (!who) return;
+  if (!who.owner) {
+    const remove = el("button", "pill-button", "Delete…");
+    remove.addEventListener("click", async () => {
+      const answer = await ask(
+        "Delete everything of yours here?",
+        "Your Google accounts are signed out and given back to Google (nothing in them is deleted), and your settings, Todoist connection, history with people and alerts on this site are erased. You'd need a new invite to come back.",
+        [["delete", "Delete my data", true]],
+      );
+      if (answer !== "delete") return;
+      remove.disabled = true;
+      try {
+        await deleteMyData();
+        location.reload();
+      } catch (err) {
+        remove.disabled = false;
+        note.textContent = `Couldn't delete it: ${errorMessage(err)}`;
+      }
+    });
+    const note = el("span", "settings-note", who.email ? `Invited as ${who.email}` : "On someone else's Minuteman site");
+    rows.append(settingsRow("Your data on this site", note, remove));
+    return;
+  }
+  const note = el("span", "settings-note", "Invite others to a Minuteman of their own here");
+  const describe = (list: PeopleList) => {
+    const joined = list.people.length;
+    const waiting = list.invites.length;
+    if (joined + waiting === 0) return "Invite others to a Minuteman of their own here";
+    return [joined ? `${joined} ${joined === 1 ? "person" : "people"}` : "", waiting ? `${waiting} invite${waiting === 1 ? "" : "s"} waiting` : ""]
+      .filter(Boolean)
+      .join(" · ");
+  };
+  void peopleList().then((list) => (note.textContent = describe(list)), () => undefined);
+  const button = el("button", "pill-button", "Manage…");
+  button.addEventListener("click", () => openScreen((back) => openPeople(back, (list) => (note.textContent = describe(list)))));
+  rows.append(settingsRow("People", note, button));
+}
+
+/** The owner's People: who's joined, invites waiting, and inviting someone. */
+function openPeople(back: (() => void) | undefined, onChange: (list: PeopleList) => void): void {
+  const dialog = el("dialog", "dialog settings");
+  dialog.setAttribute("aria-labelledby", "people-title");
+  document.body.append(dialog);
+  dialog.addEventListener("close", () => dialog.remove());
+  dialog.addEventListener("click", (e) => {
+    if (e.target === dialog) dialog.close();
+  });
+  const title = el("h2", undefined, "People");
+  title.id = "people-title";
+  const help = el(
+    "p",
+    "settings-help",
+    "Invite someone by their Google account's email. They sign in here with it and get a Minuteman of their own: their calendars, contacts, Todoist and settings, none of yours. Leave-by times and place searches come out of your caps, each person up to 20 a day.",
+  );
+  const list = el("div", "people-list");
+  const error = el("p", "error");
+  const sent = el("p", "settings-note people-sent");
+  const form = el("form", "people-invite");
+  const email = el("input", "text-input");
+  email.type = "email";
+  email.placeholder = "Their Google account's email";
+  email.setAttribute("aria-label", "Email to invite");
+  email.autocomplete = "off";
+  const send = el("button", "primary-button", "Invite");
+  send.type = "submit";
+  form.append(email, send);
+
+  const show = (people: PeopleList) => {
+    onChange(people);
+    const rows: HTMLElement[] = [];
+    const line = (name: string, detail: string, action: string, run: () => Promise<PeopleList | null>) => {
+      const row = el("div", "people-row");
+      const text = el("div", "settings-text");
+      text.append(el("span", "settings-name", name), el("span", "settings-note", detail));
+      const button = el("button", "text-button danger", action);
+      button.type = "button";
+      button.addEventListener("click", async () => {
+        error.textContent = "";
+        button.disabled = true;
+        try {
+          const next = await run();
+          if (next) show(next);
+          else button.disabled = false;
+        } catch (err) {
+          error.textContent = errorMessage(err);
+          button.disabled = false;
+        }
+      });
+      row.append(text, button);
+      return row;
+    };
+    for (const person of people.people) {
+      const joined = new Date(person.joined).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+      const accounts = person.accounts.length > 1 ? ` · ${person.accounts.length} Google accounts` : "";
+      rows.push(
+        line(person.email, `Joined ${joined}${accounts}`, "Remove", async () => {
+          const answer = await ask(
+            `Remove ${person.email}?`,
+            "Everything of theirs on this site is deleted (their settings, history with people, alerts), they're signed out, and their Google accounts are given back to Google. Nothing in their Google accounts is deleted.",
+            [["remove", "Remove", true]],
+          );
+          return answer === "remove" ? removePerson(person.id) : null;
+        }),
+      );
+    }
+    for (const invited of people.invites) {
+      rows.push(line(invited, "Invited: hasn't signed in yet", "Cancel", () => uninvitePerson(invited)));
+    }
+    if (rows.length === 0) rows.push(el("p", "settings-note", "No one yet."));
+    list.replaceChildren(...rows);
+  };
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    error.textContent = "";
+    sent.textContent = "";
+    const address = email.value.trim();
+    if (!address) return;
+    send.disabled = true;
+    try {
+      show(await invitePerson(address));
+      email.value = "";
+      sent.textContent = `Invited. Send them this site's address, ${location.origin}, to sign in there with ${address}.`;
+    } catch (err) {
+      error.textContent = errorMessage(err);
+    } finally {
+      send.disabled = false;
+    }
+  });
+
+  const close = el("button", "primary-button", "Done");
+  close.type = "button";
+  close.addEventListener("click", () => dialog.close());
+  dialog.append(...backTo(dialog, back), title, help, list, form, sent, error, buttonRow(close));
+  dialog.showModal();
+  void peopleList().then(show, (err) => (error.textContent = errorMessage(err)));
 }
 
 /** Demo mode: sample data in place of yours, for screenshots (see demo.ts). */

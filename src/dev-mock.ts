@@ -439,8 +439,37 @@ export function install(inApp = false): void {
     return realFetch(input, init);
   };
 
+  // The website's People (web/src/users.ts): the owner, unless ?guest.
+  const guest = new URLSearchParams(location.search).has("guest");
+  let people = {
+    people: [{ id: "rachel", email: "rachel.revere@example.com", joined: "2026-11-02T15:00:00Z", accounts: ["rachel.revere@example.com"] }],
+    invites: ["joseph.warren@example.com"],
+  };
+
   const respond = (cmd: string, args?: InvokeArgs): unknown => {
     switch (cmd) {
+      case "me":
+        return guest ? { owner: false, email: "rachel.revere@example.com" } : { owner: true, email: null };
+      case "people_list":
+        return people;
+      case "people_invite": {
+        const { email } = args as { email: string };
+        people = { ...people, invites: [...people.invites, email.trim().toLowerCase()] };
+        return people;
+      }
+      case "people_uninvite": {
+        const { email } = args as { email: string };
+        people = { ...people, invites: people.invites.filter((e) => e !== email) };
+        return people;
+      }
+      case "people_remove": {
+        const { id } = args as { id: string };
+        people = { ...people, people: people.people.filter((p) => p.id !== id) };
+        return people;
+      }
+      case "delete_my_data":
+        accounts = [];
+        return null;
       case "auth_status":
         return accounts.length > 0;
       case "sign_in": {

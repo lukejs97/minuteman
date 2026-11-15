@@ -16,14 +16,16 @@ import { authorizeUrl, finishSignIn } from "./google";
 import {
   createSession,
   endSession,
-  hasSession,
   readAccounts,
   SESSION_SECONDS,
   savePendingSignIn,
+  sessionUser,
   takePendingSignIn,
 } from "./store";
 import { validZone } from "./zone";
 import { lookAhead, sendDueAlerts } from "./reminders";
+import { everyone, forUser, OWNER } from "./users";
+import { sha256 } from "./crypto";
 
 /** The cron (wrangler.jsonc) that looks further ahead for alerts; the other runs each minute. */
 const LOOK_AHEAD_CRON = "*/30 * * * *";
@@ -101,8 +103,11 @@ function fromThisSite(request: Request, url: URL): boolean {
 async function startSignIn(request: Request, env: Env, url: URL): Promise<Response> {
   const state = randomToken(16);
   const verifier = randomToken(32);
-  const signedIn = await hasSession(env, sessionCookie(request));
-  await savePendingSignIn(env, state, { verifier, signedIn });
+  // Signed in, with an account already: adding one to theirs. (Signed in
+  // with none left, it's a sign-in afresh, as whoever the account is.)
+  const theirs = await signedInEnv(request, env);
+  const adding = theirs && (await readAccounts(theirs)).length > 0 ? (theirs.USER ?? OWNER) : null;
+  await savePendingSignIn(env, state, { verifier, adding });
   const target = authorizeUrl(env, `${url.origin}/auth/google/callback`, state, await pkceChallenge(verifier));
   return withHeaders(Response.redirect(target, 302));
 }
@@ -114,30 +119,70 @@ async function finishGoogleSignIn(request: Request, env: Env, url: URL): Promise
   const code = url.searchParams.get("code");
   if (!pending || !code) return messagePage("Sign-in didn't complete", "That sign-in link expired. Try again.", 400);
 
+  let user: string;
   try {
-    await finishSignIn(env, code, pending.verifier, `${url.origin}/auth/google/callback`, pending.signedIn);
+    user = await finishSignIn(env, code, pending.verifier, `${url.origin}/auth/google/callback`, pending.adding);
   } catch (e) {
     return messagePage("Sign-in didn't complete", e instanceof Error ? e.message : String(e), 403);
   }
 
   const headers: Record<string, string> = { Location: "/" };
-  if (!(await hasSession(env, sessionCookie(request)))) {
-    headers["Set-Cookie"] = setCookie(await createSession(env), SESSION_SECONDS);
+  if ((await sessionUser(env, sessionCookie(request))) !== user) {
+    headers["Set-Cookie"] = setCookie(await createSession(env, user), SESSION_SECONDS);
   }
   return withHeaders(new Response(null, { status: 302, headers }));
 }
 
+/**
+ * `env` for the signed-in person's requests (their part of the store), or
+ * null if not signed in, or if they're no longer on the site (removed).
+ */
+async function signedInEnv(request: Request, env: Env): Promise<Env | null> {
+  const user = await sessionUser(env, sessionCookie(request));
+  if (user === null) return null;
+  if (user !== OWNER && !(await everyone(env)).includes(user)) return null;
+  return forUser(env, user);
+}
+
 async function runCommand(request: Request, env: Env, name: string): Promise<Response> {
-  const signedIn = await hasSession(env, sessionCookie(request));
+  const theirs = await signedInEnv(request, env);
   // Asked before signing in: answer without needing a session.
-  if (name === "auth_status") return json(signedIn && (await readAccounts(env)).length > 0);
-  if (!signedIn) throw notSignedIn();
+  if (name === "auth_status") return json(theirs !== null && (await readAccounts(theirs)).length > 0);
+  if (!theirs) throw notSignedIn();
 
   const command = Object.hasOwn(commands, name) ? commands[name] : undefined;
   if (!command) return json({ kind: "input", message: `Invalid request: unknown command ${name}` }, 404);
   const args = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-  const ctx: Context = { env, zone: validZone(request.headers.get("X-Time-Zone")) };
+  const ctx: Context = { env: theirs, zone: validZone(request.headers.get("X-Time-Zone")) };
   return json(await command(ctx, args ?? {}));
+}
+
+/** What the cron's own requests carry (alertsFor), so no one else can start them. */
+const internalToken = (env: Env) => sha256(`${env.TOKEN_KEY}|alerts`);
+
+/**
+ * One person's alerts (reminders.ts). With SELF, as a request to this
+ * Worker of its own, so each person's run has its own limits (the free
+ * plan allows 50 outside requests in one) and one can't hold up another.
+ */
+async function alertsFor(env: Env, user: string, run: "near" | "far", at: number): Promise<void> {
+  if (env.SELF) {
+    const url = `https://minuteman.internal/internal/alerts?user=${encodeURIComponent(user)}&run=${run}&at=${at}`;
+    const response = await env.SELF.fetch(url, { method: "POST", headers: { "X-Minuteman-Internal": await internalToken(env) } });
+    if (!response.ok) console.error(`alerts for ${user}: ${response.status}`);
+    return;
+  }
+  await (run === "far" ? lookAhead : sendDueAlerts)(forUser(env, user), at);
+}
+
+async function internalAlerts(request: Request, env: Env, url: URL): Promise<Response> {
+  if (request.headers.get("X-Minuteman-Internal") !== (await internalToken(env))) return new Response(null, { status: 404 });
+  const user = url.searchParams.get("user") ?? "";
+  if (!(await everyone(env)).includes(user)) return new Response(null, { status: 404 });
+  const at = Number(url.searchParams.get("at"));
+  const run = url.searchParams.get("run") === "far" ? lookAhead : sendDueAlerts;
+  await run(forUser(env, user), Number.isFinite(at) ? at : Date.now());
+  return new Response(null, { status: 204 });
 }
 
 export default {
@@ -145,8 +190,12 @@ export default {
   // them on (reminders.ts, push.ts).
   async scheduled(controller, env, ctx): Promise<void> {
     // Every 30 minutes, separately: the look further ahead (reminders.ts).
-    const run = controller.cron === LOOK_AHEAD_CRON ? lookAhead : sendDueAlerts;
-    ctx.waitUntil(run(env, controller.scheduledTime).catch((e) => console.error("alerts:", e)));
+    // Each person's alerts (the owner's first), separately.
+    const run = controller.cron === LOOK_AHEAD_CRON ? "far" : "near";
+    const all = everyone(env).then((users) =>
+      Promise.all(users.map((user) => alertsFor(env, user, run, controller.scheduledTime).catch((e) => console.error(`alerts for ${user}:`, e)))),
+    );
+    ctx.waitUntil(all.catch((e) => console.error("alerts:", e)));
   },
   async fetch(request, env): Promise<Response> {
     const url = new URL(request.url);
@@ -160,12 +209,14 @@ export default {
         await endSession(env, sessionCookie(request));
         return withHeaders(new Response(null, { status: 204 }), { "Set-Cookie": setCookie("", 0) });
       }
+      if (url.pathname === "/internal/alerts" && request.method === "POST") return await internalAlerts(request, env, url);
       if (url.pathname.startsWith("/upload/")) {
         if (request.method !== "POST" || !fromThisSite(request, url)) {
           return json({ kind: "auth", message: "Not allowed" }, 403);
         }
-        if (!(await hasSession(env, sessionCookie(request)))) throw notSignedIn();
-        const ctx: Context = { env, zone: validZone(request.headers.get("X-Time-Zone")) };
+        const theirs = await signedInEnv(request, env);
+        if (!theirs) throw notSignedIn();
+        const ctx: Context = { env: theirs, zone: validZone(request.headers.get("X-Time-Zone")) };
         return json(await upload(ctx, url.pathname.slice("/upload/".length), request));
       }
       if (url.pathname.startsWith("/api/")) {

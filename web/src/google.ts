@@ -15,6 +15,7 @@ import { placeOnOneLine } from "../../src/time";
 import type { Env } from "./env";
 import { AppError, apiError, authFailed, configError, fetchOrFail, invalidInput, notSignedIn } from "./errors";
 import { type Account, readAccounts, readHiddenCalendars, removeAccount, writeAccounts } from "./store";
+import { claimAccount, forUser, personSigningIn } from "./users";
 import {
   addDays,
   dayOf,
@@ -100,15 +101,20 @@ async function postToken(env: Env, fields: Record<string, string>): Promise<Toke
 
 const describe = (e: TokenError) => (e.error_description ? `${e.error} (${e.error_description})` : e.error);
 
-/** Finishes a sign-in: swaps the one-time code for tokens, and stores the account. */
+/**
+ * Finishes a sign-in: swaps the one-time code for tokens, works out whose
+ * the account is (users.ts: the owner's, someone's here, or someone invited
+ * joining now), and stores it with theirs. `adding`: whose browser is adding
+ * it, if signed in. Returns whose it is.
+ */
 export async function finishSignIn(
-  env: Env,
+  siteEnv: Env,
   code: string,
   verifier: string,
   redirectUri: string,
-  mayAddAnyAccount: boolean,
+  adding: string | null,
 ): Promise<string> {
-  const tokens = await postToken(env, {
+  const tokens = await postToken(siteEnv, {
     code,
     code_verifier: verifier,
     grant_type: "authorization_code",
@@ -118,13 +124,15 @@ export async function finishSignIn(
   if (!tokens.refresh_token) throw authFailed("Google didn't return a refresh token");
 
   const email = await primaryEmail(tokens.access_token);
-  const accounts = await readAccounts(env);
-  const allowed = env.ALLOWED_EMAILS.split(",").map((e) => e.trim().toLowerCase());
-  const known = accounts.some((a) => a.email === email);
-  if (!mayAddAnyAccount && !known && !allowed.includes(email.toLowerCase())) {
+  let user: string;
+  try {
+    user = await personSigningIn(siteEnv, email, adding);
+  } catch (e) {
     await revoke(tokens.refresh_token);
-    throw new AppError("auth", `Sign-in failed: ${email} isn't allowed on this site.`, 403);
+    throw e instanceof AppError ? new AppError("auth", `Sign-in failed: ${e.message}`, 403) : e;
   }
+  const env = forUser(siteEnv, user);
+  const accounts = await readAccounts(env);
 
   const account: Account = {
     email,
@@ -134,8 +142,9 @@ export async function finishSignIn(
     canAttachFiles: tokens.scope.split(" ").includes(DRIVE_FILE_SCOPE),
   };
   await writeAccounts(env, [...accounts.filter((a) => a.email !== email), account]);
+  await claimAccount(siteEnv, email, user);
   remember(email, tokens);
-  return email;
+  return user;
 }
 
 export async function revoke(token: string): Promise<void> {

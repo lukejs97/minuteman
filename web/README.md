@@ -19,10 +19,13 @@ browser ──► Worker (web/src) ──► Google Calendar, Todoist
   step when the desktop behavior changes.
 - `src/zone.ts`: the server runs in UTC, so the browser sends its time zone
   (`X-Time-Zone`) and "today"/midnight are worked out in it.
+- `src/users.ts`: who's who (the owner, people they invited), and each
+  person's own part of the store; `src/shares.ts`: everyone's Routes and
+  TomTom attempts kept inside the free tiers.
 - `../src/web-bridge.ts`: in the browser, sends the app's commands here.
 
-**Not on the web:** the menu bar window, the quick-add shortcut, alerts while
-the site is closed, and offline mode. Signing out of one browser (Settings → This
+**Not on the web:** the menu bar window, the quick-add shortcut, and offline
+mode. Signing out of one browser (Settings → This
 browser → Sign out) doesn't affect other devices; removing an account under
 Settings → Google accounts removes it everywhere.
 
@@ -92,6 +95,58 @@ in Cloudflare → My Profile → API Tokens → Create Token → **Edit Cloudfla
 Workers**, then Actions → **Deploy web app** → **Run workflow**
 (`.github/workflows/deploy-web.yml`). It deploys the branch you pick.
 
-Only the Google accounts in `ALLOWED_EMAILS` (`wrangler.jsonc`) can sign in.
-Once signed in, you can add other Google accounts of yours under Settings → Google
-accounts.
+The Google accounts in `ALLOWED_EMAILS` (`wrangler.jsonc`) sign in as the
+site's **owner**. Once signed in, you can add other Google accounts of yours
+under Settings → Google accounts.
+
+## Other people
+
+The owner can invite others under Settings → **People**: type their Google
+account's email, then send them the site's address. They sign in there with
+that account and get a Minuteman of their own: their Google accounts,
+calendars, contacts, Todoist, settings, history with people and alerts, kept
+apart from everyone else's. No one sees anyone else's. Someone invited can add
+more Google accounts of their own (not one already used by someone here), and
+can delete everything of theirs (Settings → Your data on this site). The owner
+can remove them (People → Remove), which does the same. Either way their
+Google accounts' access is given back to Google; nothing in them is deleted.
+
+How it's kept (`src/users.ts`): the owner's things are where they always were
+(keys with no prefix), so nothing moved when other people came; each other
+person's keys start `u:<id>:`; the site's own (`site:users`, `site:invites`,
+which person a Google account belongs to, the totals below) start `site:`.
+Every request and alert run sees only its person's part.
+
+**Caps:** each person invited gets up to 20 leave-by lookups and 20 place
+searches a day (300 a month), whatever their own Settings say, and everyone's
+together count against the owner's caps (Settings → Leave-by; TomTom's 100 a
+day), so the site as a whole stays inside the free tiers however many people
+there are (`src/shares.ts`).
+
+**Alerts:** every minute the Worker runs each person's alerts as a request to
+itself (the `SELF` binding in `wrangler.jsonc`), so each has its own limits.
+
+**Free-plan limits with more people:** the free plan allows about 1,000
+writes to the store a day. Alerts write about 50 a day for each person who
+has them on, and leave-by lookups a few more, so past roughly 10–15 people
+with alerts on, the $5/month Workers plan is the next step. Google lets an
+unverified app have 100 users ("Google hasn't verified this app" on sign-in);
+more than that, or no warning, needs Google's verification of the Calendar and
+Contacts permissions (docs/google-cloud-setup.md).
+
+## A test copy
+
+To try a change before it goes live: Actions → **Deploy test site** → Run
+workflow → pick the branch (`.github/workflows/deploy-web-test.yml`). It puts
+it on `https://minuteman-test.<your-subdomain>.workers.dev`: its own Worker
+and its own empty store (`wrangler.test.jsonc`), so the live site and its
+data aren't touched. The first run makes the store and the test site's own
+TOKEN_KEY. Once, by hand:
+
+1. Cloudflare → Workers & Pages → **minuteman-test** → Settings → Variables
+   and Secrets → add `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` (Secret),
+   the same values as the live site's (Google Cloud → Clients → Minuteman
+   web). Add `MINUTEMAN_ROUTES_API_KEY` and `MINUTEMAN_TOMTOM_API_KEY` too
+   to try leave-by times and place search there.
+2. Google Cloud → Clients → Minuteman web → add the redirect URI
+   `https://minuteman-test.<your-subdomain>.workers.dev/auth/google/callback`.

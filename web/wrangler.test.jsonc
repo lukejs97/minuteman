@@ -1,0 +1,23 @@
+// A test copy of the website, to try a change before it goes live: its own
+// Worker (minuteman-test) and its own empty store, so nothing on the live
+// site is touched. Deployed by the "Deploy test site" workflow, which makes
+// the store the first time and fills in its id below (TEST_STORE_ID).
+// See web/README.md, "A test copy".
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "minuteman-test",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-10-01",
+  "assets": {
+    "directory": "../dist",
+    "binding": "ASSETS",
+    "run_worker_first": true,
+    "not_found_handling": "single-page-application"
+  },
+  "kv_namespaces": [{ "binding": "STORE", "id": "TEST_STORE_ID" }],
+  "triggers": { "crons": ["* * * * *", "*/30 * * * *"] },
+  "services": [{ "binding": "SELF", "service": "minuteman-test" }],
+  "vars": {
+    "ALLOWED_EMAILS": "lukesassa9@gmail.com"
+  }
+}

@@ -204,6 +204,14 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
   Home Screen), open it from there, and turn alerts on (iOS 16.4 or later).
   **Send a test** checks it. The desktop apps keep alerting too, so both
   get them. "Before leaving" alerts start from the address in Settings.
+- **Other people on your website** (Settings → **People**, the site's
+  owner): invite someone by their Google account's email, and they get a
+  Minuteman of their own on your site (calendars, contacts, Todoist,
+  settings, alerts), kept apart from yours and everyone's. Each gets a share
+  of leave-by lookups and place searches (20 a day), inside your caps.
+  Someone invited can delete everything of theirs (Settings → Your data on
+  this site), and you can remove them. See
+  [web/README.md](web/README.md#other-people).
 - **Leave by** (Settings → Leave from): a default starting address (in
   separate street, town, state and ZIP fields, so AutoFill fills it all), or
   **Start from where I am** to use the device's location, with the address
