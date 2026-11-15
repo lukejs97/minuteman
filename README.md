@@ -48,7 +48,7 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
   at 100 searches a day and 1,500 a month, well inside TomTom's free 5,000
   a month. Its suggestions say "TomTom".
 - **Quick actions:** right-click an event or task (on a phone, press and
-  hold it) for Open, Edit, Duplicate, Complete, Open in Google Calendar or
+  hold it) for Open, Edit, Clone, Complete, Open in Google Calendar or
   Todoist, and Delete. On a phone, press and hold a day's heading, an empty time, or an
   hour down the side (for the leftmost day), for a new event there.
 - **Same time in any time zone:** tick it on a timed event and it keeps its
@@ -81,8 +81,8 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
   PDF, which needs saving to Files and **Add file…**) or drag files onto the
   details; in the Mac and Windows apps **Paste** also takes a file copied
   in Finder or File Explorer (or handed over by Universal Clipboard). Up to 25 MB each. Accounts added before need adding again once to allow it.
-- **Duplicate:** an event's or task's details (or its right-click menu) →
-  **Duplicate** opens New filled in like it, to change (the day, say) and add.
+- **Clone:** an event's or task's details (or its right-click menu) →
+  **Clone** opens New filled in like it, to change (the day, say) and add.
 - **Event colors:** Google Calendar's eleven, or the calendar's own, in
   New or Edit (Color). For a repeating event, the question above says
   whether it's for this event, the ones after it, or all.

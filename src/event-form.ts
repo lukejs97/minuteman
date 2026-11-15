@@ -494,8 +494,8 @@ class Form {
         : "Edit task"
       : this.copyOf
         ? event
-          ? "Duplicate event"
-          : "Duplicate task"
+          ? "Clone event"
+          : "Clone task"
         : event
           ? "New event"
           : "New task";

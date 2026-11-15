@@ -162,8 +162,7 @@ export function openDetails(item: AgendaItem, actions: DetailActions): void {
     buttons.append(open);
   }
   if (canDuplicate(item)) {
-    const copy = button("text-button", "Duplicate", "Copy", ICONS.duplicate);
-    copy.title = "Duplicate";
+    const copy = button("text-button", "Clone", "Clone", ICONS.duplicate);
     copy.addEventListener("click", () => {
       actions.duplicate(item); // the form first, so the dimmed background stays
       dialog.close();
@@ -209,7 +208,7 @@ export function showItemMenu(
   const changeable = item.editable || (item.kind === "task" && item.source === "todoist");
   const entries: [string, () => void][] = [["Open", () => actions.open(item)]];
   if (changeable) entries.push(["Edit", () => actions.edit(item)]);
-  if (canDuplicate(item)) entries.push(["Duplicate", () => actions.duplicate(item)]);
+  if (canDuplicate(item)) entries.push(["Clone", () => actions.duplicate(item)]);
   if (item.kind === "task") entries.push([item.completed ? "Mark not done" : "Complete", () => actions.toggleTask(item)]);
   if (item.url) {
     const url = item.url;
