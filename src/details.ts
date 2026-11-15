@@ -49,6 +49,16 @@ export interface DetailActions {
 const canDuplicate = (item: AgendaItem) => item.kind === "event" || item.source === "todoist";
 
 /** Opens the popup. */
+/** Icons for the details' buttons, on a phone. */
+const ICONS = {
+  close: '<path d="M6 6l12 12M18 6L6 18" />',
+  remove: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 12.5A1.5 1.5 0 0 0 8.5 21h7a1.5 1.5 0 0 0 1.5-1.5L18 7M9 7V4.5h6V7" />',
+  open: '<path d="M14 4h6v6M20 4l-8.5 8.5" /><path d="M18 14v5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 4 19V7.5A1.5 1.5 0 0 1 5.5 6H10" />',
+  duplicate: '<rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V5.5A1.5 1.5 0 0 0 14.5 4h-9A1.5 1.5 0 0 0 4 5.5v9A1.5 1.5 0 0 0 5.5 16H8" />',
+  done: '<path d="M5 12.5l4.5 4.5L19 7.5" />',
+  edit: '<path d="M14.5 5.5l4 4L8 20H4v-4z" /><path d="M12.5 7.5l4 4" />',
+};
+
 export function openDetails(item: AgendaItem, actions: DetailActions): void {
   const dialog = el("dialog", "dialog details");
   dialog.setAttribute("aria-labelledby", "details-title");
@@ -113,12 +123,23 @@ export function openDetails(item: AgendaItem, actions: DetailActions): void {
     rows.append(row("Notes", notes));
   }
 
-  const buttons = el("div", "dialog-buttons");
+  // On a computer, a row of words (Delete apart, on the left); on a phone,
+  // one row of equal buttons, each an icon over a short name, as a
+  // contact card's, with Close first and Edit, the one most wanted, last.
+  const buttons = el("div", "dialog-buttons details-buttons");
   const error = el("p", "error");
+  const button = (className: string, words: string, short: string, icon: string) => {
+    const b = el("button", `${className} bar-button`);
+    b.type = "button";
+    b.innerHTML = `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icon}</svg>`;
+    b.append(el("span", "bar-button-words", words), el("span", "bar-button-short", short));
+    return b;
+  };
   // Google events you may change, and Todoist tasks (Apple items are
   // changed in their own apps, for now).
-  if (item.editable || (item.kind === "task" && item.source === "todoist")) {
-    const remove = el("button", "text-button danger", "Delete");
+  const changeable = item.editable || (item.kind === "task" && item.source === "todoist");
+  if (changeable) {
+    const remove = button("text-button danger", "Delete", "Delete", ICONS.remove);
     remove.addEventListener("click", async () => {
       error.textContent = "";
       try {
@@ -130,15 +151,19 @@ export function openDetails(item: AgendaItem, actions: DetailActions): void {
         error.textContent = `Couldn't delete it: ${errorMessage(e)}`;
       }
     });
-    const edit = el("button", "text-button", "Edit");
-    edit.addEventListener("click", () => {
-      actions.edit(item); // the form first, so the dimmed background stays
-      dialog.close();
-    });
-    buttons.append(remove, edit);
+    buttons.append(remove);
+  }
+  if (item.url) {
+    const url = item.url;
+    const todoist = item.source === "todoist";
+    const open = button("text-button", todoist ? "Open in Todoist" : "Open in Google", todoist ? "Todoist" : "Google", ICONS.open);
+    open.title = todoist ? "Open in Todoist" : "Open in Google Calendar";
+    open.addEventListener("click", () => openUrl(url));
+    buttons.append(open);
   }
   if (canDuplicate(item)) {
-    const copy = el("button", "text-button", "Duplicate");
+    const copy = button("text-button", "Duplicate", "Copy", ICONS.duplicate);
+    copy.title = "Duplicate";
     copy.addEventListener("click", () => {
       actions.duplicate(item); // the form first, so the dimmed background stays
       dialog.close();
@@ -146,22 +171,25 @@ export function openDetails(item: AgendaItem, actions: DetailActions): void {
     buttons.append(copy);
   }
   if (item.kind === "task") {
-    const toggle = el("button", "text-button", item.completed ? "Mark not done" : "Complete");
+    const toggle = button("text-button", item.completed ? "Mark not done" : "Complete", item.completed ? "Not done" : "Done", ICONS.done);
     toggle.addEventListener("click", () => {
       dialog.close();
       actions.toggleTask(item);
     });
     buttons.append(toggle);
   }
-  if (item.url) {
-    const url = item.url;
-    const open = el("button", "text-button", item.source === "todoist" ? "Open in Todoist" : "Open in Google Calendar");
-    open.addEventListener("click", () => openUrl(url));
-    buttons.append(open);
-  }
-  const close = el("button", "primary-button", "Close");
+  const close = button(changeable ? "text-button bar-close" : "primary-button bar-close", "Close", "Close", ICONS.close);
   close.addEventListener("click", () => dialog.close());
-  buttons.append(close);
+  if (changeable) {
+    const edit = button("primary-button", "Edit", "Edit", ICONS.edit);
+    edit.addEventListener("click", () => {
+      actions.edit(item); // the form first, so the dimmed background stays
+      dialog.close();
+    });
+    buttons.append(close, edit);
+  } else {
+    buttons.append(close);
+  }
 
   dialog.append(title, rows, error, buttons);
   dialog.showModal();

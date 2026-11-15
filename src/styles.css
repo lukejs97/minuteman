@@ -1735,6 +1735,69 @@ body.dimmed::after {
   padding: 7px 16px;
 }
 
+/* An event's details: words on a computer; on a phone, one row of equal
+   buttons, an icon over a short name (as a contact card's bar), Close
+   first and Edit last. */
+.bar-button svg,
+.bar-button-short {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .details-buttons {
+    display: grid;
+    grid-auto-columns: minmax(0, 1fr);
+    grid-auto-flow: column;
+    gap: 4px;
+  }
+
+  .details-buttons .bar-button,
+  .details-buttons .bar-button.primary-button {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    min-width: 0;
+    min-height: 56px;
+    margin: 0;
+    padding: 6px 2px 5px;
+    border: none;
+    border-radius: 14px;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.1;
+    white-space: nowrap;
+  }
+
+  .details-buttons .bar-button.text-button {
+    color: var(--text);
+    background: var(--surface);
+  }
+
+  .details-buttons .bar-button.danger {
+    color: var(--accent);
+  }
+
+  .details-buttons .bar-close {
+    order: -1;
+  }
+
+  /* Not apart on the left, as on a computer: one of the row. */
+  .details-buttons .bar-button.danger:first-child {
+    margin: 0;
+  }
+
+  .details-buttons .bar-button svg,
+  .details-buttons .bar-button-short {
+    display: block;
+  }
+
+  .details-buttons .bar-button-words {
+    display: none;
+  }
+}
+
 /* Edit forms (New / Edit event or task, a contact, Settings' screens) and
    an event's details: Save and Cancel, or Edit, Delete…, stay in view at
    the bottom as it scrolls, over its bottom padding, with a soft edge
