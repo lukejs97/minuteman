@@ -460,6 +460,7 @@ const itemActions = {
   toggleTask,
   edit: (it: AgendaItem) => openEdit(it, changed),
   duplicate: (it: AgendaItem) => openDuplicate(it, changed),
+  convert: (it: AgendaItem) => openEdit(it, changed, it.kind === "task" ? "event" : "task"),
   deleted: changed,
   changed,
   open: (it: AgendaItem) => showDetails(it),

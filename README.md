@@ -82,6 +82,15 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
   in Finder or File Explorer (or handed over by Universal Clipboard). Up to 25 MB each. Accounts added before need adding again once to allow it.
 - **Clone:** an event's or task's details (or its right-click menu) →
   **Clone** opens New filled in like it, to change (the day, say) and add.
+  Switch it to Task (or Event) there for a copy of the other kind.
+- **Make an event a task, or a task an event:** in Edit, switch **Event /
+  Task** at the top (or right-click it → **Make it a task** / **Make it an
+  event**). Its name, day and time, and notes carry over (an event's place
+  goes into the task's notes); a task with a time becomes an event of an
+  hour, or as long as Todoist plans it for, one without a time an all-day
+  one. Save adds it as the other kind (to Todoist, or the calendar you
+  choose), then deletes the original. Not for repeating ones, or events
+  with other people invited.
 - **Event colors:** Google Calendar's eleven, or the calendar's own, in
   New or Edit (Color). For a repeating event, the question above says
   whether it's for this event, the ones after it, or all.
