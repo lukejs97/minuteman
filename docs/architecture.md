@@ -287,6 +287,11 @@ shown while any dialog is open (`boot.ts` wraps `showModal`). Not
 `::backdrop` or a shadow on the dialog: both are repainted as a dialog's
 contents change size, and the Mac's web view flickered. The layer stays on
 while one dialog replaces another.
+Opening a dialog never focuses a text field, so a phone's keyboard stays
+down until you tap one: the wrapper moves focus from a field that
+`showModal` picked to the dialog itself (`focusDialog` in `dom.ts`, no
+outline). The search box, New event and New contact focus their box
+themselves, as typing is what they're for.
 
 **Attachments**: an event's are Drive files on `event.attachments` (read
 with the event, shown in its details). Adding one (`attach_to_event`):

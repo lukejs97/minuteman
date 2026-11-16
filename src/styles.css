@@ -1002,7 +1002,8 @@ body.dimmed::after {
 /* ---------- New / Edit form ---------- */
 
 /* Edit opens with the form itself focused, not a field: no ring for it. */
-.event-form:focus {
+/* A dialog opened with no field focused (boot.ts, focusDialog) shows no ring. */
+dialog:focus {
   outline: none;
 }
 

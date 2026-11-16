@@ -26,7 +26,7 @@ import {
 } from "./api";
 import { AlertEditor } from "./alert-editor";
 import { askSeriesChoice } from "./series";
-import { el } from "./dom";
+import { el, focusDialog } from "./dom";
 import { EVENT_COLORS } from "./event-colors";
 import { enablePlaceSuggestions, findPlace, type PlaceSuggestion } from "./place-suggest";
 import { parseEvent, parseTask, REPEAT_RULES, type Repeat } from "./quick-parse";
@@ -559,10 +559,7 @@ class Form {
     // Opening it: the form itself takes focus; switching Event/Task: it stays
     // on the button pressed.
     if (this.item) {
-      if (!this.opened) {
-        this.dialog.tabIndex = -1;
-        this.dialog.focus();
-      }
+      if (!this.opened) focusDialog(this.dialog);
     } else (this.copyOf ? (event ? this.eventTitle : this.taskName) : this.sentence).focus();
     // Started with a sentence: carry on typing at its end.
     if (!this.item) this.sentence.setSelectionRange(this.sentence.value.length, this.sentence.value.length);

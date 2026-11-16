@@ -184,3 +184,20 @@ export function backButton(to: string, onClick: () => void, className = ""): HTM
   button.addEventListener("click", onClick);
   return button;
 }
+
+/**
+ * Focuses `dialog` itself, no field in it, so a phone's keyboard stays down
+ * until you tap a field. (Its outline is off: `dialog:focus` in styles.css.)
+ */
+export function focusDialog(dialog: HTMLDialogElement): void {
+  dialog.tabIndex = -1;
+  dialog.focus();
+}
+
+/** Whether focusing `node` would bring up a phone's keyboard. */
+export function isTextField(node: Element): boolean {
+  if (node instanceof HTMLTextAreaElement) return true;
+  if (node instanceof HTMLElement && node.isContentEditable) return true;
+  if (!(node instanceof HTMLInputElement)) return false;
+  return !["button", "checkbox", "color", "file", "hidden", "image", "radio", "range", "reset", "submit"].includes(node.type);
+}

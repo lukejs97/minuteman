@@ -502,7 +502,6 @@ function openTravelSettings(back: (() => void) | undefined, onAddress: (address:
   form.append(buttonRow(remove, close, save));
   dialog.append(...backTo(dialog, back), title, help, form);
   dialog.showModal();
-  street.focus();
 
   void (async () => {
     const [prefs, keyState, used] = await Promise.all([
@@ -681,7 +680,6 @@ function openWeatherSettings(actions: SettingsActions, back?: () => void): void 
   unitRow.append(settingsRow("Temperature", el("span", "settings-note", "Fahrenheit or Celsius"), unit));
   dialog.append(...backTo(dialog, back), title, current, here, form, results, unitRow, buttonRow(off, close));
   dialog.showModal();
-  search.focus();
 }
 
 /** Choose which of each Google account's calendars to show. */
@@ -883,7 +881,6 @@ function openPlacesSettings(back: (() => void) | undefined, onChange: (on: boole
   form.append(buttonRow(remove, close, save));
   dialog.append(...backTo(dialog, back), title, help, form);
   dialog.showModal();
-  if (!onWeb) key.focus();
   void Promise.all([placesKeyStatus().catch(() => null), placesUsage().catch(() => null)]).then(([state, used]) => {
     if (!dialog.isConnected) return;
     const where: Record<string, string> = {
