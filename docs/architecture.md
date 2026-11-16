@@ -616,6 +616,13 @@ Minuteman's Cardhop: a second page, `contacts.html` (Vite builds both pages,
   so it works offline. Dark mode is navy throughout with ivory text. All
   colors are CSS variables at the top of `src/styles.css`, with the dark
   block just below.
+- **Buttons:** one small set, described above the Buttons section of
+  `src/styles.css`. `primary-button` (flag red) for the one main action, last
+  in a bar; `text-button` (cream, navy words; `danger` for red words) for every
+  other action; `link-button` (red words) for small actions beside a value;
+  `icon-button` for icons alone; and tiles (an icon over a short name, like
+  Back from `backButton` in `src/dom.ts`) on phone bars. A bar reads Back,
+  then a danger button, a gap, the others, and the primary last.
 - **Google consent screen:** the app name, and a logo if you want one, on
   Google Auth Platform → Branding. Uploading a logo requires Google's brand
   verification once the app is published.

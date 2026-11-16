@@ -600,7 +600,7 @@ function updateRow(contact: Contact, details: ParsedContact): HTMLElement {
   const added = additions(contact, details);
   const line = el("div", "update-row");
   const person = row(contact, added.length ? added.join("\n") : "Already has these");
-  const button = el("button", "pill-button update-button", "Update");
+  const button = el("button", "primary-button update-button", "Update");
   button.type = "button";
   button.disabled = added.length === 0;
   button.title = added.length ? `Add to ${displayName(contact)}: ${added.join(", ")}` : "";

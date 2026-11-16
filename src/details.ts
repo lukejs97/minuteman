@@ -425,7 +425,7 @@ function attachmentsRow(item: AgendaItem, actions: DetailActions, dialog: HTMLDi
     picker.type = "file";
     picker.multiple = true;
     picker.hidden = true;
-    const add = el("button", "text-button attachment-add", "Add file…");
+    const add = el("button", "link-button attachment-add", "Add file…");
     add.type = "button";
     add.addEventListener("click", () => picker.click());
     const buttons: HTMLButtonElement[] = [add];
@@ -518,7 +518,7 @@ function attachmentsRow(item: AgendaItem, actions: DetailActions, dialog: HTMLDi
       pasteBox.hidden = false;
       pasteBox.focus();
     };
-    const paste = el("button", "text-button attachment-add", "Paste");
+    const paste = el("button", "link-button attachment-add", "Paste");
     paste.type = "button";
     paste.title = "Attach what's on the clipboard";
     paste.addEventListener("click", async () => {
