@@ -89,7 +89,15 @@ def draw(size: int, margin: float, full: bool = False) -> Image.Image:
     # The gold rim.
     if not full:
         ImageDraw.Draw(out).rounded_rectangle(box, radius, outline=GOLD + (255,), width=round(rim))
-    return out.resize((size, size), Image.LANCZOS)
+    # Pillow's shapes include their last pixel, so everything above sits half a
+    # (large) pixel right of and below centre; sampling half a pixel over
+    # puts the square exactly in the middle.
+    padded = Image.new("RGBA", (big + 1, big + 1), (0, 0, 0, 0))
+    padded.paste(out, (0, 0))
+    padded.paste(out.crop((big - 1, 0, big, big)), (big, 0))  # repeat the edge,
+    padded.paste(out.crop((0, big - 1, big, big)), (0, big))  # for full bleed
+    padded.paste(out.crop((big - 1, big - 1, big, big)), (big, big))
+    return padded.resize((size, size), Image.LANCZOS, box=(0.5, 0.5, big + 0.5, big + 0.5))
 
 
 def write_icns(path: Path) -> None:
