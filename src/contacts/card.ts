@@ -3,7 +3,7 @@
 // your events with them from Minuteman.
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { errorMessage, search, type AgendaItem, type Contact, type Interaction, type Labeled } from "../api";
-import { el, setItemColor } from "../dom";
+import { BACK_ICON, backButton, el, setItemColor } from "../dom";
 import { mapLink } from "../maps";
 import { describeTimes, itemEnd, itemStart } from "../time";
 import { describeLatest, KIND_WORDS, latestByContact, relativeTime } from "./history";
@@ -128,8 +128,7 @@ export function renderCard(contact: Contact, actions: CardActions, accounts: num
   const card = el("article", "contact-card");
   card.setAttribute("aria-label", displayName(contact));
 
-  const back = el("button", "text-button card-back", "‹ Contacts");
-  back.addEventListener("click", () => actions.back());
+  const back = backButton("Contacts", () => actions.back(), "card-back");
 
   const head = el("header", "card-head");
   const names = el("div", "card-names");
@@ -422,7 +421,7 @@ function eventList(title: string, items: AgendaItem[], actions: CardActions): HT
 
 /** Icons for the card's buttons, in the phone's bar at the bottom. */
 const FOOTER_ICONS = {
-  back: '<path d="M15 5l-7 7 7 7" />',
+  back: BACK_ICON,
   share: '<path d="M12 15V4M8 8l4-4 4 4" /><path d="M6 11v8.5a1.5 1.5 0 0 0 1.5 1.5h9a1.5 1.5 0 0 0 1.5-1.5V11" />',
   google: '<path d="M14 4h6v6M20 4l-8.5 8.5" /><path d="M18 14v5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 4 19V7.5A1.5 1.5 0 0 1 5.5 6H10" />',
   remove: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 12.5A1.5 1.5 0 0 0 8.5 21h7a1.5 1.5 0 0 0 1.5-1.5L18 7M9 7V4.5h6V7" />',
@@ -445,7 +444,9 @@ function footer(contact: Contact, actions: CardActions): HTMLElement {
     b.addEventListener("click", () => run(b));
     return b;
   };
-  const back = button("text-button card-button-back", "‹ Contacts", "Back", FOOTER_ICONS.back, () => actions.back());
+  const back = button("text-button card-button-back", "Back", "Back", FOOTER_ICONS.back, () => actions.back());
+  back.setAttribute("aria-label", "Back to Contacts");
+  back.title = "Back to Contacts";
   const remove = button("text-button danger", "Delete", "Delete", FOOTER_ICONS.remove, () => actions.remove(contact));
   const id = contact.resourceName.replace(/^people\//, "");
   const google = button("text-button", "Open in Google Contacts", "Google", FOOTER_ICONS.google, () =>

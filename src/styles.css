@@ -1955,11 +1955,42 @@ body.dimmed::after {
   white-space: nowrap;
 }
 
-/* "‹ Settings" at the top of Settings' own screens; on a phone, at the
-   bottom, first of the buttons there. */
+/* Every way back (backButton in dom.ts): a left chevron over "Back", a
+   real button, as on a contact card's bar on a phone. */
+.back-button {
+  display: inline-flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: 56px;
+  min-height: 52px;
+  margin: 0;
+  padding: 6px 10px 5px;
+  border: none;
+  border-radius: 14px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.1;
+  white-space: nowrap;
+  color: var(--text);
+  background: var(--surface);
+}
+
+.back-button svg {
+  display: block;
+}
+
+.back-button:hover,
+.back-button:active {
+  background: var(--border);
+}
+
+/* Back at the top of Settings' own screens; on a phone, at the bottom,
+   first of the buttons there, in thumb's reach. */
 .settings-back {
-  margin: -6px 0 2px -8px;
-  font-size: 14px;
+  margin: -6px 0 10px -6px;
 }
 
 .settings-back-bottom {
@@ -1971,8 +2002,12 @@ body.dimmed::after {
     display: none;
   }
 
+  .back-at-bottom .dialog-buttons {
+    align-items: center;
+  }
+
   .dialog-buttons .settings-back-bottom {
-    display: inline-block;
+    display: inline-flex;
     margin-right: auto;
   }
 }

@@ -32,7 +32,7 @@ import {
 } from "./api";
 import { isDemo, setDemo } from "./demo";
 import { type PushState, pushState, sendTestPush, turnOffPush, turnOnPush } from "./push-client";
-import { el } from "./dom";
+import { backButton, el } from "./dom";
 import { refreshLeaveTimes } from "./leave";
 import { defaultMapProvider } from "./maps";
 import type { MapProvider } from "./preferences";
@@ -899,18 +899,14 @@ function openPlacesSettings(back: (() => void) | undefined, onChange: (on: boole
   });
 }
 
-/** "‹ Settings", back to Settings from one of its screens (if opened from there). */
+/** Back, to Settings from one of its screens (if opened from there). */
 function backTo(dialog: HTMLDialogElement, back?: () => void): HTMLElement[] {
   if (!back) return [];
-  const make = (className: string) => {
-    const button = el("button", `text-button ${className}`, "‹ Settings");
-    button.type = "button";
-    button.addEventListener("click", () => {
+  const make = (className: string) =>
+    backButton("Settings", () => {
       back(); // first, so the dimmed background stays
       dialog.close();
-    });
-    return button;
-  };
+    }, className);
   // On a phone, the same at the start of the buttons at the bottom, in
   // thumb's reach, instead (once the screen has been put together).
   queueMicrotask(() => {

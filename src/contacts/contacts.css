@@ -82,9 +82,8 @@ main.contacts-main {
 
 @media (max-width: 700px) {
   .card-back {
-    display: inline-block;
-    margin: 0 0 8px -8px;
-    font-size: 14px;
+    display: inline-flex;
+    margin: 0 0 10px;
   }
 
   .card-placeholder {
@@ -1196,7 +1195,7 @@ button.photo-preview {
   font-size: 12px;
 }
 
-/* Recents in full: "‹ Contacts", the title. */
+/* Recents in full: Back, the title. */
 .recents-top {
   display: flex;
   align-items: center;
