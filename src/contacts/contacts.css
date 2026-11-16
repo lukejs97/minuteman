@@ -75,17 +75,7 @@ main.contacts-main {
   }
 }
 
-/* The card's way back to the list, only when they don't fit side by side. */
-.card-back {
-  display: none;
-}
-
 @media (max-width: 700px) {
-  .card-back {
-    display: inline-flex;
-    margin: 0 0 10px;
-  }
-
   .card-placeholder {
     display: none;
   }
@@ -538,9 +528,49 @@ main.contacts-main {
   display: none;
 }
 
-/* Delete apart from the rest, on the left (Back, before it, shows only on a phone). */
+/* Delete apart from the rest, on the left (Back, before it, shows only
+   when the list isn't beside the card). */
 .card-buttons .danger {
   margin-right: auto;
+}
+
+/* Narrow windows, not phones: Back first in the buttons kept in view under
+   the card, the same chevron over "Back" as everywhere (dom.ts backButton). */
+@media (min-width: 641px) and (max-width: 700px) {
+  .card-buttons {
+    align-items: center;
+  }
+
+  .card-button.card-button-back {
+    display: inline-flex;
+    flex: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    min-width: 56px;
+    min-height: 52px;
+    padding: 6px 10px 5px;
+    border-radius: 14px;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.1;
+    color: var(--text);
+    background: var(--surface);
+  }
+
+  .card-button-back:hover {
+    background: var(--border);
+  }
+
+  .card-button-back svg,
+  .card-button-back .card-button-short {
+    display: block;
+  }
+
+  .card-button-back .card-button-words {
+    display: none;
+  }
 }
 
 /* The card's own bottom padding goes under the buttons, not after them. */
@@ -551,8 +581,7 @@ main.contacts-main {
 @media (max-width: 640px) {
   /* The card open: its bar takes the bottom; the box and the buttons for the list step aside. */
   .card-open .contacts-input,
-  .card-open .dock,
-  .card-open .card-back {
+  .card-open .dock {
     display: none !important;
   }
 
@@ -1195,12 +1224,24 @@ button.photo-preview {
   font-size: 12px;
 }
 
-/* Recents in full: Back, the title. */
+/* Recents in full: Back, the title, kept in view at the top as the list
+   scrolls (the bottom is the box and the dock's on a phone); the day
+   headings stick just under it. */
 .recents-top {
+  position: sticky;
+  top: 0;
+  z-index: 2;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 4px 0;
+  height: 64px;
+  margin: 0 -6px;
+  padding: 4px 10px;
+  background: var(--bg);
+}
+
+.contacts-list:has(> .recents-top) .list-heading {
+  top: 64px;
 }
 
 .recents-title {

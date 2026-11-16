@@ -3,7 +3,7 @@
 // your events with them from Minuteman.
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { errorMessage, search, type AgendaItem, type Contact, type Interaction, type Labeled } from "../api";
-import { BACK_ICON, backButton, el, setItemColor } from "../dom";
+import { BACK_ICON, el, setItemColor } from "../dom";
 import { mapLink } from "../maps";
 import { describeTimes, itemEnd, itemStart } from "../time";
 import { describeLatest, KIND_WORDS, latestByContact, relativeTime } from "./history";
@@ -128,7 +128,6 @@ export function renderCard(contact: Contact, actions: CardActions, accounts: num
   const card = el("article", "contact-card");
   card.setAttribute("aria-label", displayName(contact));
 
-  const back = backButton("Contacts", () => actions.back(), "card-back");
 
   const head = el("header", "card-head");
   const names = el("div", "card-names");
@@ -212,7 +211,7 @@ export function renderCard(contact: Contact, actions: CardActions, accounts: num
   }
 
   const notes = notesSection(contact, actions);
-  const parts: HTMLElement[] = [back, head, quick];
+  const parts: HTMLElement[] = [head, quick];
   const duplicates = actions.duplicatesOf(contact);
   if (duplicates.length) {
     // "Also listed as Sam Adams · Review…", as Cardhop and Google Contacts point them out.
@@ -431,7 +430,8 @@ const FOOTER_ICONS = {
 /**
  * The card's buttons: Delete, Open in Google Contacts, Share…, Edit. Under
  * the card on a computer (kept in view as it scrolls); on a phone, a bar
- * floating at the bottom, in thumb's reach, with Back to the list first.
+ * floating at the bottom, in thumb's reach. Back to the list first, when
+ * the list isn't beside the card (narrow windows and phones).
  * Each has its words, and an icon and a short name for that bar.
  */
 function footer(contact: Contact, actions: CardActions): HTMLElement {

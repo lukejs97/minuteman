@@ -1798,12 +1798,13 @@ body.dimmed::after {
   }
 }
 
-/* Edit forms (New / Edit event or task, a contact, Settings' screens) and
-   an event's details: Save and Cancel, or Edit, Delete…, stay in view at
+/* Edit forms (New / Edit event or task, a contact, Settings' screens),
+   any screen with Back at the bottom, and an event's details: Save and Cancel, or Edit, Delete…, stay in view at
    the bottom as it scrolls, over its bottom padding, with a soft edge
    above them. */
 .event-form .dialog-buttons,
 .dialog.settings form .dialog-buttons,
+.dialog .dialog-buttons.back-row,
 .details > .dialog-buttons {
   position: sticky;
   bottom: -16px;
@@ -1818,7 +1819,8 @@ body.dimmed::after {
    Cancel do too (boot.ts sets --above-keyboard only then). */
 @media (max-width: 640px) {
   .event-form,
-  .dialog.settings {
+  .dialog.settings,
+  .dialog.back-at-bottom {
     margin-bottom: var(--above-keyboard, auto);
     max-height: calc(var(--dialog-room) - var(--keyboard, 0px) - 32px);
     overflow-y: auto;
@@ -1987,29 +1989,17 @@ body.dimmed::after {
   background: var(--border);
 }
 
-/* Back at the top of Settings' own screens; on a phone, at the bottom,
-   first of the buttons there, in thumb's reach. */
-.settings-back {
-  margin: -6px 0 10px -6px;
+/* Back on Settings' own screens: first of the buttons at the bottom (see
+   the sticky bar below), apart from the rest, on the left. */
+.dialog-buttons .settings-back {
+  margin-right: auto;
 }
 
-.settings-back-bottom {
-  display: none;
-}
-
-@media (max-width: 640px) {
-  .back-at-bottom .settings-back {
-    display: none;
-  }
-
-  .back-at-bottom .dialog-buttons {
-    align-items: center;
-  }
-
-  .dialog-buttons .settings-back-bottom {
-    display: inline-flex;
-    margin-right: auto;
-  }
+/* A little closer than other rows, so Back, Remove key, Cancel and Save
+   still fit on one line on a phone. */
+.back-row {
+  align-items: center;
+  column-gap: 4px;
 }
 
 /* Settings → Weather: "Use current location", the search box, and the places found. */

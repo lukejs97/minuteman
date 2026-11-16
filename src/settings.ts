@@ -899,24 +899,28 @@ function openPlacesSettings(back: (() => void) | undefined, onChange: (on: boole
   });
 }
 
-/** Back, to Settings from one of its screens (if opened from there). */
+/**
+ * Back, to Settings from one of its screens (if opened from there): first
+ * of the buttons at the bottom, which stay in view as the screen scrolls,
+ * so it's always in reach (and in thumb's reach on a phone). Added once the
+ * screen has been put together; returns nothing to put at the top.
+ */
 function backTo(dialog: HTMLDialogElement, back?: () => void): HTMLElement[] {
   if (!back) return [];
-  const make = (className: string) =>
-    backButton("Settings", () => {
-      back(); // first, so the dimmed background stays
-      dialog.close();
-    }, className);
-  // On a phone, the same at the start of the buttons at the bottom, in
-  // thumb's reach, instead (once the screen has been put together).
   queueMicrotask(() => {
     const rows = dialog.querySelectorAll(".dialog-buttons");
     const row = rows[rows.length - 1];
     if (!row) return;
-    row.prepend(make("settings-back-bottom"));
+    row.prepend(
+      backButton("Settings", () => {
+        back(); // first, so the dimmed background stays
+        dialog.close();
+      }, "settings-back"),
+    );
+    row.classList.add("back-row");
     dialog.classList.add("back-at-bottom");
   });
-  return [make("settings-back")];
+  return [];
 }
 
 /**
