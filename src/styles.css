@@ -962,6 +962,11 @@ body.dimmed::after {
 
 /* ---------- New / Edit form ---------- */
 
+/* Edit opens with the form itself focused, not a field: no ring for it. */
+.event-form:focus {
+  outline: none;
+}
+
 .event-form {
   width: min(540px, calc(100vw - 32px));
   max-height: calc(var(--dialog-room) - 32px);

@@ -183,6 +183,8 @@ function plainText(notes: string | null): string {
 
 class Form {
   private dialog = el("dialog", "dialog event-form");
+  /** Set once the window has opened, so Edit takes focus only then. */
+  private opened = false;
   private title = el("h2");
   private sentence = input("text");
   private error = el("p", "error");
@@ -553,9 +555,18 @@ class Form {
     this.error.textContent = "";
     this.fromSentence();
     this.updateSaveButton();
-    (this.item || this.copyOf ? (event ? this.eventTitle : this.taskName) : this.sentence).focus();
+    // Edit: no field focused, so a phone's keyboard doesn't open over the form.
+    // Opening it: the form itself takes focus; switching Event/Task: it stays
+    // on the button pressed.
+    if (this.item) {
+      if (!this.opened) {
+        this.dialog.tabIndex = -1;
+        this.dialog.focus();
+      }
+    } else (this.copyOf ? (event ? this.eventTitle : this.taskName) : this.sentence).focus();
     // Started with a sentence: carry on typing at its end.
     if (!this.item) this.sentence.setSelectionRange(this.sentence.value.length, this.sentence.value.length);
+    this.opened = true;
   }
 
   private showTimes(): void {
