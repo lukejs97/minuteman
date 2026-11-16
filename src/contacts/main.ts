@@ -996,7 +996,8 @@ const cardActions: CardActions = {
   },
   back: () => {
     body.classList.remove("card-open");
-    input.focus();
+    // Phones: back to the list, not the keyboard (tap the box or Search to type).
+    if (!phone.matches) input.focus();
   },
   showPerson(name) {
     const wanted = name.trim().toLowerCase();
@@ -1006,7 +1007,7 @@ const cardActions: CardActions = {
     input.value = name;
     body.classList.remove("card-open");
     update();
-    input.focus();
+    if (!phone.matches) input.focus();
   },
   share: (contact, anchor) => shareMenu(contact, anchor),
   duplicatesOf: (contact) => groupOf(contact)?.filter((c) => c.id !== contact.id) ?? [],
