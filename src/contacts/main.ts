@@ -39,7 +39,7 @@ import {
 import { boot } from "../boot";
 import { ask, openDetails } from "../details";
 import { setUpDockMenu } from "../dock-menu";
-import { el, showMenu } from "../dom";
+import { backButton, el, showMenu } from "../dom";
 import { openDuplicate, openEdit, openNew } from "../event-form";
 import { mapLink } from "../maps";
 import { openSettings } from "../settings";
@@ -532,9 +532,7 @@ function drawRecents(all: Contact[]): void {
   const now = new Date();
   const byId = new Map(all.map((c) => [c.id, c]));
   const top = el("div", "recents-top");
-  const back = el("button", "text-button", "‹ Contacts");
-  back.type = "button";
-  back.addEventListener("click", () => {
+  const back = backButton("Contacts", () => {
     showingRecents = false;
     drawList();
   });

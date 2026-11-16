@@ -165,3 +165,22 @@ export function showMenu(x: number, y: number, items: [string, () => void][]): v
   window.addEventListener("resize", close);
   document.addEventListener("scroll", close, true);
 }
+
+/** A left chevron, the "Back" icon (also on a contact card's bar). */
+export const BACK_ICON = '<path d="M15 5l-7 7 7 7" />';
+
+/**
+ * Every way back, the same: a button with a left chevron over "Back", as
+ * the contact card's bar on a phone. `to` names where it goes ("Settings"),
+ * for screen readers and the tooltip.
+ */
+export function backButton(to: string, onClick: () => void, className = ""): HTMLButtonElement {
+  const button = el("button", `back-button${className ? ` ${className}` : ""}`);
+  button.type = "button";
+  button.innerHTML = `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${BACK_ICON}</svg>`;
+  button.append(el("span", "back-button-label", "Back"));
+  button.setAttribute("aria-label", `Back to ${to}`);
+  button.title = `Back to ${to}`;
+  button.addEventListener("click", onClick);
+  return button;
+}
