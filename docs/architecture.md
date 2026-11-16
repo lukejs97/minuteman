@@ -73,7 +73,8 @@ Desktop only (`#[cfg(desktop)]`), in `desktop.rs` and `alerts.rs`:
 - A `TrayIconBuilder` icon (`icons/tray.png`: the logo in colour, rendered
   from `icons/source/tray.svg`, the icon artwork cropped to its tile, at 60
   of 72 px so the menu bar's 18 pt shows a 15 pt tile, centred top to bottom
-  (as Contacts' icon is, so the two sit level), with a thin gold ring (the brand gold, `--gold`) so the navy shows
+  (as Contacts' icon is, so the two sit level; the next-event text beside it
+  is lowered 0.75 pt to match, `center_menu_bar_text`), with a thin gold ring (the brand gold, `--gold`) so the navy shows
   on a dark menu bar). Left click toggles the `flyout` window; right click shows
   Open / New Event… / Quit.
 - The `flyout` window is built in `setup` (380×600, resizable, no frame,

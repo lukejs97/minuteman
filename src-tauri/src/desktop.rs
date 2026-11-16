@@ -633,10 +633,54 @@ pub fn set_menu_bar_text(app: &AppHandle, text: Option<String>) {
     let Some(tray) = app.tray_by_id(TRAY) else { return };
     if cfg!(target_os = "macos") {
         let _ = tray.set_title(text.as_deref());
+        #[cfg(target_os = "macos")]
+        center_menu_bar_text(&tray, text.clone());
     } else {
         let _ = tray.set_tooltip(Some(text.as_deref().unwrap_or("Minuteman")));
     }
     *shown = text;
+}
+
+/// How far to lower the text beside the menu bar icon, in points. macOS draws
+/// it with its capitals about 0.75 pt above the bar's middle, where the icon
+/// is centred (measured on a real menu bar, Nov 2026); this centres it.
+#[cfg(target_os = "macos")]
+const MENU_BAR_TEXT_DROP: f64 = 0.75;
+
+/// Redraws the menu bar text a little lower, so it's centred with the icon:
+/// the same text, in the menu bar's font and colour, its line kept at the
+/// font's usual height (else macOS re-centres the taller line and undoes
+/// half the drop).
+#[cfg(target_os = "macos")]
+fn center_menu_bar_text(tray: &tauri::tray::TrayIcon, text: Option<String>) {
+    let Some(text) = text else { return };
+    let _ = tray.with_inner_tray_icon(move |inner| {
+        use objc2::{AnyThread, MainThreadMarker};
+        use objc2_app_kit::{
+            NSBaselineOffsetAttributeName, NSColor, NSFont, NSFontAttributeName, NSForegroundColorAttributeName,
+            NSLayoutManager, NSMutableParagraphStyle, NSParagraphStyleAttributeName,
+        };
+        use objc2_foundation::{NSMutableAttributedString, NSNumber, NSRange, NSString};
+
+        let Some(mtm) = MainThreadMarker::new() else { return };
+        let Some(item) = inner.ns_status_item() else { return };
+        let Some(button) = item.button(mtm) else { return };
+        let font = NSFont::menuBarFontOfSize(0.0);
+        let line = NSLayoutManager::new().defaultLineHeightForFont(&font);
+        let paragraph = NSMutableParagraphStyle::new();
+        paragraph.setMinimumLineHeight(line);
+        paragraph.setMaximumLineHeight(line);
+        let title = NSMutableAttributedString::initWithString(NSMutableAttributedString::alloc(), &NSString::from_str(&text));
+        let all = NSRange::new(0, title.length());
+        // SAFETY: each value is of the type its attribute takes.
+        unsafe {
+            title.addAttribute_value_range(NSFontAttributeName, &font, all);
+            title.addAttribute_value_range(NSForegroundColorAttributeName, &NSColor::labelColor(), all);
+            title.addAttribute_value_range(NSParagraphStyleAttributeName, &paragraph, all);
+            title.addAttribute_value_range(NSBaselineOffsetAttributeName, &NSNumber::numberWithDouble(-MENU_BAR_TEXT_DROP), all);
+        }
+        button.setAttributedTitle(&title);
+    });
 }
 
 #[cfg(test)]
