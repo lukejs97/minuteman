@@ -576,9 +576,13 @@ Minuteman's Cardhop: a second page, `contacts.html` (Vite builds both pages,
 - **All-day row height**: the week view draws 6 weeks, but the all-day
   row is only as tall as the lanes the days on screen use (any part of
   them): `allDayRow` notes each day's lanes, and `fitAllDay` sets
-  `--all-day-lanes` as the days slide or the window resizes, with a short
-  `max-height` transition. A busier day off screen is clipped until it
-  slides in. More than 3½ lanes on a phone or 7½ wider, and it scrolls.
+  `--all-day-lanes` as the window resizes and as the days slide, with a
+  short `max-height` transition. While they slide it only grows (for a
+  busier day coming on screen); it shrinks once they settle, so it never
+  goes back and forth. A redraw sets it before the row is on the page, so
+  it isn't animated up from one lane. A busier day off screen is clipped
+  until it slides in. More than 3½ lanes on a phone or 7½ wider, and it
+  scrolls.
 - **All-day row scrolling**: a gesture that starts up or down on it scrolls
   only it (`touchmove` is prevented, so the hours and days don't move too);
   one that starts sideways slides the days. A trackpad swipe keeps scrolling
