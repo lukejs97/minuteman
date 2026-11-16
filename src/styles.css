@@ -2202,15 +2202,25 @@ dialog:focus {
   grid-auto-rows: 22px;
   row-gap: 2px;
   min-height: 28px;
+  /* Only as tall as the lanes the days on screen use (views/timeline.ts);
+     a busier day off screen is clipped until it slides into view. Clipped,
+     not a scroller, so the sticky "all-day" label keeps working. */
+  max-height: calc(5px + var(--all-day-lanes, 1) * 24px);
+  overflow: clip;
   padding: 3px 0;
   border-bottom: 1px solid var(--border);
+  transition: max-height 0.15s ease-out;
 }
 
-/* At most 3½ lanes; the rest scrolls into view (views/timeline.ts). Clipped,
-   not a scroller, so the sticky "all-day" label keeps working. */
+@media (prefers-reduced-motion: reduce) {
+  .tl-allday {
+    transition: none;
+  }
+}
+
+/* At most 3½ lanes; the rest scrolls into view (views/timeline.ts). */
 .tl-allday.overflowing {
   max-height: calc(3px + var(--all-day-lanes, 3.5) * 24px);
-  overflow: clip;
   touch-action: pan-x;
 }
 
