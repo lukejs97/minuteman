@@ -455,6 +455,12 @@ function dayColumn(ctx: ViewContext, day: Date): HTMLElement {
   return column;
 }
 
+/**
+ * Zooming the hours to fit the days on screen (`fit` in renderTimeline):
+ * off for now, so the hours stay the height you pinched them to, and open
+ * at 7 AM (a couple of hours before now, today). True turns it back on.
+ */
+const AUTO_FIT = false;
 /** Zooming to fit never shows fewer hours than this (a lone hour-long event isn't blown up). */
 const MIN_FIT_HOURS = 8;
 /** ...nor makes an hour taller than this, in px. */
@@ -657,6 +663,7 @@ export function renderTimeline(
    */
   const lowestHourHeight = () => Math.max(MIN_HOUR_HEIGHT, room() / 24);
   const fit = (): [height: number, from: number] | null => {
+    if (!AUTO_FIT) return null;
     const daysKey = `${toDateString(days[first])}+${visible}`;
     const [from, to] = busyHours(ctx.items, onScreen());
     const hoursKey = `${from}-${to}`;
