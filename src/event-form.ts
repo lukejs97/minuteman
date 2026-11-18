@@ -28,6 +28,7 @@ import { AlertEditor } from "./alert-editor";
 import { askSeriesChoice } from "./series";
 import { el, focusDialog } from "./dom";
 import { EVENT_COLORS } from "./event-colors";
+import { enableGuestSuggestions } from "./guest-suggest";
 import { enablePlaceSuggestions, findPlace, type PlaceSuggestion } from "./place-suggest";
 import { parseEvent, parseTask, REPEAT_RULES, type Repeat } from "./quick-parse";
 import { describeRecurrence, endAfter } from "./recurrence";
@@ -232,7 +233,7 @@ class Form {
     () => this.touched.add("alert"),
     () => this.startValue(),
   );
-  private guests = input("text", "Email addresses, separated by commas");
+  private guests = input("text", "Names or email addresses, separated by commas");
   private eventNotes = el("textarea", "text-input");
   private calendar = el("select", "text-input");
   private calendarNotes = el("div", "form-notes");
@@ -423,6 +424,8 @@ class Form {
     const alertRow = this.row(grid, "Alert", this.alerts.root);
     alertRow.previousElementSibling?.classList.add("alert-label");
     this.row(grid, "Guests", this.guests);
+    // Type part of a name: your contacts with an email, to pick from.
+    enableGuestSuggestions(this.guests);
     this.row(grid, "Notes", this.eventNotes);
     this.row(grid, "Calendar", this.calendar, this.calendarNotes);
     this.row(grid, "Color", this.colorPicker);
@@ -964,6 +967,12 @@ class Form {
     const end = this.endValue();
     if (!start || !end) throw new Error("Choose when it starts and ends.");
     if (end < start || (this.allDay.checked && end <= start)) throw new Error("It must end after it starts.");
+    // A name typed but not picked from the list: not an address to invite.
+    const notEmail = this.guests.value
+      .split(/[,;]/)
+      .map((g) => g.trim())
+      .find((g) => g && !g.includes("@"));
+    if (notEmail) throw new Error(`“${notEmail}” isn't an email address: pick them from the list under Guests, or type their email.`);
     // Checked here so a half-filled notification is reported like the other fields.
     if (!this.item || this.touched.has("alert") || this.alerts.diverged()) this.alerts.toDraft();
     return { start, allDay: this.allDay.checked };

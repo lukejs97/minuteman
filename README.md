@@ -62,6 +62,10 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
   from this event). Its repeat shows in words ("Every Monday", "Monthly on
   the second Tuesday"), and you can change it or stop it after this one.
   Guests are emailed about changes if you tick the box.
+- **Guests from your contacts:** in New or Edit, type part of someone's
+  name (or nickname, company, or email) under **Guests**: your contacts
+  with an email show under it. Click one (or ↑ ↓ and Enter) and their
+  address goes in, with a comma after it for the next.
 - **Undo:** after deleting, moving, or completing something, a bar at the
   bottom offers **Undo** for a few seconds (or press ⌘Z / Ctrl+Z). A delete
   is only sent once the bar goes away.
