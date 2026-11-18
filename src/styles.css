@@ -2338,6 +2338,16 @@ dialog:focus {
   white-space: nowrap;
 }
 
+/* A long place wraps, on as many lines as the event has room for, then "…". */
+.tl-event-place {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--place-lines, 1);
+  line-clamp: var(--place-lines, 1);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 /* Too narrow for both: just the title, as much of it as fits. */
 @container (max-width: 56px) {
   .tl-event-time {
@@ -2421,6 +2431,21 @@ dialog:focus {
   white-space: nowrap;
   text-overflow: ellipsis;
   padding-top: 0;
+}
+
+/* Short, but with room for two lines or more: the title wraps, then "…". */
+.tl-event.compact.wraps {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--compact-lines, 2);
+  line-clamp: var(--compact-lines, 2);
+  line-height: 13px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.tl-event.compact.wraps .tl-event-title {
+  overflow: visible;
 }
 
 /* Wrap between words; a word too long for a narrow column is cut with "…". */

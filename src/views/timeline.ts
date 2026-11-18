@@ -353,6 +353,13 @@ function eventBlock(seg: Segment, dayStart: number, ctx: ViewContext): HTMLEleme
     block.classList.add("compact");
     block.append(el("span", "tl-event-time", start), " ", el("span", "tl-event-title", item.title));
     if (leave) block.append(" · ", leave);
+    // Room for a second line (13px each, a little closer than usual, less
+    // the border and padding): the title wraps onto it, then "…".
+    const lines = Math.floor((height - 4) / 13);
+    if (lines >= 2) {
+      block.classList.add("wraps");
+      block.style.setProperty("--compact-lines", String(lines));
+    }
   } else {
     // Tasks often have a due time but no duration: show just the time.
     const range = seg.end > seg.start ? `${start} – ${timeFormat.format(itemEnd(item))}` : start;
@@ -362,7 +369,12 @@ function eventBlock(seg: Segment, dayStart: number, ctx: ViewContext): HTMLEleme
     if (leave && height < 64) time.append(" · ", leave);
     if (leave && height >= 64) block.append(leave);
     if (item.location && height >= (leave && height >= 64 ? 84 : 48)) {
-      block.append(el("div", "tl-event-time tl-event-place", item.location));
+      // As many lines as the block has room for under the title and time
+      // (one each, about 15px; the leave-by line 14px), then "…".
+      const place = el("div", "tl-event-time tl-event-place", item.location);
+      const above = 4 + 15 + 15 + (leave && height >= 64 ? 14 : 0);
+      place.style.setProperty("--place-lines", String(Math.max(1, Math.floor((height - above) / 14))));
+      block.append(place);
     }
   }
   decorateTask(block, item, ctx.toggleTask);
