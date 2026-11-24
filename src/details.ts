@@ -19,6 +19,7 @@ import {
 } from "./api";
 import { openContacts } from "./contacts/open";
 import { el, setItemColor, showMenu } from "./dom";
+import { convertible } from "./event-form";
 import { deleteInSeries, inSeries } from "./series";
 import { deleteWithUndo } from "./undo";
 import { leaveDetail } from "./leave";
@@ -39,6 +40,8 @@ export interface DetailActions {
   edit(item: AgendaItem): void;
   /** Opens the New window filled in as a copy of it. */
   duplicate(item: AgendaItem): void;
+  /** Opens the Edit window switched to the other kind ("Make it a task", "Make it an event"). */
+  convert?(item: AgendaItem): void;
   /** Runs once the item has been deleted. */
   deleted(item: AgendaItem): void;
   /** Runs once it has changed in place (a reply to an invitation). */
@@ -209,6 +212,10 @@ export function showItemMenu(
   const entries: [string, () => void][] = [["Open", () => actions.open(item)]];
   if (changeable) entries.push(["Edit", () => actions.edit(item)]);
   if (canDuplicate(item)) entries.push(["Clone", () => actions.duplicate(item)]);
+  if (actions.convert && convertible(item)) {
+    const convert = actions.convert;
+    entries.push([item.kind === "task" ? "Make it an event" : "Make it a task", () => convert(item)]);
+  }
   if (item.kind === "task") entries.push([item.completed ? "Mark not done" : "Complete", () => actions.toggleTask(item)]);
   if (item.url) {
     const url = item.url;
@@ -418,7 +425,7 @@ function attachmentsRow(item: AgendaItem, actions: DetailActions, dialog: HTMLDi
     picker.type = "file";
     picker.multiple = true;
     picker.hidden = true;
-    const add = el("button", "text-button attachment-add", "Add file…");
+    const add = el("button", "link-button attachment-add", "Add file…");
     add.type = "button";
     add.addEventListener("click", () => picker.click());
     const buttons: HTMLButtonElement[] = [add];
@@ -511,7 +518,7 @@ function attachmentsRow(item: AgendaItem, actions: DetailActions, dialog: HTMLDi
       pasteBox.hidden = false;
       pasteBox.focus();
     };
-    const paste = el("button", "text-button attachment-add", "Paste");
+    const paste = el("button", "link-button attachment-add", "Paste");
     paste.type = "button";
     paste.title = "Attach what's on the clipboard";
     paste.addEventListener("click", async () => {

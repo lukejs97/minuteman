@@ -428,12 +428,12 @@ async function allowedPosition(): Promise<Spot | null> {
  * missing). The website saves none, so it waits for Google.
  */
 let people: { at: number; list: Promise<Contact[]> } | null = null;
-function contactsWithAddresses(): Promise<Contact[]> {
+/** Your contacts, as above (also for Guests' suggestions: guest-suggest.ts). */
+export function knownContacts(): Promise<Contact[]> {
   if (!people || Date.now() - people.at > 10 * 60_000) {
-    const withAddresses = (all: { contacts: Contact[] }) => all.contacts.filter((c) => c.addresses.length > 0);
-    const fresh = getContacts().then(withAddresses);
+    const fresh = getContacts().then((all) => all.contacts);
     const saved = getSavedContacts()
-      .then((list) => (list ? withAddresses(list) : null))
+      .then((list) => list?.contacts ?? null)
       .catch(() => null);
     const at = Date.now();
     people = { at, list: saved.then((list) => list ?? fresh).catch(() => []) };
@@ -446,6 +446,8 @@ function contactsWithAddresses(): Promise<Contact[]> {
   }
   return people.list;
 }
+
+const contactsWithAddresses = async () => (await knownContacts()).filter((c) => c.addresses.length > 0);
 
 /**
  * Addresses of contacts whose name (or nickname, or company) has every word

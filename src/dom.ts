@@ -165,3 +165,39 @@ export function showMenu(x: number, y: number, items: [string, () => void][]): v
   window.addEventListener("resize", close);
   document.addEventListener("scroll", close, true);
 }
+
+/** A left chevron, the "Back" icon (also on a contact card's bar). */
+export const BACK_ICON = '<path d="M15 5l-7 7 7 7" />';
+
+/**
+ * Every way back, the same: a button with a left chevron over "Back", as
+ * the contact card's bar on a phone. `to` names where it goes ("Settings"),
+ * for screen readers and the tooltip.
+ */
+export function backButton(to: string, onClick: () => void, className = ""): HTMLButtonElement {
+  const button = el("button", `back-button${className ? ` ${className}` : ""}`);
+  button.type = "button";
+  button.innerHTML = `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${BACK_ICON}</svg>`;
+  button.append(el("span", "back-button-label", "Back"));
+  button.setAttribute("aria-label", `Back to ${to}`);
+  button.title = `Back to ${to}`;
+  button.addEventListener("click", onClick);
+  return button;
+}
+
+/**
+ * Focuses `dialog` itself, no field in it, so a phone's keyboard stays down
+ * until you tap a field. (Its outline is off: `dialog:focus` in styles.css.)
+ */
+export function focusDialog(dialog: HTMLDialogElement): void {
+  dialog.tabIndex = -1;
+  dialog.focus();
+}
+
+/** Whether focusing `node` would bring up a phone's keyboard. */
+export function isTextField(node: Element): boolean {
+  if (node instanceof HTMLTextAreaElement) return true;
+  if (node instanceof HTMLElement && node.isContentEditable) return true;
+  if (!(node instanceof HTMLInputElement)) return false;
+  return !["button", "checkbox", "color", "file", "hidden", "image", "radio", "range", "reset", "submit"].includes(node.type);
+}

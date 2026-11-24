@@ -151,6 +151,8 @@ function allDayRow(ctx: ViewContext, days: Date[]): HTMLElement {
     .sort(compareForDay);
 
   const laneEnds: number[] = [];
+  /** How many lanes each day uses: its highest bar's lane, plus one. */
+  const dayLanes = days.map(() => 0);
   for (const item of items) {
     const first = Math.max(0, daysBetween(rangeStart, itemStart(item)));
     const last = Math.min(days.length - 1, daysBetween(rangeStart, new Date(itemEnd(item).getTime() - 1)));
@@ -161,6 +163,7 @@ function allDayRow(ctx: ViewContext, days: Date[]): HTMLElement {
     } else {
       laneEnds[lane] = last;
     }
+    for (let d = first; d <= last; d++) dayLanes[d] = Math.max(dayLanes[d], lane + 1);
 
     // The title in a box of its own, which keeps to the left edge of the days
     // on screen, so a long bar that began off screen still says what it is.
@@ -196,7 +199,7 @@ function allDayRow(ctx: ViewContext, days: Date[]): HTMLElement {
     row.append(bar);
   }
   label.style.gridRow = `1 / span ${Math.max(1, laneEnds.length)}`;
-  enableAllDayScroll(row, laneEnds.length);
+  enableAllDayScroll(row, dayLanes);
   // Double-click or right-click under a day for an all-day item on it.
   enableCreate(row, ctx, (e) => {
     const headers = [...row.parentElement!.querySelectorAll<HTMLElement>(".tl-day-header")];
@@ -213,18 +216,19 @@ function allDayRow(ctx: ViewContext, days: Date[]): HTMLElement {
 const ALL_DAY_LANE = 24;
 
 /**
- * More lanes of all-day items than fit (3½ on a phone, 7½ in a wider
- * window): the row shows that many, and the rest scrolls into view (wheel
- * or finger), every day's column together. Not a real scroller, so its
- * "all-day" label still stays put as the days slide.
+ * The row is only as tall as the lanes the days on screen use (the 6 weeks
+ * drawn may have a busier day off screen); `fit` sets which days those are,
+ * as they slide. More lanes than fit (3½ on a phone, 7½ in a wider window):
+ * the row shows that many, and the rest scrolls into view (wheel or finger),
+ * every day's column together. Not a real scroller, so its "all-day" label
+ * still stays put as the days slide.
  */
-function enableAllDayScroll(row: HTMLElement, lanes: number): void {
+function enableAllDayScroll(row: HTMLElement, dayLanes: number[]): void {
   const shown = window.matchMedia("(max-width: 640px)").matches ? 3.5 : 7.5;
-  if (lanes <= Math.floor(shown)) return;
-  row.classList.add("overflowing");
-  row.style.setProperty("--all-day-lanes", String(shown));
+  let lanes = Math.max(0, ...dayLanes);
   let offset = 0;
   const scrollBy = (dy: number): boolean => {
+    if (!row.classList.contains("overflowing")) return false;
     const padding = 6; // .tl-allday's, top and bottom
     const max = Math.max(0, lanes * ALL_DAY_LANE - 2 + padding - row.clientHeight);
     const next = Math.min(Math.max(offset + dy, 0), max);
@@ -233,6 +237,30 @@ function enableAllDayScroll(row: HTMLElement, lanes: number): void {
     row.style.setProperty("--all-day-offset", `${-offset}px`);
     return true;
   };
+  /**
+   * Sizes the row to the days `from` to `to`. While the days slide, `growOnly`
+   * lets it grow for a busier day coming on screen but not shrink, so it
+   * changes once (when they settle), not back and forth as days pass by.
+   */
+  const fit = (from: number, to: number, growOnly = false) => {
+    const inView = Math.max(0, ...dayLanes.slice(Math.max(0, from), to + 1));
+    const next = growOnly ? Math.max(lanes, inView) : inView;
+    if (next === lanes && row.style.getPropertyValue("--all-day-lanes")) return;
+    lanes = next;
+    const overflowing = lanes > Math.floor(shown);
+    row.classList.toggle("overflowing", overflowing);
+    row.style.setProperty("--all-day-lanes", String(overflowing ? shown : Math.max(1, lanes)));
+    // Keep what was scrolled into view, as far as these days still go.
+    offset = overflowing ? offset : 0;
+    row.style.setProperty("--all-day-offset", `${-offset}px`);
+    if (overflowing && row.isConnected) scrollBy(0);
+  };
+  /** The row's height once any change has finished: as .tl-allday's max-height (CSS). */
+  const height = () => {
+    const overflowing = lanes > Math.floor(shown);
+    return overflowing ? 3 + shown * ALL_DAY_LANE : 5 + Math.max(1, lanes) * ALL_DAY_LANE;
+  };
+  allDayRows.set(row, { scrollBy, fit, height });
   allDayScrollers.set(row, scrollBy);
 
   // Scrolling up or down here scrolls just this row, never the hours or the
@@ -240,6 +268,7 @@ function enableAllDayScroll(row: HTMLElement, lanes: number): void {
   row.addEventListener(
     "wheel",
     (e) => {
+      if (!row.classList.contains("overflowing")) return;
       if (e.ctrlKey || Math.abs(e.deltaY) <= Math.abs(e.deltaX) || wheelGesture(e) !== row) return;
       e.preventDefault();
       scrollBy(e.deltaMode === WheelEvent.DOM_DELTA_LINE ? e.deltaY * 16 : e.deltaY);
@@ -258,7 +287,7 @@ function enableAllDayScroll(row: HTMLElement, lanes: number): void {
   row.addEventListener(
     "touchmove",
     (e) => {
-      if (!touch || e.touches.length !== 1) return;
+      if (!touch || e.touches.length !== 1 || !row.classList.contains("overflowing")) return;
       const { clientX: x, clientY: y } = e.touches[0];
       if (touch.vertical === null) {
         const [dx, dy] = [Math.abs(x - touch.x), Math.abs(y - touch.y)];
@@ -277,8 +306,18 @@ function enableAllDayScroll(row: HTMLElement, lanes: number): void {
   row.addEventListener("touchcancel", () => (touch = null));
 }
 
-/** Each overflowing all-day row's own scrolling, for wheel gestures that began on it. */
+/** Each all-day row's own scrolling (when it overflows), for wheel gestures that began on it. */
 const allDayScrollers = new WeakMap<EventTarget, (dy: number) => boolean>();
+
+/** Each all-day row's scrolling, and `fit`, to size it to the days `from` to `to` (indexes) on screen. */
+const allDayRows = new WeakMap<
+  HTMLElement,
+  {
+    scrollBy: (dy: number) => boolean;
+    fit: (from: number, to: number, growOnly?: boolean) => void;
+    height: () => number;
+  }
+>();
 
 /**
  * Where the current trackpad or wheel gesture began: its events keep going
@@ -314,6 +353,13 @@ function eventBlock(seg: Segment, dayStart: number, ctx: ViewContext): HTMLEleme
     block.classList.add("compact");
     block.append(el("span", "tl-event-time", start), " ", el("span", "tl-event-title", item.title));
     if (leave) block.append(" · ", leave);
+    // Room for a second line (13px each, a little closer than usual, less
+    // the border and padding): the title wraps onto it, then "…".
+    const lines = Math.floor((height - 4) / 13);
+    if (lines >= 2) {
+      block.classList.add("wraps");
+      block.style.setProperty("--compact-lines", String(lines));
+    }
   } else {
     // Tasks often have a due time but no duration: show just the time.
     const range = seg.end > seg.start ? `${start} – ${timeFormat.format(itemEnd(item))}` : start;
@@ -323,7 +369,12 @@ function eventBlock(seg: Segment, dayStart: number, ctx: ViewContext): HTMLEleme
     if (leave && height < 64) time.append(" · ", leave);
     if (leave && height >= 64) block.append(leave);
     if (item.location && height >= (leave && height >= 64 ? 84 : 48)) {
-      block.append(el("div", "tl-event-time tl-event-place", item.location));
+      // As many lines as the block has room for under the title and time
+      // (one each, about 15px; the leave-by line 14px), then "…".
+      const place = el("div", "tl-event-time tl-event-place", item.location);
+      const above = 4 + 15 + 15 + (leave && height >= 64 ? 14 : 0);
+      place.style.setProperty("--place-lines", String(Math.max(1, Math.floor((height - above) / 14))));
+      block.append(place);
     }
   }
   decorateTask(block, item, ctx.toggleTask);
@@ -455,6 +506,12 @@ function dayColumn(ctx: ViewContext, day: Date): HTMLElement {
   return column;
 }
 
+/**
+ * Zooming the hours to fit the days on screen (`fit` in renderTimeline):
+ * off for now, so the hours stay the height you pinched them to, and open
+ * at 7 AM (a couple of hours before now, today). True turns it back on.
+ */
+const AUTO_FIT = false;
 /** Zooming to fit never shows fewer hours than this (a lone hour-long event isn't blown up). */
 const MIN_FIT_HOURS = 8;
 /** ...nor makes an hour taller than this, in px. */
@@ -560,12 +617,19 @@ export function renderTimeline(
   const previousAllDay = ctx.preserveScroll
     ? -parseFloat(root.querySelector<HTMLElement>(".tl-allday")?.style.getPropertyValue("--all-day-offset") || "0")
     : 0;
-  root.replaceChildren(timeline);
-  if (previousAllDay > 0) allDayScrollers.get(allDay)?.(previousAllDay);
-
   // Columns are a seventh (or all) of the width beside the hours.
   let first = Math.min(Math.max(0, daysBetween(days[0], ctx.anchor)), days.length - visible);
+  // The all-day row's height, set before it's on the page, so a redraw
+  // doesn't animate it up from one lane.
+  allDayRows.get(allDay)?.fit(first, first + visible - 1);
+  root.replaceChildren(timeline);
+
   let column = 0;
+  /** Sizes the all-day row to the days on screen, any part of them (only growing while they slide). */
+  const fitAllDay = (sliding = false) => {
+    const left = scroller.scrollLeft / column;
+    allDayRows.get(allDay)?.fit(Math.floor(left + 0.02), Math.ceil(left + visible - 0.02) - 1, sliding);
+  };
   const size = () => {
     const gutter = parseFloat(getComputedStyle(timeline).getPropertyValue("--gutter")) || 56;
     column = Math.max(1, (scroller.clientWidth - gutter) / visible);
@@ -574,8 +638,10 @@ export function renderTimeline(
     scroller.scrollLeft = first * column;
     // How far the days can slide: the hours move along by as much (CSS).
     if (split) timeline.style.setProperty("--days-scroll", `${scroller.scrollWidth - scroller.clientWidth}px`);
+    fitAllDay();
   };
   size();
+  if (previousAllDay > 0) allDayRows.get(allDay)?.scrollBy(previousAllDay);
   // The hours down the side: like an empty spot, at the leftmost day on
   // screen (double-click, right-click, or press and hold).
   enableCreate(hours, ctx, (e) => {
@@ -621,6 +687,7 @@ export function renderTimeline(
       () => {
         // A replaced view's box reports scrolling back to 0 as it goes.
         if (!scroller.isConnected) return;
+        fitAllDay(true);
         const index = Math.round(scroller.scrollLeft / column);
         if (index !== first) {
           first = index;
@@ -629,6 +696,7 @@ export function renderTimeline(
         window.clearTimeout(settle);
         settle = window.setTimeout(() => {
           if (!scroller.isConnected) return;
+          fitAllDay();
           scroller.dispatchEvent(new Event("slid"));
           ctx.slid?.(days[first], true);
         }, 200);
@@ -647,7 +715,9 @@ export function renderTimeline(
     const dock = document.querySelector<HTMLElement>(".dock");
     const shown = dock && dock.getClientRects().length > 0; // not display: none (desktop)
     const covered = shown ? Math.max(0, scroller.getBoundingClientRect().bottom - dock.getBoundingClientRect().top) : 0;
-    return scroller.clientHeight - top.offsetHeight - covered;
+    // The all-day row as it will be, not partway through changing height.
+    const allDayHeight = allDayRows.get(allDay)?.height() ?? allDay.offsetHeight;
+    return scroller.clientHeight - (top.offsetHeight - allDay.offsetHeight + allDayHeight) - covered;
   };
   /**
    * The shortest hour a pinch may use. A full day still fills the hours
@@ -657,6 +727,7 @@ export function renderTimeline(
    */
   const lowestHourHeight = () => Math.max(MIN_HOUR_HEIGHT, room() / 24);
   const fit = (): [height: number, from: number] | null => {
+    if (!AUTO_FIT) return null;
     const daysKey = `${toDateString(days[first])}+${visible}`;
     const [from, to] = busyHours(ctx.items, onScreen());
     const hoursKey = `${from}-${to}`;

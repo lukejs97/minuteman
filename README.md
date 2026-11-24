@@ -15,10 +15,9 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
 - **Views:** Day, a few days (3 unless you change it in Settings), Week,
   Month, Year and Agenda, for all your Google accounts' calendars together.
   The multi-day and week views slide through the days (two fingers on a
-  trackpad, or a finger on a phone), as in Apple's Calendar. Day, multi-day
-  and week views zoom to fit the days on screen: from just before their
-  first event to just after their last (at least 8 hours), again as you
-  slide to other days. Pinch to zoom yourself.
+  trackpad, or a finger on a phone), as in Apple's Calendar. Pinch (or
+  Ctrl-scroll) to make the hours taller or shorter; they stay as you left
+  them. They open at 7 AM, or a couple of hours before now on today.
 - **Add in a sentence:** click **+** (or press `N`), or double-click a day, a
   day's heading or a time (right-click for New Event or New Task), and type
   something like
@@ -29,6 +28,8 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
   day, place, repeat, alert, guests, notes, calendar). Switch to **Task** to
   add a Todoist task ("Boston Tea Party Dec 16 p1", "Paul Revere's ride Apr 18
   p1", "Lexington and Concord Apr 19 p1", "Muster every month on the 1st").
+  A task due on a day but at no time is **All day** (ticked by itself when
+  there's no time; tick it to drop the time, untick it for one again).
   A place in the sentence ("at Old North Church", or lowercase like "at
   starbucks" when there's one nearby by that name) fills in the place, with
   its full address when one is found.
@@ -63,6 +64,10 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
   from this event). Its repeat shows in words ("Every Monday", "Monthly on
   the second Tuesday"), and you can change it or stop it after this one.
   Guests are emailed about changes if you tick the box.
+- **Guests from your contacts:** in New or Edit, type part of someone's
+  name (or nickname, company, or email) under **Guests**: your contacts
+  with an email show under it. Click one (or ↑ ↓ and Enter) and their
+  address goes in, with a comma after it for the next.
 - **Undo:** after deleting, moving, or completing something, a bar at the
   bottom offers **Undo** for a few seconds (or press ⌘Z / Ctrl+Z). A delete
   is only sent once the bar goes away.
@@ -83,6 +88,15 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
   in Finder or File Explorer (or handed over by Universal Clipboard). Up to 25 MB each. Accounts added before need adding again once to allow it.
 - **Clone:** an event's or task's details (or its right-click menu) →
   **Clone** opens New filled in like it, to change (the day, say) and add.
+  Switch it to Task (or Event) there for a copy of the other kind.
+- **Make an event a task, or a task an event:** in Edit, switch **Event /
+  Task** at the top (or right-click it → **Make it a task** / **Make it an
+  event**). Its name, day and time, and notes carry over (an event's place
+  goes into the task's notes); a task with a time becomes an event of an
+  hour, or as long as Todoist plans it for, one without a time an all-day
+  one. Save adds it as the other kind (to Todoist, or the calendar you
+  choose), then deletes the original. Not for repeating ones, or events
+  with other people invited.
 - **Event colors:** Google Calendar's eleven, or the calendar's own, in
   New or Edit (Color). For a repeating event, the question above says
   whether it's for this event, the ones after it, or all.
@@ -106,7 +120,13 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
   own (the person button, `C`, the menu bar icon's menu, or `⌥⌘K` / Ctrl+Alt+K
   from any app; on a phone or the website, its own page). It's also like an
   app of its own: **its own menu bar icon** (on Windows, by the clock), whose
-  click opens Contacts and whose menu has New Contact…; **Minuteman
+  click opens a small window under it, as Cardhop's and the calendar's:
+  type to search (or add, or "call Sam"), the list, and a card, ready as
+  soon as it opens; Esc steps back, then closes it, as does clicking
+  elsewhere; its ↗ button opens the whole Contacts window, and it can be
+  detached into a window of its own (its detach button, or drag its
+  header), as the calendar's small window can. Its menu
+  (right-click) has Open Contacts and New Contact…; **Minuteman
   Contacts** in the Start menu (Windows) or Applications (Mac; keep it in
   the Dock for a Contacts button there),
   which opens just Contacts, or Contacts in the Minuteman already running.

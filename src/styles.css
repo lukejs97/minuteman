@@ -490,15 +490,26 @@ html {
   }
 }
 
-.icon-button,
-.text-button {
-  border: none;
-  background: transparent;
-  border-radius: 6px;
-  padding: 2px 8px;
-}
+/* ---------- Buttons ----------
+   One small set, in the app's own colours, everywhere:
+   - primary-button: the one main action (Done, Save, Add, Edit, Merge), filled
+     in the flag red. At most one to a bar, on the right, last.
+   - text-button (and pill-button, the same): every other action (Cancel,
+     Manage..., Share..., Search), filled in the cream of the fields beside it,
+     navy words. "danger" makes the words red (Delete, Remove, Sign out).
+   - link-button: a small action inside a sentence or beside a value (Copy,
+     Show all, Add notification), red words only.
+   - icon-button: an icon alone, as in the header.
+   - Tiles: Back (dom.ts backButton), a contact's Message/Call/..., and the
+     phone bars; an icon over a short name, in the same cream.
+   A bar of buttons reads Back first, then a danger one, a gap, the others,
+   and the primary last. */
 
 .icon-button {
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  padding: 2px 8px;
   font-size: 20px;
   line-height: 1.2;
 }
@@ -508,15 +519,67 @@ html {
   margin: 3px 0;
 }
 
-.text-button {
-  font-size: 13px;
-  color: var(--muted);
+.primary-button,
+.text-button,
+.pill-button {
+  flex: none;
+  min-height: 36px;
+  border: none;
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-size: 14px;
+  line-height: 1.2;
+  white-space: nowrap;
 }
 
-.icon-button:hover:not(:disabled),
-.text-button:hover,
-.pill-button:hover {
+.primary-button {
+  font-weight: 600;
+  color: var(--on-accent);
+  background: var(--accent);
+}
+
+.text-button,
+.pill-button {
+  font-weight: 500;
+  color: var(--text);
   background: var(--surface);
+}
+
+.primary-button:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.icon-button:hover:not(:disabled) {
+  background: var(--surface);
+}
+
+.text-button:hover:not(:disabled),
+.pill-button:hover:not(:disabled) {
+  background: var(--border);
+}
+
+.text-button.danger,
+.pill-button.danger {
+  color: var(--error);
+}
+
+.primary-button.danger {
+  color: var(--on-accent);
+  background: var(--error);
+}
+
+.link-button {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-weight: 600;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.link-button:hover:not(:disabled) {
+  text-decoration: underline;
 }
 
 .toolbar {
@@ -549,14 +612,11 @@ html {
   );
 }
 
-.pill-button {
-  flex: none; /* "Turn on" stays on one line, beside a long note */
-  border: 1px solid var(--border);
-  background: transparent;
-  border-radius: 6px;
-  padding: 2px 12px;
+/* Today, in the header: the size of the view switcher beside it. */
+.toolbar .pill-button {
+  min-height: 0;
+  padding: 3px 12px;
   font-size: 13px;
-  white-space: nowrap;
 }
 
 .segmented {
@@ -630,15 +690,6 @@ main.loading > * {
 .sign-in-text {
   margin: 0;
   color: var(--muted);
-}
-
-.primary-button {
-  border: none;
-  border-radius: 8px;
-  padding: 10px 18px;
-  font-weight: 600;
-  color: var(--on-accent);
-  background: var(--accent);
 }
 
 /* ---------- Agenda ---------- */
@@ -947,20 +998,14 @@ body.dimmed::after {
   outline-offset: 1px;
 }
 
-.link-button {
-  padding: 0;
-  border: none;
-  background: none;
-  font: inherit;
-  color: var(--accent);
-  text-decoration: underline;
-}
-
-.text-button.danger {
-  color: var(--error);
-}
 
 /* ---------- New / Edit form ---------- */
+
+/* Edit opens with the form itself focused, not a field: no ring for it. */
+/* A dialog opened with no field focused (boot.ts, focusDialog) shows no ring. */
+dialog:focus {
+  outline: none;
+}
 
 .event-form {
   width: min(540px, calc(100vw - 32px));
@@ -1120,15 +1165,16 @@ body.dimmed::after {
   background: none;
   font: inherit;
   font-size: 14px;
+  font-weight: 600;
   color: var(--accent);
+}
+
+.alert-add:hover {
+  text-decoration: underline;
 }
 
 .alert-list .form-notes:empty {
   display: none;
-}
-
-.primary-button.danger {
-  background: var(--error);
 }
 
 .quick-header {
@@ -1342,10 +1388,6 @@ body.dimmed::after {
   width: 22px;
   height: 22px;
   font-size: 15px;
-}
-
-.attachment-add {
-  padding: 2px 0;
 }
 
 .attachment-actions {
@@ -1731,10 +1773,6 @@ body.dimmed::after {
   margin-right: auto;
 }
 
-.dialog-buttons .primary-button {
-  padding: 7px 16px;
-}
-
 /* An event's details: words on a computer; on a phone, one row of equal
    buttons, an icon over a short name (as a contact card's bar), Close
    first and Edit last. */
@@ -1798,12 +1836,13 @@ body.dimmed::after {
   }
 }
 
-/* Edit forms (New / Edit event or task, a contact, Settings' screens) and
-   an event's details: Save and Cancel, or Edit, Delete…, stay in view at
+/* Edit forms (New / Edit event or task, a contact, Settings' screens),
+   any screen with Back at the bottom, and an event's details: Save and Cancel, or Edit, Delete…, stay in view at
    the bottom as it scrolls, over its bottom padding, with a soft edge
    above them. */
 .event-form .dialog-buttons,
 .dialog.settings form .dialog-buttons,
+.dialog .dialog-buttons.back-row,
 .details > .dialog-buttons {
   position: sticky;
   bottom: -16px;
@@ -1818,7 +1857,8 @@ body.dimmed::after {
    Cancel do too (boot.ts sets --above-keyboard only then). */
 @media (max-width: 640px) {
   .event-form,
-  .dialog.settings {
+  .dialog.settings,
+  .dialog.back-at-bottom {
     margin-bottom: var(--above-keyboard, auto);
     max-height: calc(var(--dialog-room) - var(--keyboard, 0px) - 32px);
     overflow-y: auto;
@@ -1955,26 +1995,56 @@ body.dimmed::after {
   white-space: nowrap;
 }
 
-/* "‹ Settings" at the top of Settings' own screens; on a phone, at the
-   bottom, first of the buttons there. */
-.settings-back {
-  margin: -6px 0 2px -8px;
-  font-size: 14px;
+/* Every way back (backButton in dom.ts): a left chevron over "Back", a
+   real button, as on a contact card's bar on a phone. */
+.back-button {
+  display: inline-flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: 56px;
+  min-height: 52px;
+  margin: 0;
+  padding: 6px 10px 5px;
+  border: none;
+  border-radius: 14px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.1;
+  white-space: nowrap;
+  color: var(--text);
+  background: var(--surface);
 }
 
-.settings-back-bottom {
-  display: none;
+.back-button svg {
+  display: block;
 }
 
-@media (max-width: 640px) {
-  .back-at-bottom .settings-back {
-    display: none;
-  }
+.back-button:hover,
+.back-button:active {
+  background: var(--border);
+}
 
-  .dialog-buttons .settings-back-bottom {
-    display: inline-block;
-    margin-right: auto;
-  }
+/* Back on Settings' own screens: first of the buttons at the bottom (see
+   the sticky bar below), apart from the rest, on the left. */
+.dialog-buttons .settings-back {
+  margin-right: auto;
+}
+
+/* A little closer than other rows, so Back, Remove key, Cancel and Save
+   still fit on one line on a phone. */
+.back-row {
+  align-items: center;
+  column-gap: 4px;
+}
+
+/* Back and three more still fit one row on a phone. */
+.back-row .text-button,
+.back-row .primary-button {
+  padding-left: 12px;
+  padding-right: 12px;
 }
 
 /* Settings → Weather: "Use current location", the search box, and the places found. */
@@ -2132,15 +2202,25 @@ body.dimmed::after {
   grid-auto-rows: 22px;
   row-gap: 2px;
   min-height: 28px;
+  /* Only as tall as the lanes the days on screen use (views/timeline.ts);
+     a busier day off screen is clipped until it slides into view. Clipped,
+     not a scroller, so the sticky "all-day" label keeps working. */
+  max-height: calc(5px + var(--all-day-lanes, 1) * 24px);
+  overflow: clip;
   padding: 3px 0;
   border-bottom: 1px solid var(--border);
+  transition: max-height 0.15s ease-out;
 }
 
-/* At most 3½ lanes; the rest scrolls into view (views/timeline.ts). Clipped,
-   not a scroller, so the sticky "all-day" label keeps working. */
+@media (prefers-reduced-motion: reduce) {
+  .tl-allday {
+    transition: none;
+  }
+}
+
+/* At most 3½ lanes; the rest scrolls into view (views/timeline.ts). */
 .tl-allday.overflowing {
   max-height: calc(3px + var(--all-day-lanes, 3.5) * 24px);
-  overflow: clip;
   touch-action: pan-x;
 }
 
@@ -2258,6 +2338,16 @@ body.dimmed::after {
   white-space: nowrap;
 }
 
+/* A long place wraps, on as many lines as the event has room for, then "…". */
+.tl-event-place {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--place-lines, 1);
+  line-clamp: var(--place-lines, 1);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 /* Too narrow for both: just the title, as much of it as fits. */
 @container (max-width: 56px) {
   .tl-event-time {
@@ -2341,6 +2431,21 @@ body.dimmed::after {
   white-space: nowrap;
   text-overflow: ellipsis;
   padding-top: 0;
+}
+
+/* Short, but with room for two lines or more: the title wraps, then "…". */
+.tl-event.compact.wraps {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--compact-lines, 2);
+  line-clamp: var(--compact-lines, 2);
+  line-height: 13px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.tl-event.compact.wraps .tl-event-title {
+  overflow: visible;
 }
 
 /* Wrap between words; a word too long for a narrow column is cut with "…". */
@@ -2638,9 +2743,15 @@ body.dimmed::after {
     padding: 6px 12px;
   }
 
+  .primary-button,
   .text-button,
   .pill-button {
-    padding: 8px 12px;
+    min-height: 40px;
+  }
+
+  .toolbar .pill-button {
+    min-height: 0;
+    padding: 7px 11px;
   }
 
   .segmented button {
@@ -2686,6 +2797,7 @@ body.flyout #app {
   --text: var(--on-chrome);
   --muted: var(--on-chrome-muted);
   --surface: rgb(255 255 255 / 0.12);
+  --border: rgb(255 255 255 / 0.28);
 }
 
 /* Detach while it's under the icon; put back and close once detached. */

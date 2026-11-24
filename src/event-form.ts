@@ -6,6 +6,8 @@ import {
   createEvent,
   endSeriesBefore,
   createTask,
+  deleteEvent,
+  deleteTask,
   errorMessage,
   eventCalendars,
   eventRecurrence,
@@ -24,8 +26,9 @@ import {
 } from "./api";
 import { AlertEditor } from "./alert-editor";
 import { askSeriesChoice } from "./series";
-import { el } from "./dom";
+import { el, focusDialog } from "./dom";
 import { EVENT_COLORS } from "./event-colors";
+import { enableGuestSuggestions } from "./guest-suggest";
 import { enablePlaceSuggestions, findPlace, type PlaceSuggestion } from "./place-suggest";
 import { parseEvent, parseTask, REPEAT_RULES, type Repeat } from "./quick-parse";
 import { describeRecurrence, endAfter } from "./recurrence";
@@ -100,9 +103,27 @@ export function openDuplicate(item: AgendaItem, onSaved: (saved: Saved) => void)
   new Form(onSaved, item.kind === "task" ? "task" : "event", null, null, "", item).open();
 }
 
-/** Opens the Edit window for an event or task. */
-export function openEdit(item: AgendaItem, onSaved: (saved: Saved) => void): void {
-  new Form(onSaved, item.kind === "task" ? "task" : "event", item).open();
+/**
+ * Opens the Edit window for an event or task. `as`: switched to the other
+ * kind already ("Make it a task"), if it can be (see `convertible`).
+ */
+export function openEdit(item: AgendaItem, onSaved: (saved: Saved) => void, as?: Mode): void {
+  const kind = kindOf(item);
+  new Form(onSaved, as && convertible(item) ? as : kind, item).open();
+}
+
+const kindOf = (item: AgendaItem): Mode => (item.kind === "task" ? "task" : "event");
+
+/**
+ * Whether `item` can be made into the other kind (an event into a Todoist
+ * task, a Todoist task into a Google event): one you can change, not
+ * repeating, and (an event) with no one else invited, who'd be sent a
+ * cancellation.
+ */
+export function convertible(item: AgendaItem): boolean {
+  if (item.recurring) return false;
+  if (item.kind === "task") return item.source === "todoist";
+  return item.kind === "event" && item.source === "google" && item.editable && !item.attendees.some((a) => !a.isSelf);
 }
 
 function option(value: string, text: string): HTMLOptionElement {
@@ -163,12 +184,18 @@ function plainText(notes: string | null): string {
 
 class Form {
   private dialog = el("dialog", "dialog event-form");
+  /** Set once the window has opened, so Edit takes focus only then. */
+  private opened = false;
   private title = el("h2");
   private sentence = input("text");
   private error = el("p", "error");
   private save = el("button", "primary-button", "Add");
+  /** Editing, made into the other kind: what saving does. */
+  private convertNote = el("p", "form-notes convert-note");
   /** Fields set by hand, which the sentence no longer changes. */
   private touched = new Set<string>();
+  /** The kind whose fields are showing (see `carry`). */
+  private shownMode: Mode = "event";
   /** Places named in the sentence, looked up: where each is, or null if it isn't one. */
   private placeLookups = new Map<string, PlaceSuggestion | null>();
   private placeTimer: number | undefined;
@@ -206,7 +233,7 @@ class Form {
     () => this.touched.add("alert"),
     () => this.startValue(),
   );
-  private guests = input("text", "Email addresses, separated by commas");
+  private guests = input("text", "Names or email addresses, separated by commas");
   private eventNotes = el("textarea", "text-input");
   private calendar = el("select", "text-input");
   private calendarNotes = el("div", "form-notes");
@@ -224,6 +251,11 @@ class Form {
   private taskName = input("text", "Name");
   private dueDate = input("date");
   private dueTime = input("time");
+  /** A task due on a day, not at a time (Todoist's date with no time): ticked when there's no time. */
+  private taskAllDay = el("input");
+  private taskAllDayLabel = el("label", "form-check");
+  /** The time to put back when All day is unticked. */
+  private lastDueTime = "";
   private repeatWords = el("span");
   private repeatRow = el("div", "form-note-row");
   private priority = select(PRIORITY_OPTIONS);
@@ -261,10 +293,11 @@ class Form {
 
     const header = el("div", "quick-header");
     header.append(this.title);
-    if (!this.item && !this.copyOf) {
+    // New and Clone: an event or a task. Edit: the other kind too, if it can be.
+    if (!this.item || convertible(this.item)) {
       const switcher = el("div", "segmented");
       switcher.role = "group";
-      switcher.setAttribute("aria-label", "Add an event or a task");
+      switcher.setAttribute("aria-label", this.item ? "An event or a task" : "Add an event or a task");
       for (const m of ["event", "task"] as const) {
         const button = el("button", undefined, m === "event" ? "Event" : "Task");
         button.type = "button";
@@ -296,13 +329,17 @@ class Form {
       this.sentence.value = this.startSentence;
       form.append(this.sentence);
     }
-    form.append(this.eventFields, this.taskFields, this.error, buttons);
+    form.append(this.convertNote, this.eventFields, this.taskFields, this.error, buttons);
     dialog.append(header, form);
     dialog.showModal();
 
     if (this.item) this.fillFromItem(this.item);
     else if (this.copyOf) this.fillFromItem(this.copyOf, true);
     else this.fillDefaults();
+    // Opened as the other kind ("Make it a task"): its fields from the item's.
+    const source = this.item ?? this.copyOf;
+    if (source && kindOf(source) !== this.mode) this.carry(kindOf(source), this.mode);
+    this.shownMode = this.mode;
     void this.loadCalendars();
     void this.loadLeaveDefault();
     this.setMode(this.mode);
@@ -392,6 +429,8 @@ class Form {
     const alertRow = this.row(grid, "Alert", this.alerts.root);
     alertRow.previousElementSibling?.classList.add("alert-label");
     this.row(grid, "Guests", this.guests);
+    // Type part of a name: your contacts with an email, to pick from.
+    enableGuestSuggestions(this.guests);
     this.row(grid, "Notes", this.eventNotes);
     this.row(grid, "Calendar", this.calendar, this.calendarNotes);
     this.row(grid, "Color", this.colorPicker);
@@ -456,7 +495,23 @@ class Form {
     this.repeatRow.append("Repeats: ", this.repeatWords, " ", clear);
 
     this.row(grid, "Name", this.taskName);
-    const due = this.row(grid, "Due", this.dueDate, this.dueTime, this.repeatRow);
+    this.taskAllDay.type = "checkbox";
+    this.taskAllDayLabel.append(this.taskAllDay, " All day");
+    // Ticked: no time (the time box goes); unticked: the time it had, or the next whole hour.
+    this.taskAllDay.addEventListener("change", () => {
+      if (this.taskAllDay.checked) {
+        if (this.dueTime.value) this.lastDueTime = this.dueTime.value;
+        this.dueTime.value = "";
+      } else {
+        const next = new Date();
+        next.setHours(next.getHours() + 1, 0, 0, 0);
+        this.dueTime.value = this.lastDueTime || timeString(next);
+      }
+      this.touched.add("due");
+      this.showTaskRepeat();
+      if (!this.taskAllDay.checked) this.dueTime.focus();
+    });
+    const due = this.row(grid, "Due", this.dueDate, this.dueTime, this.taskAllDayLabel, this.repeatRow);
     // Editing: the repeat in Todoist's words, as its own app shows it. A new
     // date moves just the next one; the repeat goes on from there.
     if (this.item) {
@@ -486,9 +541,23 @@ class Form {
   }
 
   private setMode(mode: Mode): void {
+    // Switching an item (or its clone) to the other kind: what's filled in
+    // goes along. Back to the item's own kind: as it was.
+    if (this.item && mode !== this.shownMode && mode === kindOf(this.item)) this.fillFromItem(this.item);
+    else if ((this.item || this.copyOf) && mode !== this.shownMode) this.carry(this.shownMode, mode);
+    this.shownMode = mode;
     this.mode = mode;
     const event = mode === "event";
-    this.title.textContent = this.item
+    const converting = this.converting();
+    this.convertNote.hidden = !converting;
+    this.convertNote.textContent = event
+      ? "Saving adds it to Google Calendar and deletes the task from Todoist."
+      : "Saving adds it to Todoist and deletes the event from Google Calendar.";
+    this.title.textContent = converting
+      ? event
+        ? "Make it an event"
+        : "Make it a task"
+      : this.item
       ? event
         ? "Edit event"
         : "Edit task"
@@ -510,9 +579,15 @@ class Form {
     this.error.textContent = "";
     this.fromSentence();
     this.updateSaveButton();
-    (this.item || this.copyOf ? (event ? this.eventTitle : this.taskName) : this.sentence).focus();
+    // Edit: no field focused, so a phone's keyboard doesn't open over the form.
+    // Opening it: the form itself takes focus; switching Event/Task: it stays
+    // on the button pressed.
+    if (this.item) {
+      if (!this.opened) focusDialog(this.dialog);
+    } else (this.copyOf ? (event ? this.eventTitle : this.taskName) : this.sentence).focus();
     // Started with a sentence: carry on typing at its end.
     if (!this.item) this.sentence.setSelectionRange(this.sentence.value.length, this.sentence.value.length);
+    this.opened = true;
   }
 
   private showTimes(): void {
@@ -522,14 +597,19 @@ class Form {
     this.floatingLabel.hidden = !timed;
   }
 
+  /** The task's due row as its fields now stand: a repeat in words, or a date with a time or All day. */
   private showTaskRepeat(): void {
     this.repeatRow.hidden = !this.taskRepeat;
     this.repeatWords.textContent = this.taskRepeat ?? "";
-    this.dueDate.hidden = this.dueTime.hidden = Boolean(this.taskRepeat);
+    const repeats = Boolean(this.taskRepeat);
+    this.taskAllDay.checked = !this.dueTime.value;
+    this.dueDate.hidden = this.taskAllDayLabel.hidden = repeats;
+    this.dueTime.hidden = repeats || this.taskAllDay.checked;
   }
 
   private updateSaveButton(): void {
-    const ready = this.mode === "event" ? this.calendarsReady || Boolean(this.item) : this.projectsReady;
+    const editing = Boolean(this.item) && !this.converting();
+    const ready = this.mode === "event" ? this.calendarsReady || editing : this.projectsReady;
     this.save.disabled = !ready;
   }
 
@@ -728,7 +808,8 @@ class Form {
       const notes: string[] = [];
       calendar.replaceChildren();
       for (const account of accounts) {
-        if (this.item && account.email !== this.item.account) continue;
+        // Editing an event: its own account's (a task made an event: any).
+        if (this.item?.kind === "event" && account.email !== this.item.account) continue;
         if (account.error) notes.push(`Couldn't load ${account.email}'s calendars: ${account.error}`);
         else if (!account.canEdit) {
           notes.push(`To add events to ${account.email}, add it again under Accounts so Google can ask for permission.`);
@@ -742,9 +823,9 @@ class Form {
           group.append(option(String(index), cal.name));
           // Editing or duplicating: its own calendar; otherwise the one used last.
           const source = this.item ?? this.copyOf;
-          const want = source?.account ? { email: source.account, calendarId: source.listId } : saved;
+          const want = source?.kind === "event" && source.account ? { email: source.account, calendarId: source.listId } : saved;
           if (want?.email === account.email && want.calendarId === cal.id) chosen = index;
-          if (chosen < 0 && !this.item && cal.primary) chosen = index;
+          if (chosen < 0 && this.item?.kind !== "event" && cal.primary) chosen = index;
         }
         calendar.append(group);
       }
@@ -778,7 +859,7 @@ class Form {
       const projects = await todoistProjects();
       project.replaceChildren(...projects.map((p) => option(p.id, p.name)));
       const source = this.item ?? this.copyOf;
-      const want = source ? source.listId : load<string>(PROJECT_STORAGE_KEY);
+      const want = source?.kind === "task" ? source.listId : load<string>(PROJECT_STORAGE_KEY);
       if (want && projects.some((p) => p.id === want)) project.value = want;
       project.disabled = false;
       this.projectsReady = true;
@@ -787,6 +868,80 @@ class Form {
       projectNotes.replaceChildren(el("p", "error", errorMessage(err)));
     }
     this.updateSaveButton();
+  }
+
+  // ---------- An event made a task, or a task an event ----------
+
+  /** Editing an item, switched to the other kind: saving adds it as that, then deletes the item. */
+  private converting(): boolean {
+    return Boolean(this.item) && this.mode !== kindOf(this.item!);
+  }
+
+  /** Fills the `to` kind's fields from the `from` kind's: name, when, and notes (and an event's place). */
+  private carry(from: Mode, to: Mode): void {
+    if (from === to) return;
+    if (to === "task") {
+      this.taskName.value = this.eventTitle.value;
+      const start = this.startValue();
+      if (start) {
+        this.dueDate.value = toDateString(start);
+        this.dueTime.value = this.allDay.checked ? "" : timeString(start);
+      }
+      const place = this.location.value.trim();
+      this.taskNotes.value = [place && `Where: ${place}`, this.eventNotes.value.trim()].filter(Boolean).join("\n\n");
+      this.taskRepeat = null;
+      this.taskRepeatInput.value = "";
+      this.priority.value = "4";
+      this.showTaskRepeat();
+      return;
+    }
+    this.eventTitle.value = this.taskName.value;
+    const day = this.dueDate.value || toDateString(new Date());
+    if (this.dueTime.value) {
+      const start = combine(day, this.dueTime.value);
+      // As long as the task was planned for (Todoist's duration), else an hour.
+      const source = this.item ?? this.copyOf;
+      const planned = source?.kind === "task" && source.end ? itemEnd(source).getTime() - itemStart(source).getTime() : 0;
+      this.setWhen(start, new Date(start.getTime() + (planned > 0 ? planned : 60 * 60 * 1000)), false);
+    } else {
+      this.setWhen(parseDate(day), addDays(parseDate(day), 1), true);
+    }
+    this.eventNotes.value = this.taskNotes.value;
+    this.alerts.setDefault();
+    // A new event: no one to tell about changes.
+    this.notifyRow.hidden = true;
+  }
+
+  /**
+   * Saves the item as the other kind: adds it (as a new one, with what's
+   * filled in), then deletes the item. Added but not deleted: says so, and
+   * leaves both, rather than adding it twice on a second Save.
+   */
+  private async convert(saved: Saved): Promise<void> {
+    const original = this.item!;
+    // A repeat typed in Edit's box: Todoist's words, as a new task takes them.
+    const repeat = this.taskRepeatInput.value.trim();
+    if (this.mode === "task" && repeat) this.taskRepeat = repeat;
+    this.item = null; // drafted and added as new
+    try {
+      if (this.mode === "event") await this.saveEvent();
+      else await this.saveTask();
+    } finally {
+      this.item = original;
+    }
+    let problem: string | null = null;
+    try {
+      if (original.kind === "task") await deleteTask(original.sourceId!);
+      else await deleteEvent(eventRef(original, false), false);
+    } catch (err) {
+      problem = errorMessage(err);
+    }
+    this.dialog.close();
+    this.onSaved(saved);
+    if (problem) {
+      const [made, was] = this.mode === "event" ? ["event", "task in Todoist"] : ["task", "event in Google Calendar"];
+      window.alert(`Added the ${made}, but couldn't delete the ${was}: ${problem}\n\nDelete it there yourself.`);
+    }
   }
 
   // ---------- Saving ----------
@@ -808,6 +963,7 @@ class Form {
     this.save.disabled = true;
     this.save.textContent = this.item ? "Saving…" : "Adding…";
     try {
+      if (this.converting()) return await this.convert(saved);
       if (this.mode === "event") await this.saveEvent();
       else await this.saveTask();
       this.dialog.close();
@@ -836,6 +992,12 @@ class Form {
     const end = this.endValue();
     if (!start || !end) throw new Error("Choose when it starts and ends.");
     if (end < start || (this.allDay.checked && end <= start)) throw new Error("It must end after it starts.");
+    // A name typed but not picked from the list: not an address to invite.
+    const notEmail = this.guests.value
+      .split(/[,;]/)
+      .map((g) => g.trim())
+      .find((g) => g && !g.includes("@"));
+    if (notEmail) throw new Error(`“${notEmail}” isn't an email address: pick them from the list under Guests, or type their email.`);
     // Checked here so a half-filled notification is reported like the other fields.
     if (!this.item || this.touched.has("alert") || this.alerts.diverged()) this.alerts.toDraft();
     return { start, allDay: this.allDay.checked };

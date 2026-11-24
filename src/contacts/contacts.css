@@ -5,6 +5,8 @@
 
 .contacts-bar {
   flex-wrap: nowrap;
+  /* Room under the box before the stripes (9px, and the gold line over them). */
+  padding-bottom: 24px;
 }
 
 .contacts-input {
@@ -75,18 +77,7 @@ main.contacts-main {
   }
 }
 
-/* The card's way back to the list, only when they don't fit side by side. */
-.card-back {
-  display: none;
-}
-
 @media (max-width: 700px) {
-  .card-back {
-    display: inline-block;
-    margin: 0 0 8px -8px;
-    font-size: 14px;
-  }
-
   .card-placeholder {
     display: none;
   }
@@ -234,12 +225,7 @@ main.contacts-main {
 }
 
 .update-button {
-  flex: none;
-  min-height: 34px;
   margin-right: 4px;
-  color: var(--on-accent);
-  border-color: transparent;
-  background: var(--accent);
 }
 
 .update-button:disabled {
@@ -469,6 +455,11 @@ main.contacts-main {
   color: var(--muted);
 }
 
+/* Text, Copy, Log...: small, but red like every other link-button. */
+.link-button.card-mini {
+  color: var(--accent);
+}
+
 .card-birthday.today {
   font-weight: 600;
   color: var(--accent);
@@ -539,9 +530,49 @@ main.contacts-main {
   display: none;
 }
 
-/* Delete apart from the rest, on the left (Back, before it, shows only on a phone). */
+/* Delete apart from the rest, on the left (Back, before it, shows only
+   when the list isn't beside the card). */
 .card-buttons .danger {
   margin-right: auto;
+}
+
+/* Narrow windows, not phones: Back first in the buttons kept in view under
+   the card, the same chevron over "Back" as everywhere (dom.ts backButton). */
+@media (min-width: 641px) and (max-width: 700px) {
+  .card-buttons {
+    align-items: center;
+  }
+
+  .card-button.card-button-back {
+    display: inline-flex;
+    flex: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    min-width: 56px;
+    min-height: 52px;
+    padding: 6px 10px 5px;
+    border-radius: 14px;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.1;
+    color: var(--text);
+    background: var(--surface);
+  }
+
+  .card-button-back:hover {
+    background: var(--border);
+  }
+
+  .card-button-back svg,
+  .card-button-back .card-button-short {
+    display: block;
+  }
+
+  .card-button-back .card-button-words {
+    display: none;
+  }
 }
 
 /* The card's own bottom padding goes under the buttons, not after them. */
@@ -552,8 +583,7 @@ main.contacts-main {
 @media (max-width: 640px) {
   /* The card open: its bar takes the bottom; the box and the buttons for the list step aside. */
   .card-open .contacts-input,
-  .card-open .dock,
-  .card-open .card-back {
+  .card-open .dock {
     display: none !important;
   }
 
@@ -923,6 +953,11 @@ main.contacts-main {
     display: none;
   }
 
+  /* The box floats (below): only the stripes are left of its bar. */
+  .contacts-bar {
+    padding-bottom: 9px;
+  }
+
   /* The box floats above the buttons, within thumb's reach. */
   .contacts-input {
     position: fixed;
@@ -977,6 +1012,67 @@ main.contacts-main {
 
   .keyboard-open .contact-card {
     padding-bottom: calc(8px + 66px + 16px);
+  }
+}
+
+/* ---------- The small window under the menu bar icon (desktop) ---------- */
+
+/*
+ * As narrow as a phone, but used with a mouse (as Cardhop's): the box at
+ * the top under the title, the header's buttons kept, no buttons along the
+ * bottom (a card's own bar stays, for Back, Edit…).
+ */
+@media (max-width: 640px) {
+  .contacts-popup .topbar {
+    padding-top: 10px;
+  }
+
+  .contacts-popup .topbar h1 {
+    font-size: 20px;
+  }
+
+  .contacts-popup .contacts-chrome .actions {
+    display: flex;
+  }
+
+  .contacts-popup .contacts-bar {
+    padding: 0 12px 23px;
+  }
+
+  .contacts-popup .contacts-input {
+    position: static;
+    width: 100%;
+    height: auto;
+    padding: 7px 10px;
+    border-radius: 8px;
+    border-color: rgb(255 255 255 / 0.28);
+    font-size: 14px;
+    background: rgb(255 255 255 / 0.12);
+    box-shadow: none;
+  }
+
+  .contacts-popup .dock {
+    display: none !important;
+  }
+
+  /* The box stays with a card open: typing goes back to the results. */
+  .contacts-popup.card-open .contacts-input {
+    display: block !important;
+  }
+
+  .contacts-popup .contacts-list,
+  .contacts-popup .contact-card {
+    padding-bottom: 16px;
+  }
+
+  .contacts-popup.card-open .contact-card {
+    padding-bottom: calc(12px + 66px + 16px);
+  }
+
+  .contacts-popup .card-buttons {
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
   }
 }
 
@@ -1196,12 +1292,24 @@ button.photo-preview {
   font-size: 12px;
 }
 
-/* Recents in full: "‹ Contacts", the title. */
+/* Recents in full: Back, the title, kept in view at the top as the list
+   scrolls (the bottom is the box and the dock's on a phone); the day
+   headings stick just under it. */
 .recents-top {
+  position: sticky;
+  top: 0;
+  z-index: 2;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 4px 0;
+  height: 64px;
+  margin: 0 -6px;
+  padding: 4px 10px;
+  background: var(--bg);
+}
+
+.contacts-list:has(> .recents-top) .list-heading {
+  top: 64px;
 }
 
 .recents-title {

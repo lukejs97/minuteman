@@ -72,8 +72,9 @@ Desktop only (`#[cfg(desktop)]`), in `desktop.rs` and `alerts.rs`:
 
 - A `TrayIconBuilder` icon (`icons/tray.png`: the logo in colour, rendered
   from `icons/source/tray.svg`, the icon artwork cropped to its tile, at 60
-  of 72 px so the menu bar's 18 pt shows a 15 pt tile, 1 pt above centre to
-  sit level with the text beside it, with a thin gold ring (the brand gold, `--gold`) so the navy shows
+  of 72 px so the menu bar's 18 pt shows a 15 pt tile, centred top to bottom
+  (as Contacts' icon is, so the two sit level; the next-event text beside it
+  is lowered 0.75 pt to match, `center_menu_bar_text`), with a thin gold ring (the brand gold, `--gold`) so the navy shows
   on a dark menu bar). Left click toggles the `flyout` window; right click shows
   Open / New Event… / Quit.
 - The `flyout` window is built in `setup` (380×600, resizable, no frame,
@@ -287,6 +288,11 @@ shown while any dialog is open (`boot.ts` wraps `showModal`). Not
 `::backdrop` or a shadow on the dialog: both are repainted as a dialog's
 contents change size, and the Mac's web view flickered. The layer stays on
 while one dialog replaces another.
+Opening a dialog never focuses a text field, so a phone's keyboard stays
+down until you tap one: the wrapper moves focus from a field that
+`showModal` picked to the dialog itself (`focusDialog` in `dom.ts`, no
+outline). The search box, New event and New contact focus their box
+themselves, as typing is what they're for.
 
 **Attachments**: an event's are Drive files on `event.attachments` (read
 with the event, shown in its details). Adding one (`attach_to_event`):
@@ -567,6 +573,16 @@ Minuteman's Cardhop: a second page, `contacts.html` (Vite builds both pages,
   changing; zoomed yourself, the hours are at least made to fill it).
   `fitted` remembers what was fitted, so redraws for the same days don't
   jump.
+- **All-day row height**: the week view draws 6 weeks, but the all-day
+  row is only as tall as the lanes the days on screen use (any part of
+  them): `allDayRow` notes each day's lanes, and `fitAllDay` sets
+  `--all-day-lanes` as the window resizes and as the days slide, with a
+  short `max-height` transition. While they slide it only grows (for a
+  busier day coming on screen); it shrinks once they settle, so it never
+  goes back and forth. A redraw sets it before the row is on the page, so
+  it isn't animated up from one lane. A busier day off screen is clipped
+  until it slides in. More than 3½ lanes on a phone or 7½ wider, and it
+  scrolls.
 - **All-day row scrolling**: a gesture that starts up or down on it scrolls
   only it (`touchmove` is prevented, so the hours and days don't move too);
   one that starts sideways slides the days. A trackpad swipe keeps scrolling
@@ -616,6 +632,13 @@ Minuteman's Cardhop: a second page, `contacts.html` (Vite builds both pages,
   so it works offline. Dark mode is navy throughout with ivory text. All
   colors are CSS variables at the top of `src/styles.css`, with the dark
   block just below.
+- **Buttons:** one small set, described above the Buttons section of
+  `src/styles.css`. `primary-button` (flag red) for the one main action, last
+  in a bar; `text-button` (cream, navy words; `danger` for red words) for every
+  other action; `link-button` (red words) for small actions beside a value;
+  `icon-button` for icons alone; and tiles (an icon over a short name, like
+  Back from `backButton` in `src/dom.ts`) on phone bars. A bar reads Back,
+  then a danger button, a gap, the others, and the primary last.
 - **Google consent screen:** the app name, and a logo if you want one, on
   Google Auth Platform → Branding. Uploading a logo requires Google's brand
   verification once the app is published.

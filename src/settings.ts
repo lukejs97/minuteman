@@ -39,7 +39,7 @@ import {
 } from "./api";
 import { isDemo, setDemo } from "./demo";
 import { type PushState, pushState, sendTestPush, turnOffPush, turnOnPush } from "./push-client";
-import { el } from "./dom";
+import { backButton, el } from "./dom";
 import { ask } from "./details";
 import { refreshLeaveTimes } from "./leave";
 import { defaultMapProvider } from "./maps";
@@ -514,7 +514,6 @@ function openTravelSettings(back: (() => void) | undefined, onAddress: (address:
   form.append(buttonRow(remove, close, save));
   dialog.append(...backTo(dialog, back), title, help, form);
   dialog.showModal();
-  street.focus();
 
   void (async () => {
     const [prefs, keyState, used] = await Promise.all([
@@ -693,7 +692,6 @@ function openWeatherSettings(actions: SettingsActions, back?: () => void): void 
   unitRow.append(settingsRow("Temperature", el("span", "settings-note", "Fahrenheit or Celsius"), unit));
   dialog.append(...backTo(dialog, back), title, current, here, form, results, unitRow, buttonRow(off, close));
   dialog.showModal();
-  search.focus();
 }
 
 /** Choose which of each Google account's calendars to show. */
@@ -895,7 +893,6 @@ function openPlacesSettings(back: (() => void) | undefined, onChange: (on: boole
   form.append(buttonRow(remove, close, save));
   dialog.append(...backTo(dialog, back), title, help, form);
   dialog.showModal();
-  if (!onWeb) key.focus();
   void Promise.all([placesKeyStatus().catch(() => null), placesUsage().catch(() => null)]).then(([state, used]) => {
     if (!dialog.isConnected) return;
     const where: Record<string, string> = {
@@ -911,28 +908,28 @@ function openPlacesSettings(back: (() => void) | undefined, onChange: (on: boole
   });
 }
 
-/** "‹ Settings", back to Settings from one of its screens (if opened from there). */
+/**
+ * Back, to Settings from one of its screens (if opened from there): first
+ * of the buttons at the bottom, which stay in view as the screen scrolls,
+ * so it's always in reach (and in thumb's reach on a phone). Added once the
+ * screen has been put together; returns nothing to put at the top.
+ */
 function backTo(dialog: HTMLDialogElement, back?: () => void): HTMLElement[] {
   if (!back) return [];
-  const make = (className: string) => {
-    const button = el("button", `text-button ${className}`, "‹ Settings");
-    button.type = "button";
-    button.addEventListener("click", () => {
-      back(); // first, so the dimmed background stays
-      dialog.close();
-    });
-    return button;
-  };
-  // On a phone, the same at the start of the buttons at the bottom, in
-  // thumb's reach, instead (once the screen has been put together).
   queueMicrotask(() => {
     const rows = dialog.querySelectorAll(".dialog-buttons");
     const row = rows[rows.length - 1];
     if (!row) return;
-    row.prepend(make("settings-back-bottom"));
+    row.prepend(
+      backButton("Settings", () => {
+        back(); // first, so the dimmed background stays
+        dialog.close();
+      }, "settings-back"),
+    );
+    row.classList.add("back-row");
     dialog.classList.add("back-at-bottom");
   });
-  return [make("settings-back")];
+  return [];
 }
 
 /**

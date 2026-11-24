@@ -14,7 +14,7 @@ import {
   type ContactDraft,
   type Labeled,
 } from "../api";
-import { el } from "../dom";
+import { el, focusDialog } from "../dom";
 import { changedWords } from "./history";
 import { labelText } from "./model";
 import { cropPhoto } from "./photo";
@@ -199,7 +199,10 @@ export function openContactForm(
   form.append(grid, people, error, buttons);
   dialog.append(title, form);
   dialog.showModal();
-  given.focus();
+  // Edit: no field focused, so a phone's keyboard doesn't open over the form
+  // (as with events). New contact: straight to the first name.
+  if (contact) focusDialog(dialog);
+  else given.focus();
 }
 
 /** Only the fields that differ from `contact` (names, and work, go in pairs). */

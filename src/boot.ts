@@ -1,6 +1,7 @@
 // What every page (the calendar, the menu bar window, Contacts) does first.
 import { isTauri } from "@tauri-apps/api/core";
 import { startDemo } from "./demo";
+import { focusDialog, isTextField } from "./dom";
 
 /**
  * The page is dimmed behind any open dialog by one layer of its own
@@ -14,6 +15,12 @@ function dimBehindDialogs(): void {
   const showModal = HTMLDialogElement.prototype.showModal;
   HTMLDialogElement.prototype.showModal = function (this: HTMLDialogElement) {
     showModal.call(this);
+    // Opening a dialog focuses its first focusable thing, which can be a text
+    // field, and on a phone that brings up the keyboard (and suggestions).
+    // Focus the dialog itself instead; a dialog that's for typing (search,
+    // New event) focuses its box itself, right after this.
+    const focused = document.activeElement;
+    if (focused && this.contains(focused) && isTextField(focused)) focusDialog(this);
     this.addEventListener("close", () => queueMicrotask(update), { once: true });
     update();
     followKeyboard(this);
