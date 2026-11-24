@@ -31,6 +31,7 @@ on:
       - ".github/workflows/build-windows.yml"
       - ".github/workflows/deploy-web.yml"
       - ".github/workflows/deploy-web-test.yml"
+      - ".github/workflows/delete-web-test.yml"
       - ".github/workflows/pages.yml"
 
 permissions:

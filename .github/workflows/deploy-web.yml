@@ -30,6 +30,7 @@ on:
       - ".github/workflows/build-windows.yml"
       - ".github/workflows/pages.yml"
       - ".github/workflows/deploy-web-test.yml"
+      - ".github/workflows/delete-web-test.yml"
       - "web/wrangler.test.jsonc"
 
 permissions:

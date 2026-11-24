@@ -137,7 +137,8 @@ Contacts permissions (docs/google-cloud-setup.md).
 ## A test copy
 
 To try a change before it goes live: Actions → **Deploy test site** → Run
-workflow → pick the branch (`.github/workflows/deploy-web-test.yml`). It puts
+workflow → pick the branch (Actions → **Delete test site** removes it
+again) (`.github/workflows/deploy-web-test.yml`). It puts
 it on `https://minuteman-test.<your-subdomain>.workers.dev`: its own Worker
 and its own empty store (`wrangler.test.jsonc`), so the live site and its
 data aren't touched. The first run makes the store and the test site's own

@@ -2,9 +2,9 @@
 # minuteman-test.<your-subdomain>.workers.dev, to try it before it goes live.
 # Its own Worker and its own empty store: nothing on the live site changes.
 #
-# Runs on every push to a working branch (claude/… or test/…), and from the
-# Actions tab ("Deploy test site" → Run workflow → pick the branch). Never on
-# main: that's the live site (deploy-web.yml). The first run makes the test
+# Runs from the Actions tab ("Deploy test site" → Run workflow → pick the
+# branch), when there's something to try. Never on main: that's the live site
+# (deploy-web.yml). "Delete test site" removes it again. The first run makes the test
 # site's store and its TOKEN_KEY. The test site also needs the Google web
 # client's ID and secret (the same as the live site's), added once in
 # Cloudflare → Workers & Pages → minuteman-test → Settings → Variables and
@@ -18,13 +18,6 @@ name: Deploy test site
 
 on:
   workflow_dispatch:
-  push:
-    branches: ["claude/**", "test/**"]
-    paths-ignore:
-      - "**.md"
-      - "docs/**"
-      - "site/**"
-      - "src-tauri/**"
 
 permissions:
   contents: read
