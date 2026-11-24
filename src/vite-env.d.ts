@@ -7,4 +7,6 @@ interface Window {
   __MINUTEMAN_CONTACTS_QUERY__?: string | null;
   /** Opened from Contacts' menu bar icon's New Contact…: open the New contact form. */
   __MINUTEMAN_CONTACTS_NEW__?: boolean;
+  /** Set in Contacts' small window under its menu bar icon (desktop.rs). */
+  __MINUTEMAN_CONTACTS_POPUP__?: boolean;
 }

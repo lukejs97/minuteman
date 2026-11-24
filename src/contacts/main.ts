@@ -20,12 +20,14 @@ import {
   getContacts,
   getInteractions,
   getSavedContacts,
+  hideContactsPopup,
   isNotSignedIn,
   logInteraction,
   mergeContacts,
   saveContactCard,
   setContactPhoto,
   setContactStarred,
+  showContacts,
   signIn,
   updateContact,
   type AgendaItem,
@@ -96,8 +98,14 @@ const cardBox = document.querySelector<HTMLElement>("#card")!;
 const banner = document.querySelector<HTMLElement>("#banner")!;
 const countLine = document.querySelector<HTMLElement>("#account")!;
 const body = document.body;
-/** Phone-sized: the box and buttons float at the bottom (contacts.css). */
-const phone = window.matchMedia("(max-width: 640px)");
+/**
+ * The small window under Contacts' menu bar icon (desktop.rs), as Cardhop's:
+ * as narrow as a phone, but used with a mouse, so the box stays at the top.
+ */
+const popup = Boolean(window.__MINUTEMAN_CONTACTS_POPUP__) || (import.meta.env.DEV && new URLSearchParams(location.search).has("popup"));
+if (popup) body.classList.add("contacts-popup");
+/** Phone-sized: the box and buttons float at the bottom (contacts.css). Never in the small window. */
+const phone = window.matchMedia(popup ? "not all" : "(max-width: 640px)");
 
 let list: ContactList | undefined;
 /** What's logged with people (interactions.rs), oldest first. */
@@ -1368,12 +1376,18 @@ function setUp(): void {
     input.select();
   });
   document.querySelector("#dock-new")!.addEventListener("click", newContact);
+  // The small window: the whole Contacts window, with what's in the box.
+  const openWindow = document.querySelector<HTMLElement>("#open-window")!;
+  openWindow.hidden = !popup;
+  openWindow.addEventListener("click", () => void showContacts(input.value.trim() || null));
   keepBoxAboveKeyboard();
   if (!isTauri() || /iPhone|iPad|Android/.test(navigator.userAgent)) {
     document.querySelector<HTMLElement>("#calendar")!.title = "Back to the calendar";
   }
 
   input.addEventListener("input", update);
+  // The small window: typing with a card open goes back to the results.
+  if (popup) input.addEventListener("input", () => body.classList.remove("card-open"));
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter") {
       e.preventDefault();
@@ -1397,6 +1411,14 @@ function setUp(): void {
 
   document.addEventListener("keydown", (e) => {
     if (document.querySelector("dialog[open]")) return;
+    // The small window: Esc goes back from a card, then closes it, like a
+    // menu (the box clears first, above).
+    if (popup && e.key === "Escape" && !e.defaultPrevented) {
+      e.preventDefault();
+      if (body.classList.contains("card-open")) body.classList.remove("card-open");
+      else void hideContactsPopup();
+      return;
+    }
     const command = e.metaKey || e.ctrlKey;
     if (command && !e.altKey && (e.key.toLowerCase() === "f" || e.key.toLowerCase() === "k")) {
       e.preventDefault();
@@ -1558,6 +1580,12 @@ async function start(): Promise<void> {
     void listen<string | null>("contacts-shown", (event) => showQuery(event.payload));
     // Contacts' menu bar icon → New Contact…, with the window already open.
     void listen("contacts-new", () => newContact());
+    // The small window, shown again from its icon: ready to type in.
+    void listen("contacts-popup-shown", () => {
+      if (document.querySelector("dialog[open]")) return;
+      input.focus();
+      input.select();
+    });
   }
   try {
     if (!(await authStatus())) return showSignedOut();

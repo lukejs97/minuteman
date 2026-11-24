@@ -118,7 +118,11 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
   own (the person button, `C`, the menu bar icon's menu, or `⌥⌘K` / Ctrl+Alt+K
   from any app; on a phone or the website, its own page). It's also like an
   app of its own: **its own menu bar icon** (on Windows, by the clock), whose
-  click opens Contacts and whose menu has New Contact…; **Minuteman
+  click opens a small window under it, as Cardhop's and the calendar's:
+  type to search (or add, or "call Sam"), the list, and a card, ready as
+  soon as it opens; Esc steps back, then closes it, as does clicking
+  elsewhere; its ↗ button opens the whole Contacts window. Its menu
+  (right-click) has Open Contacts and New Contact…; **Minuteman
   Contacts** in the Start menu (Windows) or Applications (Mac; keep it in
   the Dock for a Contacts button there),
   which opens just Contacts, or Contacts in the Minuteman already running.

@@ -1105,6 +1105,15 @@ fn show_contacts(app: AppHandle, query: Option<String>) {
     let _ = (app, query);
 }
 
+/// Hides Contacts' small window under its menu bar icon (Esc in it).
+#[tauri::command]
+fn hide_contacts_popup(app: AppHandle) {
+    #[cfg(desktop)]
+    desktop::hide_contacts_popup(&app);
+    #[cfg(mobile)]
+    let _ = app;
+}
+
 /// Detaches the menu bar window into a window of its own, or puts it back.
 #[tauri::command]
 fn set_flyout_detached(app: AppHandle, detached: bool) {
@@ -1275,6 +1284,7 @@ pub fn run() {
             interactions,
             log_interaction,
             show_contacts,
+            hide_contacts_popup,
             todoist_status,
             todoist_connect,
             todoist_disconnect,

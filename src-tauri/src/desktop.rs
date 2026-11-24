@@ -39,6 +39,14 @@ pub const CONTACTS_SHORTCUT: &str = "CommandOrControl+Alt+K";
 
 /// When the small window last hid itself because you clicked elsewhere.
 static HIDDEN_ON_BLUR: Mutex<Option<Instant>> = Mutex::new(None);
+/// Contacts' small window under its own menu bar icon (as Cardhop's).
+pub const CONTACTS_POPUP: &str = "contacts-popup";
+/// Where Contacts' menu bar icon is, to open its small window under it.
+static CONTACTS_TRAY_RECT: Mutex<Option<Rect>> = Mutex::new(None);
+/// When Contacts' small window last hid itself because you clicked elsewhere.
+static CONTACTS_HIDDEN_ON_BLUR: Mutex<Option<Instant>> = Mutex::new(None);
+/// One Contacts small window: two clicks can come before the first exists.
+static CONTACTS_POPUP_CREATE: Mutex<()> = Mutex::new(());
 /// Where the menu bar icon is (from its last click or hover), to open the
 /// small window under it.
 static TRAY_RECT: Mutex<Option<Rect>> = Mutex::new(None);
@@ -111,7 +119,8 @@ pub fn opened_again(app: &AppHandle, args: &[String]) {
     }
 }
 
-/// Contacts' own menu bar icon: click for Contacts; right-click for New
+/// Contacts' own menu bar icon: click for its small window (search, the
+/// list, a card), as Cardhop's; right-click for the Contacts window, New
 /// contact, the calendar, and Quit.
 fn create_contacts_tray(app: &AppHandle) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, "contacts-tray-open", "Open Contacts", true, Some(CONTACTS_SHORTCUT))?;
@@ -135,12 +144,98 @@ fn create_contacts_tray(app: &AppHandle) -> tauri::Result<()> {
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {
+            // Remembers where the icon is, to place the small window under it.
+            if let TrayIconEvent::Click { rect, .. }
+            | TrayIconEvent::Enter { rect, .. }
+            | TrayIconEvent::Move { rect, .. } = &event
+            {
+                *CONTACTS_TRAY_RECT.lock().expect("not poisoned") = Some(*rect);
+            }
             if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
-                show_contacts(tray.app_handle(), None);
+                toggle_contacts_popup(tray.app_handle());
             }
         })
         .build(app)?;
     Ok(())
+}
+
+fn toggle_contacts_popup(app: &AppHandle) {
+    // Clicking the icon while it's open first takes focus from it, which
+    // hides it; that click should leave it closed, not reopen it.
+    let hidden_at = *CONTACTS_HIDDEN_ON_BLUR.lock().expect("not poisoned");
+    if hidden_at.is_some_and(|at| at.elapsed() < Duration::from_millis(300)) {
+        return;
+    }
+    match app.get_webview_window(CONTACTS_POPUP) {
+        Some(popup) if popup.is_visible().unwrap_or(false) => {
+            let _ = popup.hide();
+        }
+        Some(popup) => show_contacts_popup(app, &popup),
+        // Made the first time. Windows: not on the UI thread (see `open_contacts`).
+        None => {
+            #[cfg(windows)]
+            {
+                let app = app.clone();
+                std::thread::spawn(move || create_contacts_popup(&app));
+            }
+            #[cfg(not(windows))]
+            create_contacts_popup(app);
+        }
+    }
+}
+
+/// Contacts' small window: the Contacts page, laid out for it (the box at
+/// the top) when it sees `window.__MINUTEMAN_CONTACTS_POPUP__`. Like a menu,
+/// it goes away when you click elsewhere.
+fn create_contacts_popup(app: &AppHandle) {
+    let _creating = CONTACTS_POPUP_CREATE.lock().expect("not poisoned");
+    if let Some(popup) = app.get_webview_window(CONTACTS_POPUP) {
+        show_contacts_popup(app, &popup);
+        return;
+    }
+    let built = WebviewWindowBuilder::new(app, CONTACTS_POPUP, WebviewUrl::App("contacts.html".into()))
+        .title("Minuteman Contacts")
+        .inner_size(380.0, 560.0)
+        .min_inner_size(320.0, 380.0)
+        .resizable(true)
+        .decorations(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .visible(false)
+        .initialization_script("window.__MINUTEMAN_CONTACTS_POPUP__ = true;")
+        .build();
+    let popup = match built {
+        Ok(popup) => popup,
+        Err(e) => {
+            eprintln!("Couldn't open Contacts' small window: {e}");
+            return;
+        }
+    };
+    let window = popup.clone();
+    popup.on_window_event(move |event| {
+        if let WindowEvent::Focused(false) = event
+            && window.is_visible().unwrap_or(false)
+        {
+            let _ = window.hide();
+            *CONTACTS_HIDDEN_ON_BLUR.lock().expect("not poisoned") = Some(Instant::now());
+        }
+    });
+    show_contacts_popup(app, &popup);
+}
+
+/// Shows Contacts' small window under its icon, ready to type in.
+fn show_contacts_popup(app: &AppHandle, popup: &WebviewWindow) {
+    place_under_icon(app, popup, *CONTACTS_TRAY_RECT.lock().expect("not poisoned"));
+    let _ = popup.show();
+    let _ = popup.set_focus();
+    let _ = popup.emit("contacts-popup-shown", ());
+}
+
+/// Hides Contacts' small window (Esc in it).
+pub fn hide_contacts_popup(app: &AppHandle) {
+    if let Some(popup) = app.get_webview_window(CONTACTS_POPUP) {
+        let _ = popup.hide();
+    }
 }
 
 /// Settings → Contacts icon: adds or takes away Contacts' menu bar icon.
@@ -396,7 +491,7 @@ fn toggle_flyout(app: &AppHandle) {
 pub fn show_flyout(app: &AppHandle, new_event: bool) {
     let Some(flyout) = app.get_webview_window(FLYOUT) else { return };
     if !DETACHED.load(Ordering::Relaxed) {
-        place_under_icon(app, &flyout);
+        place_under_icon(app, &flyout, *TRAY_RECT.lock().expect("not poisoned"));
     }
     let _ = flyout.show();
     let _ = flyout.set_focus();
@@ -411,7 +506,7 @@ pub fn set_flyout_detached(app: &AppHandle, detached: bool) {
     // Detached, it's an ordinary window, which others can go in front of.
     let _ = flyout.set_always_on_top(!detached);
     if !detached {
-        place_under_icon(app, &flyout);
+        place_under_icon(app, &flyout, *TRAY_RECT.lock().expect("not poisoned"));
     }
 }
 
@@ -423,13 +518,12 @@ pub fn set_flyout_detached(app: &AppHandle, detached: bool) {
 /// Mac with screens of different scales that alone doesn't say which screen
 /// (a pixel spot on one can be a pixel spot on another), so on a Mac the
 /// screen is the one the pointer is on: when you click the icon, the icon's.
-fn place_under_icon(app: &AppHandle, flyout: &WebviewWindow) {
+fn place_under_icon(app: &AppHandle, flyout: &WebviewWindow, tray: Option<Rect>) {
     let mac = cfg!(target_os = "macos");
     let monitors = app.available_monitors().unwrap_or_default();
     let primary = app.primary_monitor().ok().flatten();
     // Pixels per unit of placement on screen `m`.
     let unit = |m: &Monitor| if mac { m.scale_factor() } else { 1.0 };
-    let tray = *TRAY_RECT.lock().expect("not poisoned");
     let icon_pixels = tray.map(|rect| (rect.position.to_physical::<f64>(1.0), rect.size.to_physical::<f64>(1.0)));
 
     let screen = if mac {
@@ -510,6 +604,10 @@ fn open_contacts(app: &AppHandle, query: Option<&str>, new_contact: bool) {
         && !DETACHED.load(Ordering::Relaxed)
     {
         let _ = flyout.hide();
+    }
+    // From Contacts' small window ("Open in a window"): it goes too.
+    if let Some(popup) = app.get_webview_window(CONTACTS_POPUP) {
+        let _ = popup.hide();
     }
     if let Some(window) = app.get_webview_window(CONTACTS) {
         reveal_contacts(&window, query, new_contact);
@@ -615,6 +713,9 @@ fn keep_contacts_closable(window: &WebviewWindow, loaded: Arc<AtomicBool>) {
 pub fn show_main(app: &AppHandle) {
     if let Some(flyout) = app.get_webview_window(FLYOUT) {
         let _ = flyout.hide();
+    }
+    if let Some(popup) = app.get_webview_window(CONTACTS_POPUP) {
+        let _ = popup.hide();
     }
     if let Some(main) = app.get_webview_window("main") {
         let _ = main.show();

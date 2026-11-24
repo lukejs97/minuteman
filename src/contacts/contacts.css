@@ -1008,6 +1008,67 @@ main.contacts-main {
   }
 }
 
+/* ---------- The small window under the menu bar icon (desktop) ---------- */
+
+/*
+ * As narrow as a phone, but used with a mouse (as Cardhop's): the box at
+ * the top under the title, the header's buttons kept, no buttons along the
+ * bottom (a card's own bar stays, for Back, Edit…).
+ */
+@media (max-width: 640px) {
+  .contacts-popup .topbar {
+    padding-top: 10px;
+  }
+
+  .contacts-popup .topbar h1 {
+    font-size: 20px;
+  }
+
+  .contacts-popup .contacts-chrome .actions {
+    display: flex;
+  }
+
+  .contacts-popup .contacts-bar {
+    padding: 0 12px 10px;
+  }
+
+  .contacts-popup .contacts-input {
+    position: static;
+    width: 100%;
+    height: auto;
+    padding: 7px 10px;
+    border-radius: 8px;
+    border-color: rgb(255 255 255 / 0.28);
+    font-size: 14px;
+    background: rgb(255 255 255 / 0.12);
+    box-shadow: none;
+  }
+
+  .contacts-popup .dock {
+    display: none !important;
+  }
+
+  /* The box stays with a card open: typing goes back to the results. */
+  .contacts-popup.card-open .contacts-input {
+    display: block !important;
+  }
+
+  .contacts-popup .contacts-list,
+  .contacts-popup .contact-card {
+    padding-bottom: 16px;
+  }
+
+  .contacts-popup.card-open .contact-card {
+    padding-bottom: calc(12px + 66px + 16px);
+  }
+
+  .contacts-popup .card-buttons {
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+  }
+}
+
 /* ---------- Photos, duplicates and sharing ---------- */
 
 /* A message that something worked ("Copied Sam's details."). */
