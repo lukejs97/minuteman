@@ -28,6 +28,8 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
   day, place, repeat, alert, guests, notes, calendar). Switch to **Task** to
   add a Todoist task ("Boston Tea Party Dec 16 p1", "Paul Revere's ride Apr 18
   p1", "Lexington and Concord Apr 19 p1", "Muster every month on the 1st").
+  A task due on a day but at no time is **All day** (ticked by itself when
+  there's no time; tick it to drop the time, untick it for one again).
   A place in the sentence ("at Old North Church", or lowercase like "at
   starbucks" when there's one nearby by that name) fills in the place, with
   its full address when one is found.

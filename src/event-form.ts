@@ -251,6 +251,11 @@ class Form {
   private taskName = input("text", "Name");
   private dueDate = input("date");
   private dueTime = input("time");
+  /** A task due on a day, not at a time (Todoist's date with no time): ticked when there's no time. */
+  private taskAllDay = el("input");
+  private taskAllDayLabel = el("label", "form-check");
+  /** The time to put back when All day is unticked. */
+  private lastDueTime = "";
   private repeatWords = el("span");
   private repeatRow = el("div", "form-note-row");
   private priority = select(PRIORITY_OPTIONS);
@@ -490,7 +495,23 @@ class Form {
     this.repeatRow.append("Repeats: ", this.repeatWords, " ", clear);
 
     this.row(grid, "Name", this.taskName);
-    const due = this.row(grid, "Due", this.dueDate, this.dueTime, this.repeatRow);
+    this.taskAllDay.type = "checkbox";
+    this.taskAllDayLabel.append(this.taskAllDay, " All day");
+    // Ticked: no time (the time box goes); unticked: the time it had, or the next whole hour.
+    this.taskAllDay.addEventListener("change", () => {
+      if (this.taskAllDay.checked) {
+        if (this.dueTime.value) this.lastDueTime = this.dueTime.value;
+        this.dueTime.value = "";
+      } else {
+        const next = new Date();
+        next.setHours(next.getHours() + 1, 0, 0, 0);
+        this.dueTime.value = this.lastDueTime || timeString(next);
+      }
+      this.touched.add("due");
+      this.showTaskRepeat();
+      if (!this.taskAllDay.checked) this.dueTime.focus();
+    });
+    const due = this.row(grid, "Due", this.dueDate, this.dueTime, this.taskAllDayLabel, this.repeatRow);
     // Editing: the repeat in Todoist's words, as its own app shows it. A new
     // date moves just the next one; the repeat goes on from there.
     if (this.item) {
@@ -576,10 +597,14 @@ class Form {
     this.floatingLabel.hidden = !timed;
   }
 
+  /** The task's due row as its fields now stand: a repeat in words, or a date with a time or All day. */
   private showTaskRepeat(): void {
     this.repeatRow.hidden = !this.taskRepeat;
     this.repeatWords.textContent = this.taskRepeat ?? "";
-    this.dueDate.hidden = this.dueTime.hidden = Boolean(this.taskRepeat);
+    const repeats = Boolean(this.taskRepeat);
+    this.taskAllDay.checked = !this.dueTime.value;
+    this.dueDate.hidden = this.taskAllDayLabel.hidden = repeats;
+    this.dueTime.hidden = repeats || this.taskAllDay.checked;
   }
 
   private updateSaveButton(): void {
