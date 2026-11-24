@@ -86,7 +86,7 @@ export async function everyone(env: Env): Promise<string[]> {
 }
 
 const lower = (email: string) => email.trim().toLowerCase();
-const ownerEmails = (env: Env) => env.ALLOWED_EMAILS.split(",").map(lower).filter(Boolean);
+const ownerEmails = (env: Env) => (env.ALLOWED_EMAILS ?? "").split(",").map(lower).filter(Boolean);
 
 /** `id`'s Google accounts (read without needing their requests' env). */
 async function accountsOf(env: Env, id: string): Promise<Account[]> {

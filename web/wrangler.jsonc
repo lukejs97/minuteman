@@ -25,10 +25,10 @@
   // This Worker itself: each person's alerts run as a request of their own
   // (index.ts `alertsFor`), with their own limits. Keep the name the same as
   // "name" above.
-  "services": [{ "binding": "SELF", "service": "minuteman" }],
-  "vars": {
-    // The site owner's Google accounts (comma-separated): they sign in as the
-    // owner, and can invite others in Settings → People (src/users.ts).
-    "ALLOWED_EMAILS": "lukesassa9@gmail.com"
-  }
+  "services": [{ "binding": "SELF", "service": "minuteman" }]
+  // The site owner's Google accounts (ALLOWED_EMAILS, comma-separated) are a
+  // secret, not here, so the address isn't public: `npx wrangler secret put
+  // ALLOWED_EMAILS`, or Cloudflare → the Worker → Settings → Variables and
+  // Secrets. They sign in as the owner, and can invite others in Settings →
+  // People (src/users.ts).
 }

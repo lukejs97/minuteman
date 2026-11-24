@@ -50,6 +50,14 @@ test("the owner signs in as the owner, with their things where they were", async
   assert.ok(env.STORE.data.has("accounts"));
 });
 
+test("without ALLOWED_EMAILS (a secret not set yet), the owner is still whoever's accounts the site has", async () => {
+  const env = siteEnv();
+  await writeAccounts(env, [account("paul.revere@example.com")]);
+  const bare = { ...env, ALLOWED_EMAILS: undefined } as unknown as Env;
+  assert.equal(await personSigningIn(bare, "paul.revere@example.com", null), OWNER);
+  await assert.rejects(personSigningIn(bare, "rachel.revere@example.com", null), /isn't invited/);
+});
+
 test("someone not invited can't sign in; invited, they join with their own part", async () => {
   const env = siteEnv();
   await assert.rejects(personSigningIn(env, "rachel.revere@example.com", null), /isn't invited/);

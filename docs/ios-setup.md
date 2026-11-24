@@ -71,7 +71,7 @@ account). On this Mac the **work** GitHub account stays the main one, so the
 repo uses its own SSH key through a host alias, `github-personal`:
 
 ```bash
-ssh-keygen -t ed25519 -C "lukesassa9@gmail.com" -f ~/.ssh/id_ed25519_personal
+ssh-keygen -t ed25519 -C "you@example.com" -f ~/.ssh/id_ed25519_personal
 printf '\nHost github-personal\n  HostName github.com\n  User git\n  IdentityFile ~/.ssh/id_ed25519_personal\n  IdentitiesOnly yes\n' >> ~/.ssh/config
 pbcopy < ~/.ssh/id_ed25519_personal.pub
 ```
@@ -84,7 +84,7 @@ ssh -T git@github-personal          # should greet lukejs97
 git clone git@github-personal:lukejs97/minuteman.git
 cd minuteman
 git config user.name "Luke Sassa"
-git config user.email "lukesassa9@gmail.com"
+git config user.email "you@example.com"
 npm install
 ```
 
@@ -149,7 +149,7 @@ program ($99/year) removes that limit.
 ## 6. Test sign-in
 
 1. Tap **Sign in with Google**. Safari opens Google's page.
-2. Pick `lukesassa9@gmail.com` (it's a test user of the Google project), tap
+2. Pick your Google account (a test user of the Google project), tap
    **Continue** on the "hasn't verified this app" screen, allow calendar access.
 3. Safari asks to open "Minuteman"; tap **Open**. The agenda should load.
 

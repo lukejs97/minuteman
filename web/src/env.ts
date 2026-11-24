@@ -9,8 +9,12 @@ export interface Env {
   GOOGLE_CLIENT_SECRET: string;
   /** 32 random bytes, base64: encrypts the stored tokens (secret). */
   TOKEN_KEY: string;
-  /** The site owner's Google accounts, comma-separated: they may sign in, and invite others (users.ts). */
-  ALLOWED_EMAILS: string;
+  /**
+   * The site owner's Google accounts, comma-separated: they may sign in, and
+   * invite others (users.ts). A secret, so the address isn't in the code.
+   * Unset, the owner is still whoever's accounts the site already has.
+   */
+  ALLOWED_EMAILS?: string;
   /** The whole store, whoever's request this is (set by users.ts `forUser`; STORE is then theirs alone). */
   SITE?: KVNamespace;
   /** Whose request this is: "owner" or a person's id (users.ts). */

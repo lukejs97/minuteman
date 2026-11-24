@@ -16,8 +16,6 @@
   },
   "kv_namespaces": [{ "binding": "STORE", "id": "TEST_STORE_ID" }],
   "triggers": { "crons": ["* * * * *", "*/30 * * * *"] },
-  "services": [{ "binding": "SELF", "service": "minuteman-test" }],
-  "vars": {
-    "ALLOWED_EMAILS": "lukesassa9@gmail.com"
-  }
+  "services": [{ "binding": "SELF", "service": "minuteman-test" }]
+  // ALLOWED_EMAILS: a secret, as on the live site (wrangler.jsonc).
 }

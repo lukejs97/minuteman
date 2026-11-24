@@ -72,6 +72,7 @@ Copy the client ID and secret.
    npx wrangler secret put GOOGLE_CLIENT_ID
    npx wrangler secret put GOOGLE_CLIENT_SECRET
    npx wrangler secret put TOKEN_KEY
+   npx wrangler secret put ALLOWED_EMAILS
    npx wrangler secret put MINUTEMAN_ROUTES_API_KEY
    ```
 
@@ -95,8 +96,12 @@ in Cloudflare → My Profile → API Tokens → Create Token → **Edit Cloudfla
 Workers**, then Actions → **Deploy web app** → **Run workflow**
 (`.github/workflows/deploy-web.yml`). It deploys the branch you pick.
 
-The Google accounts in `ALLOWED_EMAILS` (`wrangler.jsonc`) sign in as the
-site's **owner**. Once signed in, you can add other Google accounts of yours
+The Google accounts in `ALLOWED_EMAILS` (comma-separated) sign in as the
+site's **owner**. It's a secret, so your address isn't in the (public) code:
+`npx wrangler secret put ALLOWED_EMAILS`, or Cloudflare → Workers & Pages →
+minuteman → Settings → Variables and Secrets → Add → type **Secret**. (Once
+you've signed in, your accounts are known to the site, so it keeps working
+while it's being set.) Once signed in, you can add other Google accounts of yours
 under Settings → Google accounts.
 
 ## Other people
