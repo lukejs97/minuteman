@@ -10,6 +10,7 @@ import "@fontsource/libre-caslon-text/latin-400.css";
 import "@fontsource/libre-caslon-text/latin-700.css";
 import { isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   authStatus,
@@ -21,6 +22,7 @@ import {
   getInteractions,
   getSavedContacts,
   hideContactsPopup,
+  setContactsPopupDetached,
   isNotSignedIn,
   logInteraction,
   mergeContacts,
@@ -1380,6 +1382,29 @@ function setUp(): void {
   const openWindow = document.querySelector<HTMLElement>("#open-window")!;
   openWindow.hidden = !popup;
   openWindow.addEventListener("click", () => void showContacts(input.value.trim() || null));
+  // And as the calendar's: detach it (or drag its header), put it back, close it.
+  if (popup && isTauri()) {
+    const detach = (detached: boolean) => {
+      body.classList.toggle("detached", detached);
+      void setContactsPopupDetached(detached);
+    };
+    for (const [id, run] of [
+      ["#detach-popup", () => detach(true)],
+      ["#attach-popup", () => detach(false)],
+      ["#close-popup", () => void hideContactsPopup()],
+    ] as const) {
+      const button = document.querySelector<HTMLElement>(id)!;
+      button.hidden = false;
+      button.addEventListener("click", run);
+    }
+    void listen("contacts-popup-detached", () => body.classList.add("detached"));
+    document.querySelector<HTMLElement>(".contacts-chrome .topbar")!.addEventListener("mousedown", (e) => {
+      if (e.button === 0 && e.detail === 1 && !(e.target as Element).closest("button, input")) {
+        e.preventDefault();
+        void getCurrentWebviewWindow().startDragging();
+      }
+    });
+  }
   keepBoxAboveKeyboard();
   if (!isTauri() || /iPhone|iPad|Android/.test(navigator.userAgent)) {
     document.querySelector<HTMLElement>("#calendar")!.title = "Back to the calendar";

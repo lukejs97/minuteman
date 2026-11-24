@@ -123,7 +123,9 @@ Website: [lukejs97.github.io/minuteman](https://lukejs97.github.io/minuteman/)
   click opens a small window under it, as Cardhop's and the calendar's:
   type to search (or add, or "call Sam"), the list, and a card, ready as
   soon as it opens; Esc steps back, then closes it, as does clicking
-  elsewhere; its ↗ button opens the whole Contacts window. Its menu
+  elsewhere; its ↗ button opens the whole Contacts window, and it can be
+  detached into a window of its own (its detach button, or drag its
+  header), as the calendar's small window can. Its menu
   (right-click) has Open Contacts and New Contact…; **Minuteman
   Contacts** in the Start menu (Windows) or Applications (Mac; keep it in
   the Dock for a Contacts button there),

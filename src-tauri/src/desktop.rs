@@ -47,6 +47,9 @@ static CONTACTS_TRAY_RECT: Mutex<Option<Rect>> = Mutex::new(None);
 static CONTACTS_HIDDEN_ON_BLUR: Mutex<Option<Instant>> = Mutex::new(None);
 /// One Contacts small window: two clicks can come before the first exists.
 static CONTACTS_POPUP_CREATE: Mutex<()> = Mutex::new(());
+/// Whether Contacts' small window is detached, as the calendar's can be
+/// (`DETACHED`): a window of its own, staying where you put it, and open.
+static CONTACTS_DETACHED: AtomicBool = AtomicBool::new(false);
 /// Where the menu bar icon is (from its last click or hover), to open the
 /// small window under it.
 static TRAY_RECT: Mutex<Option<Rect>> = Mutex::new(None);
@@ -212,23 +215,46 @@ fn create_contacts_popup(app: &AppHandle) {
         }
     };
     let window = popup.clone();
-    popup.on_window_event(move |event| {
-        if let WindowEvent::Focused(false) = event
-            && window.is_visible().unwrap_or(false)
-        {
+    popup.on_window_event(move |event| match event {
+        // Like a menu: it goes away when you click elsewhere (unless detached).
+        WindowEvent::Focused(false) if !CONTACTS_DETACHED.load(Ordering::Relaxed) && window.is_visible().unwrap_or(false) => {
             let _ = window.hide();
             *CONTACTS_HIDDEN_ON_BLUR.lock().expect("not poisoned") = Some(Instant::now());
         }
+        // Dragged somewhere: detached, as the calendar's.
+        WindowEvent::Moved(_) if !CONTACTS_DETACHED.load(Ordering::Relaxed) && window.is_visible().unwrap_or(false) => {
+            let placed = *PLACED.lock().expect("not poisoned");
+            if !placed.is_some_and(|at| at.elapsed() < Duration::from_millis(500)) {
+                set_contacts_popup_detached(window.app_handle(), true);
+                let _ = window.emit("contacts-popup-detached", ());
+            }
+        }
+        _ => {}
     });
     show_contacts_popup(app, &popup);
 }
 
-/// Shows Contacts' small window under its icon, ready to type in.
+/// Shows Contacts' small window under its icon (or where you left it,
+/// detached), ready to type in.
 fn show_contacts_popup(app: &AppHandle, popup: &WebviewWindow) {
-    place_under_icon(app, popup, *CONTACTS_TRAY_RECT.lock().expect("not poisoned"));
+    if !CONTACTS_DETACHED.load(Ordering::Relaxed) {
+        place_under_icon(app, popup, *CONTACTS_TRAY_RECT.lock().expect("not poisoned"));
+    }
     let _ = popup.show();
     let _ = popup.set_focus();
     let _ = popup.emit("contacts-popup-shown", ());
+}
+
+/// Detaches Contacts' small window (it stays put, and open, until you close
+/// it), or puts it back under its menu bar icon.
+pub fn set_contacts_popup_detached(app: &AppHandle, detached: bool) {
+    CONTACTS_DETACHED.store(detached, Ordering::Relaxed);
+    let Some(popup) = app.get_webview_window(CONTACTS_POPUP) else { return };
+    // Detached, it's an ordinary window, which others can go in front of.
+    let _ = popup.set_always_on_top(!detached);
+    if !detached {
+        place_under_icon(app, &popup, *CONTACTS_TRAY_RECT.lock().expect("not poisoned"));
+    }
 }
 
 /// Hides Contacts' small window (Esc in it).
@@ -605,8 +631,10 @@ fn open_contacts(app: &AppHandle, query: Option<&str>, new_contact: bool) {
     {
         let _ = flyout.hide();
     }
-    // From Contacts' small window ("Open in a window"): it goes too.
-    if let Some(popup) = app.get_webview_window(CONTACTS_POPUP) {
+    // From Contacts' small window ("Open in a window"): it goes too, unless detached.
+    if let Some(popup) = app.get_webview_window(CONTACTS_POPUP)
+        && !CONTACTS_DETACHED.load(Ordering::Relaxed)
+    {
         let _ = popup.hide();
     }
     if let Some(window) = app.get_webview_window(CONTACTS) {

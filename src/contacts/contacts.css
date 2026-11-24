@@ -5,6 +5,8 @@
 
 .contacts-bar {
   flex-wrap: nowrap;
+  /* Room under the box before the stripes (9px, and the gold line over them). */
+  padding-bottom: 24px;
 }
 
 .contacts-input {
@@ -951,6 +953,11 @@ main.contacts-main {
     display: none;
   }
 
+  /* The box floats (below): only the stripes are left of its bar. */
+  .contacts-bar {
+    padding-bottom: 9px;
+  }
+
   /* The box floats above the buttons, within thumb's reach. */
   .contacts-input {
     position: fixed;
@@ -1029,7 +1036,7 @@ main.contacts-main {
   }
 
   .contacts-popup .contacts-bar {
-    padding: 0 12px 10px;
+    padding: 0 12px 23px;
   }
 
   .contacts-popup .contacts-input {

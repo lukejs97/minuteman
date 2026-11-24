@@ -572,6 +572,8 @@ export const showContacts = (query: string | null = null) => invoke<void>("show_
 export const showMain = () => invoke<void>("show_main");
 /** Hides Contacts' small window under its menu bar icon (desktop). */
 export const hideContactsPopup = () => invoke<void>("hide_contacts_popup");
+/** Detaches Contacts' small window into a window of its own, or puts it back (desktop). */
+export const setContactsPopupDetached = (detached: boolean) => invoke<void>("set_contacts_popup_detached", { detached });
 /** Detaches the menu bar window into a window of its own, or puts it back. */
 export const setFlyoutDetached = (detached: boolean) => invoke<void>("set_flyout_detached", { detached });
 
